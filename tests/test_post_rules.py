@@ -35,9 +35,9 @@ pypi.metadata = lambda n: {{"info": {{"name": n}}, "releases": {{}}}}
     code = f"import sys, runpy\nsys.path.insert(0, {str(IMPL)!r})\n{patch}\nrunpy.run_path({str(IMPL / 'hooks/pretooluse_check.py')!r}, run_name='__main__')\n"
     ev = {"tool_name": "Bash", "cwd": str(project), "tool_input": {"command": command}}
     r = subprocess.run([sys.executable, "-c", code], input=json.dumps(ev), capture_output=True, text=True, timeout=60,
-                       env={**os.environ, "AASM_MODE": mode, "AASM_SYSTEM_POLICY": str(project / "none.json")})
+                       env={**os.environ, "AEGIS_MODE": mode, "AEGIS_SYSTEM_POLICY": str(project / "none.json")})
     out = json.loads(r.stdout)["hookSpecificOutput"] if r.stdout.strip() else None
-    return out, json.loads((project / ".aasm/last_review.json").read_text())
+    return out, json.loads((project / ".aegis/last_review.json").read_text())
 
 
 with tempfile.TemporaryDirectory() as t:
@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory() as t:
     assert hook(p, "pip install oldpkg", {"oldpkg": 30.5})[0] is None                  # boundary: 30 days and older pass
     out, rec = hook(p, "pip install bad==1.0", {"bad": 2})                              # BLOCK stays BLOCK (never lowered)
     assert out["permissionDecision"] == "deny" and rec["packages"][0]["verdict"] == "BLOCK"
-    (p / ".aasm/policy.json").write_text(json.dumps({"allow": [{"package": "fastjsonx", "version": "0.1", "approver": "team lead"}]}))
+    (p / ".aegis/policy.json").write_text(json.dumps({"allow": [{"package": "fastjsonx", "version": "0.1", "approver": "team lead"}]}))
     assert hook(p, "pip install fastjsonx==0.1", {"fastjsonx": 3})[0] is None          # a person's allow-list entry wins
 # known malicious release: BLOCK, even when the release was deleted from PyPI (OSV still knows it)
 sys.path.insert(0, str(IMPL))

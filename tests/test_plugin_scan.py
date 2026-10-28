@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
-os.environ["AASM_ML"] = "0"
-os.environ["AASM_MODE"] = "user"      # the approval-window path; auto mode is tests/test_auto_events.py
+os.environ["AEGIS_ML"] = "0"
+os.environ["AEGIS_MODE"] = "user"      # the approval-window path; auto mode is tests/test_auto_events.py
 import guard_core  # noqa: E402
 import plugin_scan  # noqa: E402
 import scan_engine as se  # noqa: E402
@@ -72,7 +72,7 @@ try:
     with tempfile.TemporaryDirectory() as proj:
         dec = guard_core.check_command("claude plugin install evil@acme", proj)
         assert dec.action in ("refuse", "confirm") and "evil" in dec.reason, dec
-        rec = json.loads(Path(proj, ".aasm", "last_review.json").read_text())
+        rec = json.loads(Path(proj, ".aegis", "last_review.json").read_text())
         assert any(r.get("bundle") == "plugin" and r["verdict"] == "BLOCK" for r in rec["packages"]), rec["packages"]
         dec = guard_core.check_command("claude plugin install good@acme", proj)       # clean, but not an official marketplace
         assert dec.action == "confirm" and "good@acme" in dec.reason, dec

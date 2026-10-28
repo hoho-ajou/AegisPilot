@@ -6,7 +6,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Everything printed here can come from a file the agent may be able to write (.aasm/last_review.json) or from package
+# Everything printed here can come from a file the agent may be able to write (.aegis/last_review.json) or from package
 # text, so control characters (terminal escape sequences: clear screen, fake "ALL CLEAR", window title) and
 # invisible/bidi characters are removed before anything reaches the terminal or a report. Same set as
 # review_report.clean (kept local so this module has no import that could fail).
@@ -65,7 +65,7 @@ def report_line(path, width: int | None = None) -> list[str]:
 
 
 def load_last_review(project_dir: str | Path) -> dict | None:
-    path = Path(project_dir) / ".aasm" / "last_review.json"
+    path = Path(project_dir) / ".aegis" / "last_review.json"
     if not path.exists():
         return None
     try:
@@ -89,7 +89,7 @@ def ml_line(pkg: dict) -> str:
         extra = ", ".join(x for x in (model, f"threshold {th:.3f}" if th is not None else "") if x)
         return f"{ms:.3f}" + (f" ({extra})" if extra else "") + f" — {verdict}"
     if status == "disabled":
-        return "N/A (disabled: AASM_ML=0)"
+        return "N/A (disabled: AEGIS_ML=0)"
     if status == "unavailable":
         note = _plain(pkg.get("ml_note") or "", 80)
         return "N/A (unavailable" + (f": {note}" if note else "") + ")"
@@ -192,7 +192,7 @@ def path_tree(path: str, width: int | None = None) -> list[str]:
     return out
 
 
-_POLICY_SOURCE = {"system": "system policy", "project": "project policy (.aasm/policy.json)"}
+_POLICY_SOURCE = {"system": "system policy", "project": "project policy (.aegis/policy.json)"}
 _POLICY_NOTE = {"allow_ignored": "on the allow list, but a BLOCK is not lowered", "allow_expired": "allow list entry has expired"}
 _DECISION_ID = re.compile(r"^D[0-9a-f]{4,8}$")
 _PID = re.compile(r"^P[0-9]{1,4}$")
@@ -955,7 +955,7 @@ def write_md_report(
 
     if not report:
         raise FileNotFoundError(
-            str(project / ".aasm" / "last_review.json")
+            str(project / ".aegis" / "last_review.json")
         )
 
     verdict = str(report.get("verdict") or "UNKNOWN")
@@ -985,7 +985,7 @@ def write_md_report(
 
     suffix = f"-{version}" if version else ""
 
-    report_dir = project / ".aasm" / "reports"
+    report_dir = project / ".aegis" / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
 
     # the verdict comes from a file that may be agent-written: only plain name characters may reach the file name

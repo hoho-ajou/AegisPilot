@@ -17,7 +17,7 @@ command, a guard/MCP file edit): a bug must not turn every `ls` into a popup.
 
 Keep HOOK_DEADLINE_SECONDS above SCAN_BUDGET_SECONDS (scan_engine) and below the hook `timeout` in
 settings (guard_cli.HOOK_TIMEOUT_SECONDS). The deadline can be overridden with the environment
-variable AASM_HOOK_DEADLINE_SECONDS (used by the tests; also an escape hatch for slow machines).
+variable AEGIS_HOOK_DEADLINE_SECONDS (used by the tests; also an escape hatch for slow machines).
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def text_or(fn_name: str, fallback: str, *args) -> str:
 def deadline_seconds() -> float:
     try:
         import switches          # a shorter deadline lets commands through unscanned: built guard = system config only
-        return float(switches.get("AASM_HOOK_DEADLINE_SECONDS") or HOOK_DEADLINE_SECONDS)
+        return float(switches.get("AEGIS_HOOK_DEADLINE_SECONDS") or HOOK_DEADLINE_SECONDS)
     except ValueError:
         return HOOK_DEADLINE_SECONDS
 
@@ -123,10 +123,10 @@ def run(main: Callable[[dict], None], relevant: Callable[[dict], bool], label: s
     def surface(reason: str) -> None:
         try:
             if relevant(event):
-                # AASM_FAIL_CLOSED=1: a guard that could not finish refuses instead of asking (opt-in; the default
+                # AEGIS_FAIL_CLOSED=1: a guard that could not finish refuses instead of asking (opt-in; the default
                 # is "ask"). Input the hook cannot read at all still falls through.
-                if os.environ.get("AASM_FAIL_CLOSED", "0") == "1":
-                    emit("refuse", reason.replace("Check it yourself before allowing.", "Blocked by the guard setting AASM_FAIL_CLOSED=1. A person should check it and run it themselves."))
+                if os.environ.get("AEGIS_FAIL_CLOSED", "0") == "1":
+                    emit("refuse", reason.replace("Check it yourself before allowing.", "Blocked by the guard setting AEGIS_FAIL_CLOSED=1. A person should check it and run it themselves."))
                 else:
                     emit("confirm", reason)
         except Exception:

@@ -4,11 +4,11 @@ Build what gets installed from guard/ (the source), and make release tags. Never
 
   python3 scripts/build_dist.py release  # make the release tag v<version> locally (a person pushes it). See "Plugin release"
   python3 scripts/build_dist.py plugin   # the folder a Claude Code plugin install gets, for trying it out
-                                         #   (../agent-dependency-guard-plugin; committed HEAD only, tests must pass;
+                                         #   (../aegis-pilot-plugin; committed HEAD only, tests must pass;
                                          #   --worktree --skip-tests to try uncommitted work)
   python3 scripts/build_dist.py stable   # a built guard for a manual install, from committed HEAD, all tests must pass
-                                         #   (../agent-dependency-guard, or --out DIR)
-  python3 scripts/build_dist.py test     # the same from the working files as they are (../agent-dependency-guard-test)
+                                         #   (../aegis-pilot, or --out DIR)
+  python3 scripts/build_dist.py test     # the same from the working files as they are (../aegis-pilot-test)
   python3 scripts/build_dist.py check    # is the stable build current? (exit 1 if guard/ changed since it was built)
 
 Plugin release: this repository is itself the marketplace. The top-level .claude-plugin/marketplace.json has the plugin
@@ -35,16 +35,16 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUT = {"stable": ROOT.parent / "agent-dependency-guard", "test": ROOT.parent / "agent-dependency-guard-test",
-               "plugin": ROOT.parent / "agent-dependency-guard-plugin"}
+DEFAULT_OUT = {"stable": ROOT.parent / "aegis-pilot", "test": ROOT.parent / "aegis-pilot-test",
+               "plugin": ROOT.parent / "aegis-pilot-plugin"}
 PLUGIN_JSON = ROOT / "guard" / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = ROOT / ".claude-plugin" / "marketplace.json"
 # left out of builds: the machine-specific checksum list
-EXCLUDE_TOP = {"aasm_manifest.json"}
+EXCLUDE_TOP = {"aegis_manifest.json"}
 # more top-level names to leave out, one per line (a development checkout keeps parts that are never installed)
 _EXTRA = ROOT / "packaging" / "build-exclude.txt"
 EXCLUDE_TOP |= set(_EXTRA.read_text().split()) if _EXTRA.exists() else set()
-EXCLUDE_NAMES = {"__pycache__", ".aasm"}
+EXCLUDE_NAMES = {"__pycache__", ".aegis"}
 
 
 def git(*args: str) -> str:

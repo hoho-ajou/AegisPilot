@@ -69,17 +69,17 @@ def _keep(c: dict) -> bool:
 
 def _analyzer():
     """guard/profile is loaded under its own name: as a top-level `profile` it would shadow the standard library module."""
-    mod = sys.modules.get("aasm_profile.analyzer")
+    mod = sys.modules.get("aegis_profile.analyzer")
     if mod is not None:
         return mod
-    pkg_spec = importlib.util.spec_from_file_location("aasm_profile", GUARD / "profile" / "__init__.py",
+    pkg_spec = importlib.util.spec_from_file_location("aegis_profile", GUARD / "profile" / "__init__.py",
                                                       submodule_search_locations=[str(GUARD / "profile")])
     pkg = importlib.util.module_from_spec(pkg_spec)
-    sys.modules["aasm_profile"] = pkg
+    sys.modules["aegis_profile"] = pkg
     pkg_spec.loader.exec_module(pkg)
-    spec = importlib.util.spec_from_file_location("aasm_profile.analyzer", GUARD / "profile" / "analyzer.py")
+    spec = importlib.util.spec_from_file_location("aegis_profile.analyzer", GUARD / "profile" / "analyzer.py")
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["aasm_profile.analyzer"] = mod
+    sys.modules["aegis_profile.analyzer"] = mod
     spec.loader.exec_module(mod)
     return mod
 

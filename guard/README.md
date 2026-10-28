@@ -10,7 +10,7 @@ claude plugin marketplace add hoho-ajou/AegisPilot && claude plugin install aegi
 
 Type `/aegis` in Claude Code to get the last decision explained. Run `python3 guard_cli.py verify` in this folder to check that its files match the release.
 
-Network: package names and versions (never your code or files) go to `pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org` and `api.osv.dev`, and for git/URL installs and `repair` to `github.com` / `codeload.github.com` or the host in the command. No telemetry. Files written: decision records in `.aasm/` in each project, and small state files in `~/.aasm/` (ack ids, package indexes seen, MCP servers seen).
+Network: package names and versions (never your code or files) go to `pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org` and `api.osv.dev`, and for git/URL installs and `repair` to `github.com` / `codeload.github.com` or the host in the command. No telemetry. Files written: decision records in `.aegis/` in each project, and small state files in `~/.aegis/` (ack ids, package indexes seen, MCP servers seen).
 
 Documentation:
 

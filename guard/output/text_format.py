@@ -4,7 +4,7 @@ AegisPilot - the text a person reads when a package is blocked or needs review .
 Three shapes, all plain text for a terminal (no colour, no images):
   summary_line()   A  one line, <= 66 columns  (auto mode: what the person sees)
   popup_*()        C  one sentence, <= 200 characters (the confirmation dialog Claude Code draws for REVIEW)
-  report_text()    D  labelled report, <= width columns  (guard_cli report, .aasm/reports, user mode)
+  report_text()    D  labelled report, <= width columns  (guard_cli report, .aegis/reports, user mode)
 
 Order of labels is fixed: Reason -> Impact -> Evidence -> Fix -> Limits -> Details (Source for sources we cannot read,
 Warning for integrity). A label with no value is left out; Limits is always there. ALLOW prints nothing, so there is no ALLOW shape.

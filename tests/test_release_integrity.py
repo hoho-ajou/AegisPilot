@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory() as t:
     def hook(command, mode="auto"):
         ev = json.dumps({"tool_name": "Bash", "cwd": t, "tool_input": {"command": command}})
         p = subprocess.run([sys.executable, "-I", str(out / "hooks" / "pretooluse_check.py")], input=ev, capture_output=True,
-                           text=True, env={**os.environ, "AASM_MODE": mode})
+                           text=True, env={**os.environ, "AEGIS_MODE": mode})
         return json.loads(p.stdout)["hookSpecificOutput"] if p.stdout.strip() else None
 
     assert verify()[0] == 0

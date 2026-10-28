@@ -26,36 +26,36 @@ Downloaded files are unpacked into a temporary folder, read as text and deleted.
 
 ## Files written
 
-### In the project: `.aasm/`
+### In the project: `.aegis/`
 
 | Path | Written when | Contents |
 | --- | --- | --- |
-| `.aasm/last_review.json` | every install or settings decision | the latest decision: command, verdict, findings per package |
-| `.aasm/reviews/<decision id>.json` | every decision | the same record, one file per decision. The last 200 are kept. |
-| `.aasm/profile.json` | install decisions | a summary of the environment for attack paths: which credential files and settings exist and are readable, MCP server names, permission rules. No secret values. |
-| `.aasm/attack_paths.json`, `.aasm/attack_paths/<decision id>.json` | install decisions; `guard_cli.py paths` | attack paths for the decision |
-| `.aasm/osv/` | `guard_cli.py paths --judge` | OSV advisory texts for the agent to quote |
-| `.aasm/reports/*.md` | every BLOCK; `guard_cli.py report --format md` | a Markdown report of the decision |
-| `.aasm/cache/verdicts.json` | only when the verdict cache is on | cached verdicts per package version |
-| `.aasm/policy.json` | only when you create it | mode, allow and deny lists |
+| `.aegis/last_review.json` | every install or settings decision | the latest decision: command, verdict, findings per package |
+| `.aegis/reviews/<decision id>.json` | every decision | the same record, one file per decision. The last 200 are kept. |
+| `.aegis/profile.json` | install decisions | a summary of the environment for attack paths: which credential files and settings exist and are readable, MCP server names, permission rules. No secret values. |
+| `.aegis/attack_paths.json`, `.aegis/attack_paths/<decision id>.json` | install decisions; `guard_cli.py paths` | attack paths for the decision |
+| `.aegis/osv/` | `guard_cli.py paths --judge` | OSV advisory texts for the agent to quote |
+| `.aegis/reports/*.md` | every BLOCK; `guard_cli.py report --format md` | a Markdown report of the decision |
+| `.aegis/cache/verdicts.json` | only when the verdict cache is on | cached verdicts per package version |
+| `.aegis/policy.json` | only when you create it | mode, allow and deny lists |
 
-`.aasm-ai/cve_judgments.json` is written by the agent during `paths --judge`, not by the guard.
+`.aegis-ai/cve_judgments.json` is written by the agent during `paths --judge`, not by the guard.
 
-AegisPilot writes `.aasm/.gitignore` (ignore everything) the first time it creates the folder, so its records stay out of your commits. Delete that file if you want to commit them.
+AegisPilot writes `.aegis/.gitignore` (ignore everything) the first time it creates the folder, so its records stay out of your commits. Delete that file if you want to commit them.
 
-### In your home folder: `~/.aasm/`
+### In your home folder: `~/.aegis/`
 
 | Path | Written when | Contents |
 | --- | --- | --- |
-| `~/.aasm/acks.json` | auto mode, when an ack id is issued | ack ids, a fingerprint of the refused action, a one-line summary. Entries are dropped after 24 hours. |
-| `~/.aasm/indexes.json` | when an install uses a package index other than the defaults | the indexes seen, and whether the agent added them |
-| `~/.aasm/mcp_snapshot.json` | when an MCP config file is edited | the MCP servers already seen per config file, so only new ones are flagged |
-| `~/.aasm/quarantine/<time>/` | `guard_cli.py repair` | the files repair replaced or removed, and `REPAIR.json` |
-| `~/.aasm/config.json` | only when you create it | switches (see [configuration.md](configuration.md#environment-switches)) |
-| `~/.aasm/rules/` | only when you create it | your rule modules |
+| `~/.aegis/acks.json` | auto mode, when an ack id is issued | ack ids, a fingerprint of the refused action, a one-line summary. Entries are dropped after 24 hours. |
+| `~/.aegis/indexes.json` | when an install uses a package index other than the defaults | the indexes seen, and whether the agent added them |
+| `~/.aegis/mcp_snapshot.json` | when an MCP config file is edited | the MCP servers already seen per config file, so only new ones are flagged |
+| `~/.aegis/quarantine/<time>/` | `guard_cli.py repair` | the files repair replaced or removed, and `REPAIR.json` |
+| `~/.aegis/config.json` | only when you create it | switches (see [configuration.md](configuration.md#environment-switches)) |
+| `~/.aegis/rules/` | only when you create it | your rule modules |
 
 ### Elsewhere
 
-- **Guard folder**: in a clone of the default branch, `aasm_manifest.json`, the baseline of the guard's files made on first run. A release build writes nothing in its own folder except Python's `__pycache__`.
+- **Guard folder**: in a clone of the default branch, `aegis_manifest.json`, the baseline of the guard's files made on first run. A release build writes nothing in its own folder except Python's `__pycache__`.
 - **Settings files**: only when you choose in a terminal to turn another install off: `guard_cli.py installs`, or "overwrite" in `guard_cli.py snippet` or `system-install`. Guard hooks are removed from a settings file (the previous file is kept with a `.bak` suffix), or the plugin is disabled in settings. Otherwise `snippet` only prints.
-- **System install** (run as root): the guard folder (default `/opt/agent-dependency-guard`), the managed-settings drop-in (`/etc/claude-code/managed-settings.d/aasm-guard.json` on Linux, `/Library/Application Support/ClaudeCode/managed-settings.d/aasm-guard.json` on macOS), and `/etc/aasm/config.json` if it does not exist.
+- **System install** (run as root): the guard folder (default `/opt/aegis-pilot`), the managed-settings drop-in (`/etc/claude-code/managed-settings.d/aegis-pilot.json` on Linux, `/Library/Application Support/ClaudeCode/managed-settings.d/aegis-pilot.json` on macOS), and `/etc/aegis/config.json` if it does not exist.

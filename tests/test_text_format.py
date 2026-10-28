@@ -13,7 +13,7 @@ from output import render as M
 from output import text_format as T
 
 CVSS = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
-PATH = ".aasm/reports/2026-10-07T09-37-10_pyyaml-5.3.1_BLOCK.md"
+PATH = ".aegis/reports/2026-10-07T09-37-10_pyyaml-5.3.1_BLOCK.md"
 PYYAML = {"package": "pyyaml", "version": "5.3.1", "verdict": "BLOCK",
           "evidence": [{"rule": "osv", "label": "known vulnerability", "location": "GHSA-8q59-q68h-6hv4 (CVE-2020-14343, CRITICAL)"},
                        {"rule": "install_hook", "label": "install hook", "location": "setup.py:171"},

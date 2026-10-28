@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
-os.environ["AASM_ML"] = "0"
+os.environ["AEGIS_ML"] = "0"
 import rule_engine as R  # noqa: E402
 import safe_extract as SE  # noqa: E402
 import scan_engine as se  # noqa: E402

@@ -5,7 +5,7 @@ This folder holds the scripts and the results of measuring AegisPilot against pu
 Measurements were taken on 2026-10-23 and 2026-10-24. The numbers reflect the rules at that time; later rule changes are not reflected here.
 
 - **Rules frozen:** rules and code were frozen before each run and not changed during measurement. Problems found during measurement are listed under "Known gaps" and were not fixed during measurement.
-- **Data stays outside the repository:** datasets are downloaded outside the repository to the folder named by `AASM_BENCH` (about 1.5 GB malicious, 4.1 GB benign). Samples are only read, never executed.
+- **Data stays outside the repository:** datasets are downloaded outside the repository to the folder named by `AEGIS_BENCH` (about 1.5 GB malicious, 4.1 GB benign). Samples are only read, never executed.
 - **Two sample sets:**
   - The **development set** was used while tuning the rules. Samples looked at during earlier rule tuning were excluded from it. Sampling seed 20261023.
   - The **evaluation set** is a fresh sample that was not opened during development. Rules and code were frozen before the run, and it was run once. Sampling seed 20261024.
@@ -46,7 +46,7 @@ Built with `build_datasets.py mal|benign --suffix eval --seed 20261024 --exclude
 ## Method
 
 - `build_datasets.py`: downloads the datasets above and writes `manifest-mal.json` and `manifest-benign.json`.
-- `run_eval.py aasm|guarddog|osv`: runs each tool on the same local files.
+- `run_eval.py aegis|guarddog|osv`: runs each tool on the same local files.
   - The guard uses code rules only (`scan_local_file` / `scan_files`, including install scripts for npm). PyPI metadata, OSV and ML are off. This is the same input as GuardDog's local scan.
   - The behavior check (`guard/behavior`: value recovery and data flow -> the `rules/behavior.json` policy table -> hard rules `behavior_block` / `behavior_review`) is included in the runs tagged `behavior`. The earlier weighted sum and rules were left unchanged.
   - GuardDog 3.x is run as `guarddog <eco> scan <path>`.
@@ -225,32 +225,32 @@ These were found during measurement and left unfixed so the numbers stay compara
 
 ## How to rerun
 
-Run from the repository root with `AASM_BENCH` set to the dataset folder outside the repository. GuardDog runs need a separate environment with GuardDog 3.x.
+Run from the repository root with `AEGIS_BENCH` set to the dataset folder outside the repository. GuardDog runs need a separate environment with GuardDog 3.x.
 
 ```
-export AASM_BENCH=/path/to/bench        # outside the repository
+export AEGIS_BENCH=/path/to/bench        # outside the repository
 python3 -I benchmark/build_datasets.py
 python3 -I benchmark/run_eval.py osv
-python3 -I benchmark/run_eval.py aasm
+python3 -I benchmark/run_eval.py aegis
 python3 -I benchmark/run_eval.py guarddog      # needs GuardDog 3.x
 python3 -I benchmark/report.py results/summary.json
 python3 -I benchmark/vuln_eval.py 60 results/vuln.json
 python3 -I benchmark/names_latency_eval.py names results/names.json
 python3 -I benchmark/names_latency_eval.py latency results/latency.json   # run alone, with nothing else running
 
-# behavior check, development set -> aasm-behavior.jsonl
-python3 -I benchmark/run_eval.py aasm --tag behavior
-python3 -I benchmark/report.py --aasm aasm-behavior --compare aasm
+# behavior check, development set -> aegis-behavior.jsonl
+python3 -I benchmark/run_eval.py aegis --tag behavior
+python3 -I benchmark/report.py --aegis aegis-behavior --compare aegis
 
 # evaluation set (run once)
 python3 -I benchmark/build_datasets.py mal --suffix eval --seed 20261024 --exclude manifest-mal.json manifest-benign.json
 python3 -I benchmark/build_datasets.py benign --suffix eval --seed 20261024 --exclude manifest-mal.json manifest-benign.json --top-ranks 1001-5000
-python3 -I benchmark/run_eval.py aasm --tag behavior --manifests eval
+python3 -I benchmark/run_eval.py aegis --tag behavior --manifests eval
 python3 -I benchmark/run_eval.py osv --manifests eval
 python3 -I benchmark/run_eval.py guarddog --manifests eval
-python3 -I benchmark/report.py --aasm aasm-behavior-eval --suffix eval
+python3 -I benchmark/report.py --aegis aegis-behavior-eval --suffix eval
 ```
 
-The lists of samples looked at during rule tuning (excluded from the sets above) and the popular npm name list are not distributed. `build_datasets.py` reads them from `$AASM_BENCH/seen/` and `$AASM_BENCH/npm_names.txt` when present and skips them otherwise, so a rerun without them draws slightly different samples.
+The lists of samples looked at during rule tuning (excluded from the sets above) and the popular npm name list are not distributed. `build_datasets.py` reads them from `$AEGIS_BENCH/seen/` and `$AEGIS_BENCH/npm_names.txt` when present and skips them otherwise, so a rerun without them draws slightly different samples.
 
-Results are written under `results/` in the `AASM_BENCH` folder (for example `aasm-behavior-eval.jsonl`, `guarddog-eval.jsonl`, `osv-eval.jsonl`).
+Results are written under `results/` in the `AEGIS_BENCH` folder (for example `aegis-behavior-eval.jsonl`, `guarddog-eval.jsonl`, `osv-eval.jsonl`).

@@ -3,7 +3,7 @@ AegisPilot - review report.
 
 Turns a scan result into (a) a one-line ask reason that fits the Claude Code
 permission popup, (b) a multi-line deny block for BLOCK, and (c) the detail
-record written to <project>/.aasm/last_review.json for "why?" follow-ups.
+record written to <project>/.aegis/last_review.json for "why?" follow-ups.
 
 Everything that originates in a scanned package (names, file paths, code
 snippets, OSV text) is untrusted input: it is stripped of control characters
@@ -23,7 +23,7 @@ from pathlib import Path
 # chars, newlines collapsed - so the one-liner has to fit in ~200 chars.
 ONE_LINER_MAX = 200
 PREFIX = "[AegisPilot]"
-REPORT_DIR = ".aasm"
+REPORT_DIR = ".aegis"
 REPORT_NAME = "last_review.json"
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ​-‏‪-‮⁦-⁩]")
@@ -34,7 +34,7 @@ def clean(text: object, limit: int = 120) -> str:
     s = _CONTROL.sub(" ", str(text))
     s = re.sub(r"\s+", " ", s).strip()
     # a package must not be able to fake our own prefix inside its text
-    s = re.sub(r"\[\s*((?:AegisPilot|AASM)\b[^\]]*)\]", r"(\1)", s, flags=re.IGNORECASE)
+    s = re.sub(r"\[\s*(AegisPilot\b[^\]]*)\]", r"(\1)", s, flags=re.IGNORECASE)
     if len(s) > limit:
         s = s[: max(0, limit - 1)] + "…"
     return s
@@ -694,7 +694,7 @@ def _atomic_json(path: Path, payload: dict) -> None:
 
 
 def write_report(cwd: str | os.PathLike, doc: dict) -> bool:
-    """Write one decision: <cwd>/.aasm/reviews/<decision_id>.json, then <cwd>/.aasm/last_review.json as a copy of the
+    """Write one decision: <cwd>/.aegis/reviews/<decision_id>.json, then <cwd>/.aegis/last_review.json as a copy of the
     latest (kept for existing readers). Each decision gets an id (doc["decision_id"], set in place so the caller can show
     it) and each package a number (P01, P02 ... = the number /aegis uses). Agents running in parallel used to overwrite one
     shared file, so "why?" could explain a different decision. Both writes are atomic.
@@ -731,7 +731,7 @@ def _trim_reviews(rdir: Path) -> None:
 def _latest_for_session(rdir: Path) -> dict | None:
     """The newest decision made in the caller's own session (several agents may share one project folder). The session
     comes from the shell the agent runs commands in (Claude Code: CLAUDE_CODE_SESSION_ID, same id the hook sees)."""
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("AASM_SESSION_ID")
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("AEGIS_SESSION_ID")
     if not sid:
         return None
     try:

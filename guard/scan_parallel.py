@@ -16,7 +16,7 @@ and forking a process that has threads can deadlock the child). Processes also l
 killed, which threads cannot be.
 
 Kept on threads (scan_engine.scan_packages): fewer packages, ML on (every process would load the model again: seconds
-each), AASM_SCAN_PROCESSES=0, or any failure to start the pool. Verdicts are the same either way (measured: identical).
+each), AEGIS_SCAN_PROCESSES=0, or any failure to start the pool. Verdicts are the same either way (measured: identical).
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _scan_one(item):
 
 
 def _use_processes(items) -> bool:
-    if len(items) < PROCESS_MIN_PACKAGES or os.environ.get("AASM_SCAN_PROCESSES", "1") == "0":
+    if len(items) < PROCESS_MIN_PACKAGES or os.environ.get("AEGIS_SCAN_PROCESSES", "1") == "0":
         return False
     try:
         from ml_bridge import ml_enabled

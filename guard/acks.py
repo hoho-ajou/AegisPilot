@@ -11,7 +11,7 @@ usual) or goes on with this exact action:
 
 An ack is for one action: the fingerprint of the refused tool call (the command text, or the file and its new content),
 used once, within ACK_TTL_SECONDS. A changed command is a new action and is checked again. Nothing here decides for the
-agent; it only keeps "decided" bound to what was shown. The file lives in ~/.aasm/ (a protected path for the agent's
+agent; it only keeps "decided" bound to what was shown. The file lives in ~/.aegis/ (a protected path for the agent's
 own writes); user mode never uses it (a person answers the approval window instead).
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ KEEP_SECONDS = 24 * 3600          # issued / used entries kept for the record, t
 
 
 def state_file() -> Path:
-    return Path.home() / ".aasm" / "acks.json"
+    return Path.home() / ".aegis" / "acks.json"
 
 
 def fingerprint(kind: str, project_dir, *parts) -> str:

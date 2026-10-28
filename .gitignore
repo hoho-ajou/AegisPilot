@@ -6,15 +6,15 @@ venv/
 .pytest_cache/
 
 # AegisPilot writes these at run time
-.aasm/
-.aasm-ai/
-!tests/fixtures/**/.aasm/
-guard/aasm_manifest.json
+.aegis/
+.aegis-ai/
+!tests/fixtures/**/.aegis/
+guard/aegis_manifest.json
 
 # builds made by scripts/build_dist.py next to a checkout
 *.building/
 
-# benchmark data and results stay outside the repository (AASM_BENCH)
+# benchmark data and results stay outside the repository (AEGIS_BENCH)
 benchmark/results/
 
 # OS / editor

@@ -30,7 +30,7 @@ from pathlib import Path
 if str(Path(__file__).resolve().parent) not in sys.path:      # imported directly (tests); entry points place it
     sys.path.append(str(Path(__file__).resolve().parent))
 
-SCHEMA = "aasm-env-profile/0.1"
+SCHEMA = "aegis-env-profile/0.1"
 
 # home-relative credential files any agent's OS user may hold: (pattern, kind, what it gives)
 HOME_CREDENTIALS = [
@@ -301,13 +301,13 @@ def _fingerprint(project: Path, home: Path, env, agent) -> str:
 
 
 def collect_cached(project_dir, agent=None, home=None, env=None) -> dict:
-    """collect(), reused from <project>/.aasm/profile.json while the fingerprint of everything it reads is unchanged."""
+    """collect(), reused from <project>/.aegis/profile.json while the fingerprint of everything it reads is unchanged."""
     if agent is None:
         from adapters import DEFAULT as agent
     env = os.environ if env is None else env
     project = Path(project_dir).resolve()
     home = Path(home).resolve() if home else Path.home()
-    cache = project / ".aasm" / "profile.json"
+    cache = project / ".aegis" / "profile.json"
     fp = _fingerprint(project, home, env, agent)
     try:
         doc = json.loads(cache.read_text())

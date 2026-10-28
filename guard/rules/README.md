@@ -16,11 +16,11 @@ The files in this folder are the **base rules**. They are maintained by the proj
 
 | Location | Who | When it is read |
 |---|---|---|
-| `~/.aasm/rules/*.json` | User | When the guard is installed in the user's own folder. Not read for a system install (a guard the user cannot write to) |
-| `/etc/aasm/rules/*.json` | Administrator | When the folder and files are owned by root and not writable by other users. Applied after user modules, so they take precedence |
+| `~/.aegis/rules/*.json` | User | When the guard is installed in the user's own folder. Not read for a system install (a guard the user cannot write to) |
+| `/etc/aegis/rules/*.json` | Administrator | When the folder and files are owned by root and not writable by other users. Applied after user modules, so they take precedence |
 
 - Within one location, modules are applied in file name order.
-- **Protection:** `~/.aasm/` is a protected path. When an agent writes a module, the guard asks for confirmation, the same as when it edits guard files. In auto mode it returns an evidence card and an ack id.
+- **Protection:** `~/.aegis/` is a protected path. When an agent writes a module, the guard asks for confirmation, the same as when it edits guard files. In auto mode it returns an evidence card and an ack id.
 - **Failure handling:** a broken module is skipped as a whole, for example on a JSON error, an unknown key, a missing id, or a rule the engine cannot read. The guard keeps running with the rest.
 - **Checking:** `python3 guard/guard_cli.py verify` shows which modules were applied and which were skipped. `python3 guard/rule_check.py --modules` shows the status of each module and runs the examples inside it.
 - **Cache:** the verdict cache is not reused when the rule fingerprint differs. Changing a module triggers a rescan.
@@ -129,4 +129,4 @@ Each rule has examples that must match (hit) and examples that must pass (miss) 
 2. If the change can affect verdicts, compare before and after on a fixed sample set of benign and malicious packages, and confirm that every difference is intended.
 3. After committing, rebuild the stable build (`python3 scripts/build_dist.py stable`). The hook uses the rule files of the stable build.
 
-If a rule file is broken, the guard does not let the install through; it asks for review with "rule file error: …". The four rule files are covered by the guard's self-protection (checksums). To test with rules from another folder, use `AASM_RULES_DIR`.
+If a rule file is broken, the guard does not let the install through; it asks for review with "rule file error: …". The four rule files are covered by the guard's self-protection (checksums). To test with rules from another folder, use `AEGIS_RULES_DIR`.

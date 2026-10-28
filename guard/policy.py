@@ -2,9 +2,9 @@
 AegisPilot - policy stage: allow / deny lists that people maintain.
 
 Two files, read on every install decision:
-  system   /etc/aasm/policy.json (or AASM_SYSTEM_POLICY): meant to be owned by root, so the agent - running as the
+  system   /etc/aegis/policy.json (or AEGIS_SYSTEM_POLICY): meant to be owned by root, so the agent - running as the
            developer - can read it but not write it. This is the enforced layer.
-  project  <project>/.aasm/policy.json: a protected path (an agent edit asks the person first), the same file that holds
+  project  <project>/.aegis/policy.json: a protected path (an agent edit asks the person first), the same file that holds
            "mode". Convenient, but only as strong as that check.
 
   {"deny":  [{"package": "leftpad", "versions": "*", "reason": "...", "approver": "..."}],
@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 import switches  # noqa: E402
-SYSTEM_POLICY = Path(switches.get("AASM_SYSTEM_POLICY") or "/etc/aasm/policy.json")   # a built guard: system config only
+SYSTEM_POLICY = Path(switches.get("AEGIS_SYSTEM_POLICY") or "/etc/aegis/policy.json")   # a built guard: system config only
 
 
 def _norm(name: str) -> str:
@@ -49,7 +49,7 @@ def _load(path: Path, source: str) -> tuple[list, list, list[str]]:
 
 def load(project_dir) -> dict:
     deny, allow, notes = [], [], []
-    for path, source in ((SYSTEM_POLICY, "system"), (Path(project_dir) / ".aasm" / "policy.json", "project")):
+    for path, source in ((SYSTEM_POLICY, "system"), (Path(project_dir) / ".aegis" / "policy.json", "project")):
         d, a, n = _load(path, source)
         deny += d; allow += a; notes += n
     return {"deny": deny, "allow": allow, "notes": notes}

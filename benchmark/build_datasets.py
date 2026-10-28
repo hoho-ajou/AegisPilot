@@ -1,5 +1,5 @@
 """Benchmark datasets for criteria 1, 2 and 7 (detection, false positives, latency). Everything is downloaded OUTSIDE
-the repository, to the folder named by AASM_BENCH (default: ../research/bench next to the repository), and only read:
+the repository, to the folder named by AEGIS_BENCH (default: ../research/bench next to the repository), and only read:
 archives are unpacked as files, nothing is imported, built or run. The malicious samples are real malware source - keep
 them on an isolated machine, never in git.
 
@@ -44,14 +44,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "guard"))
-BENCH = Path(os.environ.get("AASM_BENCH", str(REPO.parent / "research" / "bench")))
+BENCH = Path(os.environ.get("AEGIS_BENCH", str(REPO.parent / "research" / "bench")))
 SEED = 20261023
 NPM_SAMPLE = 600
 MALREG_SAMPLE = 2000
 BENIGN_PER_GROUP = 1000
 NPM_BENIGN = 500
 MAX_BYTES = 50 * 1024 * 1024
-UA = {"User-Agent": "aasm-benchmark (research)"}
+UA = {"User-Agent": "aegis-benchmark (research)"}
 
 
 def _get(url: str, timeout: int = 60, limit: int | None = None) -> bytes:
@@ -90,7 +90,7 @@ def _unzip(zpath: Path, dest: Path) -> None:
 
 def seen_samples() -> dict[str, set]:
     """Datadog samples looked at while writing or tuning the rules: excluded from the holdout. The lists are optional files
-    in $AASM_BENCH/seen/ (not distributed); a missing list is skipped with one line on stdout."""
+    in $AEGIS_BENCH/seen/ (not distributed); a missing list is skipped with one line on stdout."""
     intent, compromised = set(), set()
     for f in ("malicious_dev.json", "malicious_holdout.json", "malicious_holdout2.json"):
         src = BENCH / "seen" / f

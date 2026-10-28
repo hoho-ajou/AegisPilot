@@ -16,7 +16,7 @@ def check(*args, rules: Path | None = None) -> subprocess.CompletedProcess:
     cmd = [sys.executable, str(GUARD / "rule_check.py"), *args]
     if rules is not None:
         cmd += ["--rules", str(rules)]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=dict(os.environ, AASM_ML="0"))
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=dict(os.environ, AEGIS_ML="0"))
 
 
 def copy_rules() -> Path:

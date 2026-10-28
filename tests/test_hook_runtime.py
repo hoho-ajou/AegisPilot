@@ -46,7 +46,7 @@ code, out, _ = run_hook("pretooluse_check.py", {"tool_name": "Bash", "cwd": "/tm
 assert code == 0 and out is None, (code, out)
 
 # 3) a scan that cannot finish: the guard answers before the harness would cancel it, instead of hanging
-code, out, secs = run_hook("pretooluse_check.py", INSTALL, HANG, {"AASM_HOOK_DEADLINE_SECONDS": "1"})
+code, out, secs = run_hook("pretooluse_check.py", INSTALL, HANG, {"AEGIS_HOOK_DEADLINE_SECONDS": "1"})
 assert code == 0 and out and out["permissionDecision"] == "ask" and "did not finish within" in out["permissionDecisionReason"], (code, out)
 assert secs < 10, secs
 
@@ -59,14 +59,14 @@ code, out, _ = run_hook("pretooluse_editwrite_check.py", {"tool_name": "Write", 
                         "import hook_runtime; hook_runtime.emit = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('bug'))")
 assert code == 0 and out is None, (code, out)
 
-# 4b) AASM_FAIL_CLOSED=1: the same failures refuse instead of asking (opt-in)
-code, out, _ = run_hook("pretooluse_check.py", INSTALL, CRASH, {"AASM_FAIL_CLOSED": "1"})
-assert code == 0 and out and out["permissionDecision"] == "deny" and "AASM_FAIL_CLOSED" in out["permissionDecisionReason"], (code, out)
-code, out, _ = run_hook("pretooluse_check.py", INSTALL, HANG, {"AASM_HOOK_DEADLINE_SECONDS": "1", "AASM_FAIL_CLOSED": "1"})
+# 4b) AEGIS_FAIL_CLOSED=1: the same failures refuse instead of asking (opt-in)
+code, out, _ = run_hook("pretooluse_check.py", INSTALL, CRASH, {"AEGIS_FAIL_CLOSED": "1"})
+assert code == 0 and out and out["permissionDecision"] == "deny" and "AEGIS_FAIL_CLOSED" in out["permissionDecisionReason"], (code, out)
+code, out, _ = run_hook("pretooluse_check.py", INSTALL, HANG, {"AEGIS_HOOK_DEADLINE_SECONDS": "1", "AEGIS_FAIL_CLOSED": "1"})
 assert code == 0 and out and out["permissionDecision"] == "deny", (code, out)
 code, out, _ = run_hook("pretooluse_check.py", {"tool_name": "Bash", "cwd": "/tmp", "tool_input": {"command": "ls -la"}},
                         "import install_parse; install_parse.parse_install_command = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('bug'))",
-                        {"AASM_FAIL_CLOSED": "1"})
+                        {"AEGIS_FAIL_CLOSED": "1"})
 assert code == 0 and out is None, (code, out)                     # still only for commands the guard is responsible for
 
 # 5) unreadable input still falls through silently, as before

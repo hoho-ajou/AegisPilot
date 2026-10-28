@@ -24,8 +24,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "guard"))
-os.environ.update({"AASM_ML": "0", "AASM_MODE": "auto", "HOME": tempfile.mkdtemp()})
-BENCH = Path(os.environ.get("AASM_BENCH", str(REPO.parent / "research" / "bench")))
+os.environ.update({"AEGIS_ML": "0", "AEGIS_MODE": "auto", "HOME": tempfile.mkdtemp()})
+BENCH = Path(os.environ.get("AEGIS_BENCH", str(REPO.parent / "research" / "bench")))
 SEED = 20261023
 TOKENS = ["fast", "py", "easy", "auto", "smart", "simple", "json", "http", "async", "data", "ml", "ai", "llm", "agent",
           "vector", "pdf", "csv", "yaml", "config", "utils", "tools", "client", "sdk", "api", "parser", "db", "cache",
@@ -68,7 +68,7 @@ def names(out: Path) -> None:
     with tempfile.TemporaryDirectory() as d:
         for n in halluc:
             r = guard_core.check_command(f"pip install {n}", d)
-            rec = json.loads(Path(d, ".aasm", "last_review.json").read_text())["packages"][0]
+            rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())["packages"][0]
             rows.append({"kind": "hallucinated", "name": n, "action": r.action, "verdict": rec["verdict"],
                          "failure_kind": (rec.get("coverage") or {}).get("failure_kind")})
     top = [r["project"] for r in json.loads(urllib.request.urlopen(

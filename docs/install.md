@@ -90,25 +90,25 @@ sudo python3 guard/guard_cli.py system-install
 
 It does the following:
 
-1. Copies the guard to `/opt/agent-dependency-guard`, owned by root, directories `0755`, files `0644`.
+1. Copies the guard to `/opt/aegis-pilot`, owned by root, directories `0755`, files `0644`.
 2. Compiles it there as root, so users cannot plant `.pyc` files.
 3. Registers the hooks in Claude Code's managed settings with a drop-in file. Hooks in user or project settings cannot remove it.
-   - Linux: `/etc/claude-code/managed-settings.d/aasm-guard.json`
-   - macOS: `/Library/Application Support/ClaudeCode/managed-settings.d/aasm-guard.json`
-4. Creates `/etc/aasm/config.json` for the administrator's switches, if it does not exist. See [configuration.md](configuration.md#environment-switches).
+   - Linux: `/etc/claude-code/managed-settings.d/aegis-pilot.json`
+   - macOS: `/Library/Application Support/ClaudeCode/managed-settings.d/aegis-pilot.json`
+4. Creates `/etc/aegis/config.json` for the administrator's switches, if it does not exist. See [configuration.md](configuration.md#environment-switches).
 
 Options:
 
 | Option | Effect |
 | --- | --- |
-| `--prefix DIR` | install somewhere other than `/opt/agent-dependency-guard` |
+| `--prefix DIR` | install somewhere other than `/opt/aegis-pilot` |
 | `--managed-hooks-only` | also sets `allowManagedHooksOnly`: only managed hooks run. This turns off every user and project hook, not only other guard hooks. |
 | `--dry-run` | print what would be done, including the drop-in file, and change nothing. Does not need root. |
 
 Check the result:
 
 ```bash
-python3 /opt/agent-dependency-guard/guard_cli.py verify
+python3 /opt/aegis-pilot/guard_cli.py verify
 ```
 
 On WSL, `/etc/claude-code` is writable by the user, so a system install there is not out of the agent's reach. Codex has no system-wide hook location that the guard uses; Codex hooks stay per user or per project.
@@ -131,7 +131,7 @@ In an interactive terminal, `installs` lets you choose the one to keep. The othe
 | --- | --- |
 | Plugin | disabled in settings |
 | Guard hooks in a settings file | removed from the file. The previous file is kept with a `.bak` suffix. |
-| System install | not changed. Remove it with `sudo python3 /opt/agent-dependency-guard/guard_cli.py system-uninstall`. |
+| System install | not changed. Remove it with `sudo python3 /opt/aegis-pilot/guard_cli.py system-uninstall`. |
 
 When these commands run without a terminal (for example, run by an agent), they change nothing and only print the warning. If the agent runs `installs`, `repair`, `system-install` or `system-uninstall`, AegisPilot asks you first. See [usage.md](usage.md#self-protection).
 
@@ -146,7 +146,7 @@ claude plugin update aegis-pilot@hoho-ajou
 
 Manual install: check out the new release tag in the same folder (`git fetch --tags && git checkout v<version>`). The hook paths stay the same, so the settings need no change. If you moved the folder, run `guard_cli.py snippet` again and replace the old hook block.
 
-System install: run `sudo python3 guard/guard_cli.py system-install` again from the new release. It replaces the installed copy and the drop-in file, and keeps an existing `/etc/aasm/config.json`.
+System install: run `sudo python3 guard/guard_cli.py system-install` again from the new release. It replaces the installed copy and the drop-in file, and keeps an existing `/etc/aegis/config.json`.
 
 ## Uninstalling
 
@@ -166,9 +166,9 @@ Manual install: remove the guard's hook entries from the settings file you merge
 System install:
 
 ```bash
-sudo python3 /opt/agent-dependency-guard/guard_cli.py system-uninstall
+sudo python3 /opt/aegis-pilot/guard_cli.py system-uninstall
 ```
 
-This removes the managed-settings drop-in and the installed folder. It does not remove `/etc/aasm/`.
+This removes the managed-settings drop-in and the installed folder. It does not remove `/etc/aegis/`.
 
-Files the guard wrote stay until you delete them: `.aasm/` in each project and `~/.aasm/` in your home folder. See [privacy.md](privacy.md#files-written).
+Files the guard wrote stay until you delete them: `.aegis/` in each project and `~/.aegis/` in your home folder. See [privacy.md](privacy.md#files-written).

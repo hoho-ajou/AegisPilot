@@ -7,13 +7,13 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
-os.environ["AASM_ML"] = "0"
-os.environ["AASM_MODE"] = "user"      # the approval-window path; auto mode is tests/test_auto_events.py
+os.environ["AEGIS_ML"] = "0"
+os.environ["AEGIS_MODE"] = "user"      # the approval-window path; auto mode is tests/test_auto_events.py
 import agent_config as AC  # noqa: E402
 import guard_core  # noqa: E402
 import mcp_guard  # noqa: E402
 import tempfile as _tf  # noqa: E402
-mcp_guard.SNAPSHOT_PATH = Path(_tf.mkdtemp()) / "mcp_snapshot.json"   # not the real ~/.aasm one
+mcp_guard.SNAPSHOT_PATH = Path(_tf.mkdtemp()) / "mcp_snapshot.json"   # not the real ~/.aegis one
 import scan_engine as se  # noqa: E402
 
 # ---- which setting a path is

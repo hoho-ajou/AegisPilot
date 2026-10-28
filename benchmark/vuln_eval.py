@@ -21,8 +21,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "guard"))
-os.environ.setdefault("AASM_ML", "0")
-BENCH = Path(os.environ.get("AASM_BENCH", str(REPO.parent / "research" / "bench")))
+os.environ.setdefault("AEGIS_ML", "0")
+BENCH = Path(os.environ.get("AEGIS_BENCH", str(REPO.parent / "research" / "bench")))
 SEED = 20261023
 
 

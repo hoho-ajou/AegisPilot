@@ -6,13 +6,13 @@ rewritten by anything that runs as that user - the agent included. A system inst
 reach: an agent running as the developer cannot change root-owned files without sudo.
 
   1. this build must match its own checksums (a changed build is not installed)
-  2. copied to PREFIX (default /opt/agent-dependency-guard), owned by root, directories 0755, files 0644
+  2. copied to PREFIX (default /opt/aegis-pilot), owned by root, directories 0755, files 0644
   3. compiled there as root (python3 -m compileall): users cannot write __pycache__ there, so nobody can plant a .pyc and
      the hooks do not recompile on every call
-  4. Claude Code's hooks pinned in managed settings: a drop-in /etc/claude-code/managed-settings.d/aasm-guard.json
+  4. Claude Code's hooks pinned in managed settings: a drop-in /etc/claude-code/managed-settings.d/aegis-pilot.json
      (merged with the organisation's own managed settings; hooks in user / project settings cannot remove it).
      --managed-hooks-only also sets allowManagedHooksOnly (only managed hooks run - this turns off every other hook)
-  5. /etc/aasm/config.json for the administrator's switches (switches.py), if there is none
+  5. /etc/aegis/config.json for the administrator's switches (switches.py), if there is none
 
 Paths per Claude Code's documentation (code.claude.com/docs/en/managed-settings, read 2026-10-23): Linux / WSL
 /etc/claude-code/, macOS /Library/Application Support/ClaudeCode/. On WSL /etc/claude-code is user-writable, so it is
@@ -28,10 +28,10 @@ import sys
 from pathlib import Path
 
 GUARD_DIR = Path(__file__).resolve().parent
-DEFAULT_PREFIX = Path("/opt/agent-dependency-guard")
+DEFAULT_PREFIX = Path("/opt/aegis-pilot")
 CLAUDE_MANAGED = {"linux": Path("/etc/claude-code"), "darwin": Path("/Library/Application Support/ClaudeCode")}
-DROPIN_NAME = "aasm-guard.json"
-SKIP = {"__pycache__", "aasm_manifest.json", ".aasm"}
+DROPIN_NAME = "aegis-pilot.json"
+SKIP = {"__pycache__", "aegis_manifest.json", ".aegis"}
 
 
 class InstallError(Exception):
@@ -64,7 +64,7 @@ def plan(prefix: Path = DEFAULT_PREFIX, root: Path | None = None, managed_hooks_
         dropin["allowManagedHooksOnly"] = True
     return {"source": str(GUARD_DIR), "prefix": str(_under(root, prefix)), "hooks_prefix": str(prefix),
             "dropin": str(_under(root, managed_dir / "managed-settings.d" / DROPIN_NAME)), "dropin_doc": dropin,
-            "config": str(_under(root, Path("/etc/aasm/config.json")))}
+            "config": str(_under(root, Path("/etc/aegis/config.json")))}
 
 
 def install(p: dict, root_owned: bool = True) -> None:

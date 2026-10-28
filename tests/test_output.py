@@ -36,14 +36,14 @@ class Untrusted(unittest.TestCase):
     def test_hostile_verdict_cannot_shape_the_file_name(self):
         with tempfile.TemporaryDirectory() as d:
             p = M.write_md_report(d, {**HOSTILE, "verdict": "BLOCK/../../x"}, force=True)
-            self.assertEqual(p.parent, Path(d) / ".aasm" / "reports")
+            self.assertEqual(p.parent, Path(d) / ".aegis" / "reports")
             self.assertEqual([f.name for f in Path(d).rglob("*") if f.is_file()], [p.name])
 
     def test_damaged_last_review_is_not_found_not_a_traceback(self):
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / ".aasm").mkdir()
+            (Path(d) / ".aegis").mkdir()
             for bad in ("{broken", "[]", "123", ""):
-                (Path(d) / ".aasm" / "last_review.json").write_text(bad)
+                (Path(d) / ".aegis" / "last_review.json").write_text(bad)
                 self.assertIsNone(M.load_last_review(d))
 
 
@@ -100,7 +100,7 @@ class ClaudeReason(unittest.TestCase):
                 "path": "a", "policy": {"action": "deny", "source": "project", "approver": "security team", "reason": "internal standard", "expires": ""},
                 "evidence": [{"rule": "policy_deny", "label": "denied by policy", "location": "project policy"}], "pid": "P01"}]}
         out = M.full_terminal_report(deny)
-        self.assertIn("Policy     : policy deny list → always BLOCK\n             ├─ Source: project policy (.aasm/policy.json)", out)
+        self.assertIn("Policy     : policy deny list → always BLOCK\n             ├─ Source: project policy (.aegis/policy.json)", out)
         self.assertIn("├─ Approved by: security team", out); self.assertIn("└─ Reason: internal standard", out)
         self.assertNotIn("Expires", out)                                   # no value, no line
         self.assertNotIn("[P01]", out)                                  # one package: no number
@@ -165,13 +165,13 @@ class Width(unittest.TestCase):
                "other_reasons": ["[hard rule] CRITICAL vulnerability → always BLOCK"], "path": "during pip install: setup.py runs → a custom install step can run any code → code may run with the developer's privileges",
                "evidence": [{"label": "known vulnerability", "location": "GHSA-8q59-q68h-6hv4 (CVE-2020-14343, CRITICAL)"},
                             {"label": "install hook", "location": "setup.py:171"}, {"label": "uses a dangerous API", "location": "lib/yaml/constructor.py:538"}]}]}
-        out = M.full_terminal_report(rep) + "\n\n" + "\n".join(M.report_line(".aasm/reports/2026-10-07T09-55-12_pyyaml-5.3.1_BLOCK.md"))
+        out = M.full_terminal_report(rep) + "\n\n" + "\n".join(M.report_line(".aegis/reports/2026-10-07T09-55-12_pyyaml-5.3.1_BLOCK.md"))
         self.assertLessEqual(max(M.display_width(l) for l in out.splitlines()), M.REPORT_WIDTH)
         self.assertIn("(CVE-2020-14343, CRITICAL)", out)               # a parenthesised group is never split
         self.assertIn("  └─ lib/yaml/constructor.py".replace("lib", "uses a dangerous API @ lib"), out)   # last evidence item closes the tree
 
     def test_long_path_stays_in_one_piece(self):
-        p = ".aasm/reports/2026-10-07T09-55-12_pyyaml-5.3.1_BLOCK.md"
+        p = ".aegis/reports/2026-10-07T09-55-12_pyyaml-5.3.1_BLOCK.md"
         self.assertEqual(M.report_line(p), ["Report     :", "  " + p])
         self.assertEqual(M.report_line("a.md"), ["Report     : a.md"])
 
@@ -193,19 +193,19 @@ class Modes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(mode.get_mode(d, env={}), "user")                          # the default: a person decides
             self.assertEqual(mode.get_mode(None, env={}), "user")
-            self.assertEqual(mode.get_mode(d, env={"AASM_MODE": "user"}), "user")
-            self.assertEqual(mode.get_mode(d, env={"AASM_MODE": " AUTO "}), "auto")
-            self.assertEqual(mode.get_mode(d, env={"AASM_MODE": "yolo"}), "user")      # set but unknown -> the cautious mode
-            (Path(d) / ".aasm").mkdir()
-            pol = Path(d) / ".aasm" / "policy.json"
+            self.assertEqual(mode.get_mode(d, env={"AEGIS_MODE": "user"}), "user")
+            self.assertEqual(mode.get_mode(d, env={"AEGIS_MODE": " AUTO "}), "auto")
+            self.assertEqual(mode.get_mode(d, env={"AEGIS_MODE": "yolo"}), "user")      # set but unknown -> the cautious mode
+            (Path(d) / ".aegis").mkdir()
+            pol = Path(d) / ".aegis" / "policy.json"
             pol.write_text('{"mode": "user"}'); self.assertEqual(mode.get_mode(d, env={}), "user")
-            pol.write_text('{"mode": "auto"}'); self.assertEqual(mode.get_mode(d, env={"AASM_MODE": "user"}), "user")   # environment wins
+            pol.write_text('{"mode": "auto"}'); self.assertEqual(mode.get_mode(d, env={"AEGIS_MODE": "user"}), "user")   # environment wins
             for bad in ("{broken", "[]", '{"mode": 5}', '{"mode": "root"}', ""):       # present but unusable -> the cautious mode
                 pol.write_text(bad); self.assertEqual(mode.get_mode(d, env={}), "user", bad)
 
     def test_policy_file_is_a_protected_path(self):
-        self.assertTrue(guard_paths.file_path_is_protected("/p/.aasm/policy.json"))
-        self.assertTrue(guard_paths.command_touches_protected_path("echo '{\"mode\":\"auto\"}' > .aasm/policy.json"))
+        self.assertTrue(guard_paths.file_path_is_protected("/p/.aegis/policy.json"))
+        self.assertTrue(guard_paths.command_touches_protected_path("echo '{\"mode\":\"auto\"}' > .aegis/policy.json"))
 
 
 class Advice(unittest.TestCase):
@@ -413,15 +413,15 @@ class AutoReason(unittest.TestCase):
         self.assertEqual(out.count("```"), 2)
 
 
-class ProtectedAasm(unittest.TestCase):
-    def test_edit_write_and_shell_writes_to_aasm_are_flagged(self):
-        self.assertTrue(guard_paths.file_path_is_protected("/p/.aasm/last_review.json"))
-        self.assertTrue(guard_paths.file_path_is_protected(".aasm/reports/x.md"))
-        self.assertTrue(guard_paths.command_touches_protected_path("echo '{}' > .aasm/last_review.json"))
-        self.assertTrue(guard_paths.command_touches_protected_path("rm -rf .aasm/reports"))
+class ProtectedGuardPaths(unittest.TestCase):
+    def test_edit_write_and_shell_writes_to_aegis_are_flagged(self):
+        self.assertTrue(guard_paths.file_path_is_protected("/p/.aegis/last_review.json"))
+        self.assertTrue(guard_paths.file_path_is_protected(".aegis/reports/x.md"))
+        self.assertTrue(guard_paths.command_touches_protected_path("echo '{}' > .aegis/last_review.json"))
+        self.assertTrue(guard_paths.command_touches_protected_path("rm -rf .aegis/reports"))
 
     def test_reading_is_not_flagged(self):
-        self.assertFalse(guard_paths.command_touches_protected_path("cat .aasm/last_review.json"))
+        self.assertFalse(guard_paths.command_touches_protected_path("cat .aegis/last_review.json"))
         self.assertFalse(guard_paths.command_touches_protected_path("python3 guard/guard_cli.py report"))
 
 
@@ -432,7 +432,7 @@ class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
     def decision(self, impl_dir, cwd):
         ev = {"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": "pip install pyyaml==5.3.1"}}
         p = subprocess.run([sys.executable, str(Path(impl_dir) / "hooks" / "pretooluse_check.py")], input=json.dumps(ev),
-                           capture_output=True, text=True, timeout=300, env={**os.environ, "AASM_ML": "0"})
+                           capture_output=True, text=True, timeout=300, env={**os.environ, "AEGIS_ML": "0"})
         if not p.stdout.strip():
             return None, p
         return json.loads(p.stdout)["hookSpecificOutput"]["permissionDecision"], p
@@ -442,11 +442,11 @@ class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
             proj = Path(d) / "proj"; proj.mkdir()
             ev = {"tool_name": "Bash", "cwd": str(proj), "tool_input": {"command": "pip install pyyaml==5.3.1"}}
             def run(mode):
-                env = {k: v for k, v in os.environ.items() if k != "AASM_MODE"}
+                env = {k: v for k, v in os.environ.items() if k != "AEGIS_MODE"}
                 if mode != "default":
-                    env["AASM_MODE"] = mode
+                    env["AEGIS_MODE"] = mode
                 p = subprocess.run([sys.executable, str(HERE / "hooks" / "pretooluse_check.py")], input=json.dumps(ev), capture_output=True, text=True,
-                                   timeout=300, env={**env, "AASM_ML": "0"})
+                                   timeout=300, env={**env, "AEGIS_ML": "0"})
                 return json.loads(p.stdout)["hookSpecificOutput"] if p.stdout.strip() else None
             user, auto = run("default"), run("auto")             # nothing configured = user
             if not user or user["permissionDecision"] != "deny":
@@ -455,17 +455,17 @@ class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
             self.assertEqual(auto["permissionDecision"], "deny")                        # both modes block
             r = auto["permissionDecisionReason"]
             self.assertIn("auto mode", r); self.assertIn("pyyaml>=5.4", r); self.assertNotIn("[AegisPilot BLOCK]", r)
-            self.assertEqual(json.loads((proj / ".aasm" / "last_review.json").read_text())["mode"], "user" if False else "auto")  # last run was auto
-            self.assertTrue(list((proj / ".aasm" / "reports").glob("*.md")))              # the reasons are still recorded internally
+            self.assertEqual(json.loads((proj / ".aegis" / "last_review.json").read_text())["mode"], "user" if False else "auto")  # last run was auto
+            self.assertTrue(list((proj / ".aegis" / "reports").glob("*.md")))              # the reasons are still recorded internally
 
     def test_review_in_auto_mode_is_a_card_in_user_mode_a_question(self):
         with tempfile.TemporaryDirectory() as d:
             proj = Path(d) / "proj"; proj.mkdir()
             ev = {"tool_name": "Bash", "cwd": str(proj), "tool_input": {"command": "pip install requests==2.31.0"}}
             def run(mode):
-                env = {k: v for k, v in os.environ.items() if k != "AASM_MODE"}
+                env = {k: v for k, v in os.environ.items() if k != "AEGIS_MODE"}
                 p = subprocess.run([sys.executable, str(HERE / "hooks" / "pretooluse_check.py")], input=json.dumps(ev), capture_output=True, text=True,
-                                   timeout=300, env={**env, "AASM_ML": "0", "AASM_MODE": mode})
+                                   timeout=300, env={**env, "AEGIS_ML": "0", "AEGIS_MODE": mode})
                 return json.loads(p.stdout)["hookSpecificOutput"] if p.stdout.strip() else None
             user, auto = run("user"), run("auto")
             if not user or user["permissionDecision"] != "ask":
@@ -478,7 +478,7 @@ class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
     def test_deny_even_when_the_r4_package_is_missing_or_broken(self):
         with tempfile.TemporaryDirectory() as d:
             copy = Path(d) / "impl"
-            shutil.copytree(HERE, copy, ignore=shutil.ignore_patterns("__pycache__", "models", "experiments", "tests", ".aasm"))
+            shutil.copytree(HERE, copy, ignore=shutil.ignore_patterns("__pycache__", "models", "experiments", "tests", ".aegis"))
             proj = Path(d) / "proj"; proj.mkdir()
             baseline, _ = self.decision(copy, str(proj))
             if baseline not in ("deny",):

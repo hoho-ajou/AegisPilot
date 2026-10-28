@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
-os.environ["AASM_ML"] = "0"
+os.environ["AEGIS_ML"] = "0"
 from install_parse import parse_install_command  # noqa: E402
 from sources import npm  # noqa: E402
 import scan_engine as se  # noqa: E402
@@ -85,7 +85,7 @@ try:
         se.ECOSYSTEM_SCANNERS["npm"] = fake_scan("BLOCK", "decode_then_exec")
         dec = guard_core.check_command("npm install evil-pkg", d)
         assert dec.action in ("refuse", "confirm") and "evil-pkg" in dec.reason, dec
-        rec = json.loads(Path(d, ".aasm", "last_review.json").read_text())
+        rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())
         assert any(r.get("ecosystem") == "npm" and r["verdict"] == "BLOCK" for r in rec.get("packages", rec.get("records", []))), rec.keys()
         se.ECOSYSTEM_SCANNERS["npm"] = fake_scan("ALLOW")
         npm.malicious_releases = lambda pairs: {}

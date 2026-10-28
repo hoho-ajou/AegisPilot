@@ -22,15 +22,15 @@ def main() -> int:
     ap.add_argument("-k", default="", help="pick tests whose file name contains this text")
     ap.add_argument("--timeout", type=int, default=300, help="time limit per file (seconds)")
     args = ap.parse_args()
-    # On first run the guard records a checksum list of its own files (guard/aasm_manifest.json) and reports later changes
+    # On first run the guard records a checksum list of its own files (guard/aegis_manifest.json) and reports later changes
     # as possible tampering. Editing code is normal in a development folder, so each test run starts from a fresh list.
-    (ROOT / "guard" / "aasm_manifest.json").unlink(missing_ok=True)
+    (ROOT / "guard" / "aegis_manifest.json").unlink(missing_ok=True)
     jobs = [(f.name, [sys.executable, str(f)]) for f in sorted((ROOT / "tests").glob("test_*.py"))]
     # packages that keep their own tests folder inside the module run with unittest discover
     for pkg in sorted(p.parent for p in (ROOT / "guard").glob("*/tests")):
         jobs.append((f"guard/{pkg.name}/tests", [sys.executable, "-m", "unittest", "discover", "-s", str(pkg / "tests")]))
     jobs = [j for j in jobs if args.k in j[0]]
-    # the guard keeps state under ~/.aasm (ack ids, indexes, MCP servers seen): tests get a home of their own so a run
+    # the guard keeps state under ~/.aegis (ack ids, indexes, MCP servers seen): tests get a home of their own so a run
     # never touches the developer's real one. Git still needs an identity for the tests that make commits.
     home = tempfile.mkdtemp(prefix="aegis-tests-home-")
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HOME": home,

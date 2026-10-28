@@ -21,7 +21,7 @@ TPL = IMPL.parent / "tests" / "fixtures" / "attack_path"
 def setup(s: str, t: Path):
     proj, home = t / s, t / f"home_{s}"
     shutil.copytree(TPL / s, proj)
-    rec = json.loads((proj / ".aasm/inputs/guard_record.json").read_text())
+    rec = json.loads((proj / ".aegis/inputs/guard_record.json").read_text())
     for p in rec["packages"]:                     # what the current guard writes for a hook with no dangerous call
         for e in p["evidence"]:
             if e["rule"] == "install_hook" and p["package"] == "pyyaml":
@@ -51,12 +51,12 @@ with tempfile.TemporaryDirectory() as td:
     r = AP.build(rec, prof)
     assert r["pending_judgements"] and r["pending_judgements"][0]["sites"][0]["call"] == "yaml.full_load", r["pending_judgements"]
     assert pairs(r) == {("pyyaml", "./.env"), ("pyyaml", "~/.ssh/id_ed25519")} and not pairs(r, AP.CONFIRMED)   # waits for judgement
-    osv = proj / ".aasm/osv"; osv.mkdir(parents=True)
-    shutil.copy(proj / ".aasm/inputs/osv_GHSA-8q59-q68h-6hv4.json", osv / "GHSA-8q59-q68h-6hv4.json")
-    jdir = proj / ".aasm-ai"; jdir.mkdir()
+    osv = proj / ".aegis/osv"; osv.mkdir(parents=True)
+    shutil.copy(proj / ".aegis/inputs/osv_GHSA-8q59-q68h-6hv4.json", osv / "GHSA-8q59-q68h-6hv4.json")
+    jdir = proj / ".aegis-ai"; jdir.mkdir()
     good = {"judgements": [{"package": "pyyaml", "vuln": "GHSA-8q59-q68h-6hv4", "holds": True, "site": "app.py:9", "call": "yaml.full_load",
                             "condition": "untrusted YAML processed with full_load",
-                            "evidence": [{"file": ".aasm/osv/GHSA-8q59-q68h-6hv4.json", "quote": "through the full_load method or with the FullLoader loader"},
+                            "evidence": [{"file": ".aegis/osv/GHSA-8q59-q68h-6hv4.json", "quote": "through the full_load method or with the FullLoader loader"},
                                          {"file": "app.py", "quote": 'yaml.full_load(request.files["settings"].read())'}]}]}
     (jdir / "cve_judgments.json").write_text(json.dumps(good))
     j, errs = AP.load_judgements(proj)
@@ -76,16 +76,16 @@ with tempfile.TemporaryDirectory() as td:
     (jdir / "cve_judgments.json").write_text(json.dumps(bad))
     j, errs = AP.load_judgements(proj)
     assert not j and "not trusted text" in errs[0]
-    bad["judgements"][0]["evidence"][1] = {"file": ".aasm/inputs/guard_record.json", "quote": "Improper Input Validation"}
+    bad["judgements"][0]["evidence"][1] = {"file": ".aegis/inputs/guard_record.json", "quote": "Improper Input Validation"}
     (jdir / "cve_judgments.json").write_text(json.dumps(bad))
     assert "not trusted text" in AP.load_judgements(proj)[1][0]
 
     # S2: SafeLoader on a repo file -> judged false -> no path, listed with the reason
     proj, rec, prof = setup("S2", t)
-    (proj / ".aasm/osv").mkdir(parents=True)
-    shutil.copy(proj / ".aasm/inputs/osv_GHSA-8q59-q68h-6hv4.json", proj / ".aasm/osv/GHSA-8q59-q68h-6hv4.json")
-    (proj / ".aasm-ai").mkdir()
-    (proj / ".aasm-ai/cve_judgments.json").write_text(json.dumps({"judgements": [{
+    (proj / ".aegis/osv").mkdir(parents=True)
+    shutil.copy(proj / ".aegis/inputs/osv_GHSA-8q59-q68h-6hv4.json", proj / ".aegis/osv/GHSA-8q59-q68h-6hv4.json")
+    (proj / ".aegis-ai").mkdir()
+    (proj / ".aegis-ai/cve_judgments.json").write_text(json.dumps({"judgements": [{
         "package": "pyyaml", "vuln": "GHSA-8q59-q68h-6hv4", "holds": False, "condition_not_met": "reads only a file in the repo with SafeLoader",
         "evidence": [{"file": "app.py", "quote": "yaml.load(f, Loader=yaml.SafeLoader)"}]}]}))
     r = AP.run(proj, prof, rec)
@@ -138,9 +138,9 @@ with tempfile.TemporaryDirectory() as td:
     proj, rec, prof = setup("S1", t2)
     r = AP.build(rec, prof)
     osv_files = AP.save_osv(proj, r["pending_judgements"][0]["vuln_ids"],
-                            fetch=lambda vid: (TPL / "S1/.aasm/inputs/osv_GHSA-8q59-q68h-6hv4.json").read_bytes())
+                            fetch=lambda vid: (TPL / "S1/.aegis/inputs/osv_GHSA-8q59-q68h-6hv4.json").read_bytes())
     card = AP.cve_judgement_request(proj, r["pending_judgements"], osv_files)
-    assert ".aasm/osv/GHSA-8q59-q68h-6hv4.json" in card and "app.py:9 yaml.full_load" in card
+    assert ".aegis/osv/GHSA-8q59-q68h-6hv4.json" in card and "app.py:9 yaml.full_load" in card
     assert "def run(self)" not in card and "__import__" not in card                   # guard-record snippets stay out
 
 # model output reaching a code sink in the project's own code
@@ -180,8 +180,8 @@ def other():
     assert len(r["paths"]) == 3 and all(x["confidence"] == AP.POSSIBLE for x in r["paths"]) and len(r["pending_judgements"]) == 3
     card = AP.cve_judgement_request(p, r["pending_judgements"], {})
     assert "LLM reply → dangerous function" in card and "agent.py:9" in card and "advisory text" not in card
-    (p / ".aasm-ai").mkdir()
-    (p / ".aasm-ai/cve_judgments.json").write_text(json.dumps({"judgements": [
+    (p / ".aegis-ai").mkdir()
+    (p / ".aegis-ai/cve_judgments.json").write_text(json.dumps({"judgements": [
         {"kind": "llm_sink", "sink": "agent.py:9", "llm_call": "agent.py:8", "holds": True, "condition": "runs the reply text as a shell command",
          "evidence": [{"file": "agent.py", "quote": "subprocess.run(msg.content[0].text, shell=True)"}]},
         {"kind": "llm_sink", "sink": "agent.py:12", "llm_call": "agent.py:11", "holds": False, "condition_not_met": "assumed",

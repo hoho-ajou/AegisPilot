@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 GUARD_DIR = Path(__file__).resolve().parent
-MANIFEST_PATH = GUARD_DIR / "aasm_manifest.json"
+MANIFEST_PATH = GUARD_DIR / "aegis_manifest.json"
 
 # the files whose integrity matters: the hooks themselves, the scan/guard
 # modules they import, and the Skill definition. If any of these is missing

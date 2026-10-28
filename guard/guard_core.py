@@ -128,7 +128,7 @@ def _ask(project_dir: str, report: dict, popup: str, always_ask: bool = False) -
 def _scan_mcp_servers(servers: list, project_dir: str, agent) -> Decision | None:
     """The packages / scripts the new MCP servers' launch commands would run (mcp_scan.py); None = nothing to scan or the
     scan itself failed (the registration check below still asks about an unknown server)."""
-    if not servers or switches.get("AASM_MCP_SCAN", "1") == "0":     # 0: registration check only (offline tests)
+    if not servers or switches.get("AEGIS_MCP_SCAN", "1") == "0":     # 0: registration check only (offline tests)
         return None
     try:
         import mcp_scan
@@ -139,7 +139,7 @@ def _scan_mcp_servers(servers: list, project_dir: str, agent) -> Decision | None
 
 def _scan_plugins(specs: list, project_dir: str, agent, agent_name: str) -> Decision | None:
     """The plugins' files and MCP servers (plugin_scan.py); None = nothing to scan or the scan itself failed."""
-    if not specs or switches.get("AASM_MCP_SCAN", "1") == "0":     # the same switch: registration checks only
+    if not specs or switches.get("AEGIS_MCP_SCAN", "1") == "0":     # the same switch: registration checks only
         return None
     try:
         import plugin_scan
@@ -151,8 +151,8 @@ def _scan_plugins(specs: list, project_dir: str, agent, agent_name: str) -> Deci
 def _scan_config_write(file_path: str, proposed_text, servers: list, project_dir: str, agent) -> Decision | None:
     """One install decision over what a config write adds to an agent: the new MCP servers' launch commands
     (mcp_scan), new hook commands or hook scripts (hook_scan), plugins switched on (plugin_scan). None = nothing added,
-    scanning off (AASM_MCP_SCAN=0) or the scan itself failed (the checks after it still ask)."""
-    if switches.get("AASM_MCP_SCAN", "1") == "0":
+    scanning off (AEGIS_MCP_SCAN=0) or the scan itself failed (the checks after it still ask)."""
+    if switches.get("AEGIS_MCP_SCAN", "1") == "0":
         return None
     try:
         import tempfile
@@ -508,7 +508,7 @@ PROFILE_WAIT_SECONDS = 5.0
 
 
 def _attack_paths(project_dir, record: dict, thread, box: dict) -> None:
-    """Rule-only attack paths for this decision -> .aasm/attack_paths/<decision_id>.json (+ attack_paths.json, latest).
+    """Rule-only attack paths for this decision -> .aegis/attack_paths/<decision_id>.json (+ attack_paths.json, latest).
     No AI here: CVE judgements are only asked for when the user requests paths (guard_cli.py paths --judge)."""
     try:
         if thread is None:
@@ -520,12 +520,12 @@ def _attack_paths(project_dir, record: dict, thread, box: dict) -> None:
         import attack_path
         result = attack_path.run(project_dir, profile=box["doc"], record=record)
         result["profile_cache"] = box["doc"].get("cache")
-        d = Path(project_dir) / ".aasm" / "attack_paths"
+        d = Path(project_dir) / ".aegis" / "attack_paths"
         d.mkdir(parents=True, exist_ok=True)
         text = _json.dumps(result, ensure_ascii=False)
         if record.get("decision_id"):
             (d / f"{record['decision_id']}.json").write_text(text)
-        (Path(project_dir) / ".aasm" / "attack_paths.json").write_text(text)
+        (Path(project_dir) / ".aegis" / "attack_paths.json").write_text(text)
     except Exception:
         pass
 

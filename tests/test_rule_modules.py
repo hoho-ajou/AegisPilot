@@ -1,5 +1,5 @@
 """Rule modules on top of the base rules (guard/rule_modules.py): a person adds, replaces, tunes or switches
-off rules in ~/.aasm/rules/*.json without editing guard/rules; a broken module is skipped, never breaks the guard.
+off rules in ~/.aegis/rules/*.json without editing guard/rules; a broken module is skipped, never breaks the guard.
 run: python3 tests/test_rule_modules.py"""
 import json
 import os
@@ -47,11 +47,11 @@ def scan(rs, files, name="somepkg"):
 class Modules(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.dir = self.home / ".aasm" / "rules"
+        self.dir = self.home / ".aegis" / "rules"
         self.dir.mkdir(parents=True)
         self.env = mock.patch.dict(os.environ, {"HOME": str(self.home)})
         self.env.start()
-        os.environ.pop("AASM_RULE_MODULES", None)
+        os.environ.pop("AEGIS_RULE_MODULES", None)
         self.sysdir = mock.patch.object(rule_modules, "SYSTEM_DIR", self.home / "no-admin")
         self.sysdir.start()
 
@@ -144,7 +144,7 @@ class Modules(unittest.TestCase):
 
     def test_switched_off_and_system_install(self):
         self.module("corp", {"schema": 1, "signals": {"corp_marker": MARKER}, "rules": [MARKER_RULE]})
-        with mock.patch.dict(os.environ, {"AASM_RULE_MODULES": "0"}):    # development checkout: the environment works
+        with mock.patch.dict(os.environ, {"AEGIS_RULE_MODULES": "0"}):    # development checkout: the environment works
             self.assertEqual(self.load().modules, [])
         ro = Path(tempfile.mkdtemp())
         os.chmod(ro, 0o555)
@@ -155,7 +155,7 @@ class Modules(unittest.TestCase):
             os.chmod(ro, 0o755)
 
     def test_admin_folder_must_be_root_owned(self):
-        admin = self.home / "etc-aasm-rules"
+        admin = self.home / "etc-aegis-rules"
         admin.mkdir()
         (admin / "a.json").write_text(json.dumps({"schema": 1, "signals": {"corp_marker": MARKER}}))
         with mock.patch.object(rule_modules, "SYSTEM_DIR", admin):
@@ -167,7 +167,7 @@ class Tools(unittest.TestCase):
     def test_rule_check_runs_module_examples_and_verify_lists_modules(self):
         with tempfile.TemporaryDirectory() as t:
             home = Path(t)
-            d = home / ".aasm" / "rules"
+            d = home / ".aegis" / "rules"
             d.mkdir(parents=True)
             examples = {"static": {"corp_secret_marker": [
                 {"expect": "hit", "why": "marker", "files": {"pkg/a.py": "k = 'CORP-SECRET-0001'\n"}},
@@ -176,7 +176,7 @@ class Tools(unittest.TestCase):
                                                      "rules": [MARKER_RULE], "examples": examples}, ensure_ascii=False))
             (d / "broken.json").write_text("{")
             env = {**os.environ, "HOME": str(home)}
-            env.pop("AASM_RULE_MODULES", None)
+            env.pop("AEGIS_RULE_MODULES", None)
             r = subprocess.run([sys.executable, "-I", str(GUARD / "rule_check.py"), "--modules"], capture_output=True,
                                text=True, env=env)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)           # the broken module is a problem
@@ -196,14 +196,14 @@ class Tools(unittest.TestCase):
 
 class AgentWrites(unittest.TestCase):
     def test_agent_writing_a_module_is_stopped(self):
-        """~/.aasm/ is a protected path: a rule module written by an agent goes through the same card as the guard's own
+        """~/.aegis/ is a protected path: a rule module written by an agent goes through the same card as the guard's own
         files (in auto mode: a refusal with evidence and an ack id)."""
         with tempfile.TemporaryDirectory() as t:
             home = Path(t) / "home"
             home.mkdir()
-            env = {**os.environ, "HOME": str(home), "AASM_MODE": "user"}
-            target = home / ".aasm" / "rules" / "off.json"
-            for tool, inp in (("Bash", {"command": f"mkdir -p ~/.aasm/rules && echo '{{}}' > {target}"}),
+            env = {**os.environ, "HOME": str(home), "AEGIS_MODE": "user"}
+            target = home / ".aegis" / "rules" / "off.json"
+            for tool, inp in (("Bash", {"command": f"mkdir -p ~/.aegis/rules && echo '{{}}' > {target}"}),
                               ("Write", {"file_path": str(target), "content": "{\"schema\": 1}"})):
                 hook = "pretooluse_check.py" if tool == "Bash" else "pretooluse_editwrite_check.py"
                 ev = json.dumps({"tool_name": tool, "cwd": t, "tool_input": inp})

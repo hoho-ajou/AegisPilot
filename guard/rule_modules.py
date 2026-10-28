@@ -3,10 +3,10 @@ AegisPilot - rule modules layered on the base rules.
 
 The base rules (guard/rules/*.json) ship with the guard and change with it. A person or an administrator adds their own
 on top without touching them, one JSON file per module:
-  ~/.aasm/rules/*.json      the user's modules (a protected path: an agent that writes one is stopped like one that
+  ~/.aegis/rules/*.json      the user's modules (a protected path: an agent that writes one is stopped like one that
                             edits the guard). Not read by a system install (a guard the user cannot write), like
-                            ~/.aasm/config.json (switches.py).
-  /etc/aasm/rules/*.json    the administrator's modules: read only when the folder and the file are owned by root and
+                            ~/.aegis/config.json (switches.py).
+  /etc/aegis/rules/*.json    the administrator's modules: read only when the folder and the file are owned by root and
                             not writable by group or others. Applied after the user's, so they win.
 Files are applied in name order. A module that is not valid JSON, uses an unknown key, names something that does not
 exist, or leaves rules the engine cannot load is skipped as a whole and reported (guard_cli verify, rule_check
@@ -32,7 +32,7 @@ import os
 import stat
 from pathlib import Path
 
-SYSTEM_DIR = Path("/etc/aasm/rules")
+SYSTEM_DIR = Path("/etc/aegis/rules")
 FILES = ("signals", "rules", "scoring", "post", "behavior")
 KEYS = {"schema", "name", "about", "signals", "rules", "hard_rules", "post_rules", "findings", "set", "add", "disable",
         "examples"}
@@ -44,7 +44,7 @@ class ModuleError(Exception):
 
 
 def user_dir() -> Path:
-    return Path.home() / ".aasm" / "rules"
+    return Path.home() / ".aegis" / "rules"
 
 
 def _trusted(path: Path) -> bool:
@@ -59,7 +59,7 @@ def module_files() -> tuple[list[tuple[str, Path]], list[dict]]:
     """([(origin, file)] in the order they apply, [skipped file reports])."""
     import switches
     out, skipped = [], []
-    if switches.get("AASM_RULE_MODULES", "1") == "0":
+    if switches.get("AEGIS_RULE_MODULES", "1") == "0":
         return out, skipped
     if os.access(switches.GUARD_DIR, os.W_OK):           # a system install does not follow the user's modules
         d = user_dir()

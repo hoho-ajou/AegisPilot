@@ -9,7 +9,7 @@ repair restores the official files and keeps what it replaced:
      folder with that commit's scripts/build_dist.py. A plugin build (BUILD_INFO "layout": "plugin") is the
      public repository itself: its release tag (BUILD_INFO "ref") is fetched and used as it is
   2. every file that differs from the source, and every file the source does not have (.py .pth .json .pyc), is copied
-     to ~/.aasm/quarantine/<time>/ before anything is changed
+     to ~/.aegis/quarantine/<time>/ before anything is changed
   3. the source's files are copied over, extra files removed, and the result is checked again
 
 What is "official" is never decided by whoever runs it: the source is the official commit (or --from), checked

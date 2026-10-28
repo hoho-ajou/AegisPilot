@@ -1,13 +1,13 @@
 """Run the detectors on the benchmark datasets (build_datasets.py), offline, on the same files.
 
-usage: python3 -I benchmark/run_eval.py aasm|guarddog|osv [--limit N] [--only DATASET] [--tag TAG] [--manifests SUFFIX]
+usage: python3 -I benchmark/run_eval.py aegis|guarddog|osv [--limit N] [--only DATASET] [--tag TAG] [--manifests SUFFIX]
   results/<tool>.jsonl   one line per item: dataset, group, name, version, verdict, rules, seconds (appended, resumable)
-  --tag TAG              write results/<tool>-<TAG>.jsonl instead (e.g. aasm-behavior: the behavior analysis run, kept
-                         apart from the frozen aasm.jsonl it is compared with)
+  --tag TAG              write results/<tool>-<TAG>.jsonl instead (e.g. aegis-behavior: the behavior analysis run, kept
+                         apart from the frozen aegis.jsonl it is compared with)
   --manifests SUFFIX     read manifest-mal-SUFFIX.json / manifest-benign-SUFFIX.json (e.g. the held-out "eval" set)
 
 Tools:
-  aasm       the guard's code rules on the files (scan_engine.scan_local_file / scan_files; npm: install scripts too).
+  aegis       the guard's code rules on the files (scan_engine.scan_local_file / scan_files; npm: install scripts too).
              No PyPI metadata, no OSV, no ML - the same inputs GuardDog gets for a local scan.
   guarddog   DataDog GuardDog 3.x on the same file / folder (local scan, no metadata rules, kernel sandbox on)
   osv        OSV lookup by name + version (MAL- records = known malicious; the "known ID lookup" baseline and the guard's
@@ -29,8 +29,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "guard"))
-os.environ.setdefault("AASM_ML", "0")
-BENCH = Path(os.environ.get("AASM_BENCH", str(REPO.parent / "research" / "bench")))
+os.environ.setdefault("AEGIS_ML", "0")
+BENCH = Path(os.environ.get("AEGIS_BENCH", str(REPO.parent / "research" / "bench")))
 OUT = BENCH / "results"
 GUARDDOG = BENCH / "gd-venv" / "bin" / "guarddog"
 
@@ -51,7 +51,7 @@ def _ecosystem(it: dict) -> str:
     return "npm" if it["dataset"] in ("dd-npm", "benign-npm") else "pypi"
 
 
-# --------------------------------------------------------------------------------------------------------------- aasm
+# --------------------------------------------------------------------------------------------------------------- aegis
 
 def _wheel_view(sample: Path, tmp: Path) -> list[Path] | None:
     """A Datadog compromised_lib sample is a copy of an installed site-packages folder: re-root it at the folder that
@@ -68,7 +68,7 @@ def _wheel_view(sample: Path, tmp: Path) -> list[Path] | None:
     return sorted(view.rglob("*"))
 
 
-def aasm_one(it: dict) -> dict:
+def aegis_one(it: dict) -> dict:
     import safe_extract
     import scan_engine as se
     from sources import npm
@@ -163,7 +163,7 @@ def osv_all(its: list[dict]) -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("tool", choices=["aasm", "guarddog", "osv"])
+    ap.add_argument("tool", choices=["aegis", "guarddog", "osv"])
     ap.add_argument("--limit", type=int)
     ap.add_argument("--only")
     ap.add_argument("--tag", default="")
@@ -187,9 +187,9 @@ def main() -> int:
     todo = [it for it in its if (it["dataset"], it["name"], it.get("version")) not in done]
     print(f"{a.tool}: {len(todo)} to do ({len(done)} already)", flush=True)
     with out_path.open("a") as fh:
-        if a.tool == "aasm":
+        if a.tool == "aegis":
             with Pool(2, maxtasksperchild=50) as pool:
-                for n, r in enumerate(pool.imap_unordered(aasm_one, todo, chunksize=2), 1):
+                for n, r in enumerate(pool.imap_unordered(aegis_one, todo, chunksize=2), 1):
                     fh.write(json.dumps(r, ensure_ascii=False) + "\n")
                     fh.flush()
                     if n % 200 == 0:

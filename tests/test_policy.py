@@ -45,16 +45,16 @@ scan_engine.scan_packages = fake
     code = f"import sys, runpy\nsys.path.insert(0, {str(IMPL)!r})\n{patch}\nrunpy.run_path({str(IMPL / 'hooks/pretooluse_check.py')!r}, run_name='__main__')\n"
     ev = {"tool_name": "Bash", "cwd": str(project), "tool_input": {"command": command}}
     r = subprocess.run([sys.executable, "-c", code], input=json.dumps(ev), capture_output=True, text=True, timeout=60,
-                       env={**os.environ, "AASM_MODE": mode, "AASM_SYSTEM_POLICY": str(project / "no-system-policy.json")})
+                       env={**os.environ, "AEGIS_MODE": mode, "AEGIS_SYSTEM_POLICY": str(project / "no-system-policy.json")})
     out = json.loads(r.stdout)["hookSpecificOutput"] if r.stdout.strip() else None
-    rec = json.loads((project / ".aasm/last_review.json").read_text())
+    rec = json.loads((project / ".aegis/last_review.json").read_text())
     return out, rec
 
 
 with tempfile.TemporaryDirectory() as t:
     proj = Path(t)
-    (proj / ".aasm").mkdir()
-    (proj / ".aasm/policy.json").write_text(json.dumps({
+    (proj / ".aegis").mkdir()
+    (proj / ".aegis/policy.json").write_text(json.dumps({
         "deny": [{"package": "leftpad", "versions": "*", "reason": "banned internally", "approver": "security team"}],
         "allow": [{"package": "corp-utils", "version": "1.4.2", "reason": "internal service", "approver": "team lead", "expires": "2099-01-01"}]}))
     # allowed REVIEW -> silent pass, recorded with who allowed it
@@ -76,12 +76,12 @@ with tempfile.TemporaryDirectory() as t:
     # the system file wins and the agent cannot weaken it from the project
     sysfile = proj / "system.json"
     sysfile.write_text(json.dumps({"deny": [{"package": "corp-utils", "versions": "*", "reason": "banned company-wide"}]}))
-    os.environ["AASM_SYSTEM_POLICY"] = str(sysfile)
+    os.environ["AEGIS_SYSTEM_POLICY"] = str(sysfile)
     import importlib; importlib.reload(P)
     v, n = P.decide(P.load(proj), "corp-utils", "1.4.2", "NEEDS_HUMAN_REVIEW")
     assert v == "BLOCK" and n["source"] == "system"
     # a broken policy file changes nothing (and says so)
-    (proj / ".aasm/policy.json").write_text("{broken")
+    (proj / ".aegis/policy.json").write_text("{broken")
     assert P.load(proj)["notes"]
 
 print("policy: all cases passed")

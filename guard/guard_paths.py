@@ -17,8 +17,8 @@ from pathlib import Path
 # matches, not exact paths, since both can appear relative, absolute, or ~-expanded.
 GUARD_DIR = Path(__file__).resolve().parent
 GUARD_FRAGMENTS = [
-    "agent-dependency-guard/",
-    ".aasm/",   # last_review.json and reports/ are what the user is told to trust (agent-writable otherwise)
+    "aegis-pilot/",
+    ".aegis/",   # last_review.json and reports/ are what the user is told to trust (agent-writable otherwise)
     str(GUARD_DIR) + "/",   # where this copy really is (a plugin lives in the agent's plugin cache)
 ]
 
@@ -35,7 +35,7 @@ def guard_own_fragments() -> list[str]:
 
 def _fragment_in(frag: str, text: str) -> bool:
     """`frag` in a shell command. A folder fragment ("x/") also matches the folder named without the slash
-    (`rm -rf .aasm`, `mv <guard dir> /tmp`), but not a longer name that starts the same (`.aasmx`)."""
+    (`rm -rf .aegis`, `mv <guard dir> /tmp`), but not a longer name that starts the same (`.aegisx`)."""
     if frag in text:
         return True
     if frag.endswith("/"):
@@ -48,7 +48,7 @@ def _plugin_names() -> tuple[set, set]:
     the plugin cache it sits in (~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/), plus the default names
     (the plugin and marketplace since 2026-10-25, and the folder name of a manual install)."""
     import json
-    plugins, markets = {"aegis-pilot", "agent-dependency-guard"}, {"hoho-ajou"}
+    plugins, markets = {"aegis-pilot"}, {"hoho-ajou"}
     if len(GUARD_DIR.parents) > 3 and GUARD_DIR.parents[2].name == "cache" and GUARD_DIR.parents[3].name == "plugins":
         markets.add(GUARD_DIR.parents[1].name)
     try:
@@ -87,7 +87,7 @@ def command_changes_guard_install(command: str) -> bool:
 
 
 def path_is_guard_own(path_text: str) -> bool:
-    """The guard itself - its files, its records and its settings (.aasm/, ~/.aasm/) - as opposed to the agent's own
+    """The guard itself - its files, its records and its settings (.aegis/, ~/.aegis/) - as opposed to the agent's own
     settings, which are protected too but may be changed for other reasons."""
     return any(frag in path_text for frag in guard_own_fragments())
 

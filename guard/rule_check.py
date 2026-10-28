@@ -8,7 +8,7 @@ of every rule, from the rule files themselves (so the list cannot drift from wha
 
 usage: python3 rule_check.py [--rules DIR]          run every example (exit 1 on any failure)
        python3 rule_check.py --doc [--check]        write RULES.md (--check: exit 1 if it is stale instead)
-       python3 rule_check.py --modules              the rule modules on top (~/.aasm/rules, /etc/aasm/rules): which apply,
+       python3 rule_check.py --modules              the rule modules on top (~/.aegis/rules, /etc/aegis/rules): which apply,
                                                     why one is skipped, and each module's own "examples"
 The first two read the base rules only (rule modules off); --modules reads the rules as the guard uses them.
 
@@ -333,16 +333,16 @@ def render_doc(rules_dir: Path) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Run the rule examples and build the rule list (RULES.md)")
-    ap.add_argument("--rules", help="rules folder (default: guard/rules or AASM_RULES_DIR)")
+    ap.add_argument("--rules", help="rules folder (default: guard/rules or AEGIS_RULES_DIR)")
     ap.add_argument("--doc", action="store_true", help="write RULES.md")
     ap.add_argument("--check", action="store_true", help="with --doc: only check that it is up to date, do not write")
     ap.add_argument("--modules", action="store_true",
-                    help="check the rule modules on top of the base rules (~/.aasm/rules, /etc/aasm/rules) and run their examples")
+                    help="check the rule modules on top of the base rules (~/.aegis/rules, /etc/aegis/rules) and run their examples")
     args = ap.parse_args(argv)
     if args.rules:
-        os.environ["AASM_RULES_DIR"] = str(Path(args.rules).resolve())
+        os.environ["AEGIS_RULES_DIR"] = str(Path(args.rules).resolve())
     if not args.modules:                                 # the base rules and their examples / RULES.md: no modules
-        os.environ["AASM_RULE_MODULES"] = "0"
+        os.environ["AEGIS_RULE_MODULES"] = "0"
     sys.path.insert(0, str(GUARD))
     import rule_engine
     if args.modules:
@@ -354,7 +354,7 @@ def main(argv=None) -> int:
         for line in lines:
             print(line)
         if not lines and not problems:
-            print("no rule modules (~/.aasm/rules/*.json, admin /etc/aasm/rules/*.json)")
+            print("no rule modules (~/.aegis/rules/*.json, admin /etc/aegis/rules/*.json)")
         for p in problems:
             print(f"  - {p}")
         return 1 if problems else 0

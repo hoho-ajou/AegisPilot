@@ -1,10 +1,10 @@
 """
-AegisPilot - opt-in cache of scan verdicts for exact package versions (AASM_CACHE=1; off by default).
+AegisPilot - opt-in cache of scan verdicts for exact package versions (AEGIS_CACHE=1; off by default).
 
 Re-running an install (e.g. after an agent fixed one line) rescans every package. With the cache on, a (name, exact version)
 scanned in the last TTL_SECONDS is reused.
 
-Why it is off by default: the cache lives in a folder the agent can write (<project>/.aasm/cache/), so a forged "ALLOW"
+Why it is off by default: the cache lives in a folder the agent can write (<project>/.aegis/cache/), so a forged "ALLOW"
 entry would skip the scan. The folder is a protected path (writing it through the agent's tools asks the person first),
 entries are plain JSON (never pickle: unpickling a writable file is code execution), only exact versions are cached
 ("latest" moves), entries expire, and an entry made under other rules (a guard update, a rule module) is not
@@ -26,7 +26,7 @@ MAX_ENTRIES = 2000
 
 def enabled() -> bool:
     import switches
-    return switches.get("AASM_CACHE", "0") == "1"           # built guard: system config only
+    return switches.get("AEGIS_CACHE", "0") == "1"           # built guard: system config only
 
 
 def _key(name: str, version: str | None) -> str | None:
@@ -42,7 +42,7 @@ def _rules() -> str:
 
 
 def _path(project_dir) -> Path:
-    return Path(project_dir) / ".aasm" / "cache" / "verdicts.json"
+    return Path(project_dir) / ".aegis" / "cache" / "verdicts.json"
 
 
 def _load(project_dir) -> dict:

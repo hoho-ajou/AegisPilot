@@ -3,8 +3,8 @@ AegisPilot - attack paths: from a package the guard flagged to the assets it cou
 
   package -> finding -> capability -> [code location] -> principal -> asset [-> impact]
 
-Inputs: the guard record (.aasm/last_review.json), the environment Profile (env_profile.collect: principals, assets,
-MCP servers, the code under development) and, optionally, AI judgements about CVEs (.aasm-ai/cve_judgments.json).
+Inputs: the guard record (.aegis/last_review.json), the environment Profile (env_profile.collect: principals, assets,
+MCP servers, the code under development) and, optionally, AI judgements about CVEs (.aegis-ai/cve_judgments.json).
 Everything is decided by rules except one question: "does this CVE's attack condition hold in our code?". That answer
 comes from the user's agent (cve_judgement_request()), is accepted only when every quoted piece of evidence really is in
 the cited file, and only ever reads trusted text: the OSV advisory, the user's own code, and fixed values from the guard
@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 CONFIRMED, POSSIBLE = "confirmed", "possible"
-JUDGEMENTS_FILE = ".aasm-ai/cve_judgments.json"      # outside .aasm/ on purpose: writing it must not trip the guard's
+JUDGEMENTS_FILE = ".aegis-ai/cve_judgments.json"      # outside .aegis/ on purpose: writing it must not trip the guard's
                                                        # protected-path check, and it never changes a verdict
 
 # What each guard finding means for a path, the capabilities' wording and context, asset tiers and impacts: all in
@@ -201,7 +201,7 @@ def load_judgements(project: Path) -> tuple[dict, list[str]]:
     return out, errors
 
 
-_ALLOWED_EVIDENCE_DIRS = (".aasm/osv/",)          # trusted text the CLI saved (OSV advisories); the rest must be project code
+_ALLOWED_EVIDENCE_DIRS = (".aegis/osv/",)          # trusted text the CLI saved (OSV advisories); the rest must be project code
 
 
 def verify_evidence(project: Path, evidence) -> list[str]:
@@ -214,13 +214,13 @@ def verify_evidence(project: Path, evidence) -> list[str]:
     for e in evidence:
         f, q = str((e or {}).get("file", "")), str((e or {}).get("quote", ""))
         path = (project / f).resolve()
-        rel = f.replace("\\", "/").lstrip("./") if not f.startswith(".aasm") else f.replace("\\", "/")
+        rel = f.replace("\\", "/").lstrip("./") if not f.startswith(".aegis") else f.replace("\\", "/")
         if project.resolve() not in path.parents or not path.is_file():
             bad.append(f"evidence file '{f}' is not in the project")
             continue
         parts = path.relative_to(project.resolve()).parts
         if any(p in (".venv", "venv", "site-packages", "node_modules") for p in parts) or \
-                (parts[0].startswith(".aasm") and not any(rel.startswith(d) for d in _ALLOWED_EVIDENCE_DIRS)):
+                (parts[0].startswith(".aegis") and not any(rel.startswith(d) for d in _ALLOWED_EVIDENCE_DIRS)):
             bad.append(f"evidence file '{f}' is not trusted text (installed package or guard record)")
             continue
         raw = path.read_text(errors="replace")
@@ -509,7 +509,7 @@ def build(record: dict, profile: dict, judgements: dict | None = None) -> dict:
             pending.append({"type": "llm_sink", "llm_call": c["llm_call"], "sdk": c["sdk"], "sink": c["sink"],
                             "sink_call": c["sink_call"], "symbol": c["symbol"]})
     paths = _enumerate(g)
-    return {"schema": "aasm-attack-paths/0.1", "nodes": list(g.nodes.values()), "edges": g.edges, "paths": paths,
+    return {"schema": "aegis-attack-paths/0.1", "nodes": list(g.nodes.values()), "edges": g.edges, "paths": paths,
             "bottlenecks": _bottlenecks(g, paths), "not_reachable": not_reachable, "pending_judgements": pending,
             "findings_without_path": findings_only}
 
@@ -621,11 +621,11 @@ def report_text(result: dict, max_paths: int = 12) -> str:
 # ---- AI judgement request ----------------------------------------------------------------------------------------------
 
 def save_osv(project: Path, vuln_ids: list[str], fetch=None) -> dict:
-    """Fetch the OSV advisories (trusted text) into .aasm/osv/ so the judgement can quote them. {id: relative path}."""
+    """Fetch the OSV advisories (trusted text) into .aegis/osv/ so the judgement can quote them. {id: relative path}."""
     import urllib.request
     fetch = fetch or (lambda vid: urllib.request.urlopen(f"https://api.osv.dev/v1/vulns/{vid}", timeout=15).read())
     out = {}
-    d = project / ".aasm" / "osv"
+    d = project / ".aegis" / "osv"
     for vid in vuln_ids:
         if not re.fullmatch(r"[A-Za-z0-9._-]{3,80}", vid or ""):
             continue

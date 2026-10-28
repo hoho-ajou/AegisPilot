@@ -191,7 +191,7 @@ class Protection(unittest.TestCase):
     def test_commands(self):
         name, market = PLUGIN["name"], MARKET["name"]
         hit = [f"claude plugin disable {name}@{market}", f"claude plugin uninstall {name}",
-               f"cd x; claude plugin uninstall {name} --scope project", "claude plugin uninstall agent-dependency-guard",
+               f"cd x; claude plugin uninstall {name} --scope project", "claude plugin uninstall aegis-pilot",
                f"claude plugin marketplace remove {market}"]
         miss = ["claude plugin list", f"claude plugin install {name}@{market}",
                 "claude plugin disable formatter@x", "echo claude && pip install x"]

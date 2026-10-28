@@ -12,14 +12,14 @@ from pathlib import Path
 
 IMPL = Path(__file__).resolve().parents[1] / "guard"
 HOOK = IMPL / "hooks" / "pretooluse_editwrite_check.py"
-_HOME = tempfile.mkdtemp()                                     # the snapshot lives in ~/.aasm (mcp_guard.SNAPSHOT_PATH)
-SNAP = Path(_HOME) / ".aasm" / "mcp_snapshot.json"
+_HOME = tempfile.mkdtemp()                                     # the snapshot lives in ~/.aegis (mcp_guard.SNAPSHOT_PATH)
+SNAP = Path(_HOME) / ".aegis" / "mcp_snapshot.json"
 FS = {"command": "npx", "args": ["@modelcontextprotocol/server-filesystem"]}
 
 
 def run(event: dict) -> str:
-    # AASM_MCP_SCAN=0: this file tests which MCP entries are new; scanning their packages is tests/test_mcp_scan.py (offline)
-    env = {**os.environ, "AASM_MCP_SCAN": "0", "AASM_MODE": "user", "HOME": _HOME}   # the approval-window texts (auto: test_auto_events.py)
+    # AEGIS_MCP_SCAN=0: this file tests which MCP entries are new; scanning their packages is tests/test_mcp_scan.py (offline)
+    env = {**os.environ, "AEGIS_MCP_SCAN": "0", "AEGIS_MODE": "user", "HOME": _HOME}   # the approval-window texts (auto: test_auto_events.py)
     out = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event), capture_output=True, text=True, env=env).stdout.strip()
     return json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"] if out else ""
 
@@ -56,7 +56,7 @@ try:
     with tempfile.TemporaryDirectory() as d:
         r = run({"tool_name": "Edit", "cwd": d, "tool_input": {"file_path": "/p/.claude/settings.json", "old_string": "a", "new_string": "b"}})
         assert r.startswith("[AegisPilot] Guard setting change") and "If approved" in r and len(r) <= 200, r
-        assert json.loads((Path(d) / ".aasm" / "last_review.json").read_text())["kind"] == "protected_path"
+        assert json.loads((Path(d) / ".aegis" / "last_review.json").read_text())["kind"] == "protected_path"
         assert run({"tool_name": "Write", "cwd": d, "tool_input": {"file_path": "/p/readme.md", "content": "x"}}) == ""
 
     # package index configs written with the file tools (the shell route was already caught by install_parse)
@@ -65,7 +65,7 @@ try:
         r = run({"tool_name": "Write", "cwd": d, "tool_input": {"file_path": str(conf),
                  "content": "[global]\nindex-url = https://evil.example/simple\n"}})
         assert "Package index setting changed" in r and "evil.example" in r and len(r) <= 200, r
-        assert json.loads((Path(d) / ".aasm" / "last_review.json").read_text())["kind"] == "index_config"
+        assert json.loads((Path(d) / ".aegis" / "last_review.json").read_text())["kind"] == "index_config"
         assert run({"tool_name": "Write", "cwd": d, "tool_input": {"file_path": str(conf),
                     "content": "[global]\nindex-url = https://pypi.org/simple\ntimeout = 30\n"}}) == ""
         # an index already in the file is not asked again on an unrelated edit; a new one is

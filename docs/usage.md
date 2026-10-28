@@ -46,23 +46,23 @@ The default is `user` mode: you decide on every REVIEW and BLOCK. `auto` mode is
 | BLOCK | The command is refused. A report is shown and the agent asks you what to do. | The command is refused. The agent gets the evidence card and an ack id, and decides; it can go ahead after `guard_cli.py ack <id>`. |
 | Actions on the guard itself | Claude Code's approval dialog. You decide. | Claude Code's approval dialog. You decide. |
 
-In `auto` mode the agent is told to start its final answer with a one-line summary per package (for example `[AegisPilot] pyyaml 5.3.1 blocked · CRITICAL · upgrade to >=5.4`). That line comes from the agent, so you see it only if the agent follows the instruction. The full record is always in `.aasm/reviews/` (see below). Because the agent can go ahead after a BLOCK in this mode, use `auto` only where an unattended run matters more than a person seeing every BLOCK.
+In `auto` mode the agent is told to start its final answer with a one-line summary per package (for example `[AegisPilot] pyyaml 5.3.1 blocked · CRITICAL · upgrade to >=5.4`). That line comes from the agent, so you see it only if the agent follows the instruction. The full record is always in `.aegis/reviews/` (see below). Because the agent can go ahead after a BLOCK in this mode, use `auto` only where an unattended run matters more than a person seeing every BLOCK.
 
-To switch, create `.aasm/policy.json` in the project:
+To switch, create `.aegis/policy.json` in the project:
 
 ```json
 {"mode": "auto"}
 ```
 
-or set the environment variable `AASM_MODE=auto` (or `user`).
+or set the environment variable `AEGIS_MODE=auto` (or `user`).
 
 Precedence:
 
-1. `AASM_MODE`, if set. An unknown value selects `user`.
-2. `"mode"` in `<project>/.aasm/policy.json`. A file that exists but cannot be read, or has an unknown or missing `"mode"`, selects `user`.
+1. `AEGIS_MODE`, if set. An unknown value selects `user`.
+2. `"mode"` in `<project>/.aegis/policy.json`. A file that exists but cannot be read, or has an unknown or missing `"mode"`, selects `user`.
 3. Otherwise `user`.
 
-A mistake in the setting, or a deleted policy file, never selects the mode that shows you less. `.aasm/policy.json` is a protected path: when the agent edits it, AegisPilot asks you.
+A mistake in the setting, or a deleted policy file, never selects the mode that shows you less. `.aegis/policy.json` is a protected path: when the agent edits it, AegisPilot asks you.
 
 ## Why was this stopped?
 
@@ -72,8 +72,8 @@ The records are in the project folder:
 
 | File | Contents |
 | --- | --- |
-| `.aasm/last_review.json` | the latest decision |
-| `.aasm/reviews/<decision id>.json` | each decision by its id (for example `D7f3a`). The last 200 are kept. |
+| `.aegis/last_review.json` | the latest decision |
+| `.aegis/reviews/<decision id>.json` | each decision by its id (for example `D7f3a`). The last 200 are kept. |
 
 Packages in a decision are numbered `P01`, `P02`, and so on.
 
@@ -82,7 +82,7 @@ To print the latest decision in a terminal, run this from the project folder:
 ```bash
 python3 <guard>/guard_cli.py report              # short report
 python3 <guard>/guard_cli.py report --full       # every field
-python3 <guard>/guard_cli.py report --format md  # writes .aasm/reports/<time>_<package>-<version>_<verdict>.md
+python3 <guard>/guard_cli.py report --format md  # writes .aegis/reports/<time>_<package>-<version>_<verdict>.md
 ```
 
 `<guard>` is the plugin folder or the `guard/` folder of your clone.
@@ -111,7 +111,7 @@ Rules for an ack:
 
 User mode does not use acks. Actions on the guard itself never get an ack (see below).
 
-Acks are stored in `~/.aasm/acks.json`.
+Acks are stored in `~/.aegis/acks.json`.
 
 ## Attack paths
 
@@ -127,9 +127,9 @@ python3 <guard>/guard_cli.py paths --project .
 | `--json` | print the result as JSON |
 | `--judge` | when CVEs need a judgement of whether they apply to this project, print the request for the agent |
 
-With `--judge`, the agent reads only the advisory files saved under `.aasm/osv/` and the project's own code, writes its quoted evidence to `.aasm-ai/cve_judgments.json`, and runs `paths` again. Quotes that do not match the files are rejected.
+With `--judge`, the agent reads only the advisory files saved under `.aegis/osv/` and the project's own code, writes its quoted evidence to `.aegis-ai/cve_judgments.json`, and runs `paths` again. Quotes that do not match the files are rejected.
 
-The result is saved to `.aasm/attack_paths.json` and `.aasm/attack_paths/<decision id>.json`. Attack paths are an explanation only. They never change a verdict.
+The result is saved to `.aegis/attack_paths.json` and `.aegis/attack_paths/<decision id>.json`. Attack paths are an explanation only. They never change a verdict.
 
 To see the environment profile on its own:
 
@@ -145,7 +145,7 @@ Some actions would turn the guard off or change it. For these, AegisPilot always
 
 These actions are:
 
-- editing, moving or deleting guard files, the installed plugins folder, `.aasm/` in a project, or `~/.aasm/`;
+- editing, moving or deleting guard files, the installed plugins folder, `.aegis/` in a project, or `~/.aegis/`;
 - `claude plugin disable` or `claude plugin uninstall` of `aegis-pilot`, or removing its marketplace;
 - editing an agent settings file so that a guard hook disappears, the plugin is disabled (`"enabledPlugins"` set to `false`), or `"disableAllHooks"` is turned on;
 - shell commands that write agent settings files;

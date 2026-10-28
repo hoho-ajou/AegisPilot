@@ -23,8 +23,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
-import switches  # noqa: E402  (AASM_RULES_DIR: a built guard reads it from the system config only)
-RULES_DIR = Path(switches.get("AASM_RULES_DIR") or str(Path(__file__).resolve().parent / "rules"))
+import switches  # noqa: E402  (AEGIS_RULES_DIR: a built guard reads it from the system config only)
+RULES_DIR = Path(switches.get("AEGIS_RULES_DIR") or str(Path(__file__).resolve().parent / "rules"))
 DETECTORS = {"startup", "keyword_count", "chain", "entropy_blocks", "first_line", "setup_local_imports", "placement"}
 PLACEMENT_CHECKS = {"command_shadowing", "sourceless_bytecode", "environment_index"}
 POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "osv_unavailable", "typosquat", "new_package"}

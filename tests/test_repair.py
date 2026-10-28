@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory() as t:
                        capture_output=True, text=True, stdin=subprocess.DEVNULL, env={**os.environ, "HOME": str(home)})
     assert p.returncode == 0 and "Check after repair: OK" in p.stdout, p.stdout + p.stderr
     assert integrity.check_release(target) == []
-    q = next((home / ".aasm" / "quarantine").iterdir())
+    q = next((home / ".aegis" / "quarantine").iterdir())
     assert (q / "json.py").read_text().startswith("raise") and '"block": 0.99' in (q / "rules" / "scoring.json").read_text()
     assert json.loads((q / "REPAIR.json").read_text())["remove"] == ["json.py"]
 

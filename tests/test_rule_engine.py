@@ -144,9 +144,9 @@ class ChangeTheFileNotTheCode(unittest.TestCase):
 def run_with_rules(d: Path | None, code: str) -> dict:
     """Run `code` in a fresh interpreter whose guard modules load the rules from `d` (None = the built-in ones);
     the code assigns `out`, which comes back as JSON."""
-    env = dict(os.environ, AASM_ML="0")
+    env = dict(os.environ, AEGIS_ML="0")
     if d is not None:
-        env["AASM_RULES_DIR"] = str(d)
+        env["AEGIS_RULES_DIR"] = str(d)
     prog = f"import sys, json\nsys.path.insert(0, {str(GUARD)!r})\n{code}\nprint(json.dumps(out))\n"
     p = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, env=env, timeout=60)
     assert p.returncode == 0, p.stderr
@@ -214,7 +214,7 @@ class BrokenRulesNeverPass(unittest.TestCase):
         edit(d, "rules", lambda r: r["rules"].append({"id": "x", "detector": "nope"}))
         event = {"session_id": "t", "cwd": tempfile.mkdtemp(), "hook_event_name": "PreToolUse", "tool_name": "Bash",
                  "tool_input": {"command": "pip install six"}}
-        env = dict(os.environ, AASM_RULES_DIR=str(d), AASM_MODE="auto", AASM_ML="0")
+        env = dict(os.environ, AEGIS_RULES_DIR=str(d), AEGIS_MODE="auto", AEGIS_ML="0")
         p = subprocess.run([sys.executable, str(GUARD / "hooks" / "pretooluse_check.py")], input=json.dumps(event),
                            capture_output=True, text=True, env=env, timeout=120)
         out = json.loads(p.stdout)["hookSpecificOutput"]

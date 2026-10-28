@@ -53,7 +53,7 @@ assert guard_paths.file_path_is_protected("/p/.claude/settings.json")           
 assert guard_paths.file_path_is_protected("/p/.codex/hooks.json", codex)
 assert guard_paths.file_path_is_protected("/p/.claude/settings.json", codex)                # 3) every agent's settings
 assert guard_paths.file_path_is_protected("/p/.codex/hooks.json", claude_code)
-assert guard_paths.file_path_is_protected("/x/agent-dependency-guard/scan_engine.py", codex)   # the guard's own files: always
+assert guard_paths.file_path_is_protected("/x/aegis-pilot/scan_engine.py", codex)   # the guard's own files: always
 
 
 def run(script: str, event: dict, patch: str = ""):
@@ -64,7 +64,7 @@ sys.path.insert(0, {str(IMPL)!r})
 runpy.run_path({str(IMPL / 'hooks' / script)!r}, run_name="__main__")
 """
     r = subprocess.run([sys.executable, "-c", code], input=json.dumps(event), capture_output=True, text=True, timeout=60,
-                       env={**os.environ, "AASM_MODE": "user"})
+                       env={**os.environ, "AEGIS_MODE": "user"})
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)["hookSpecificOutput"] if r.stdout.strip() else None
 

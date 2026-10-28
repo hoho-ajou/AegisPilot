@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 HOME = tempfile.mkdtemp()
-os.environ.update({"HOME": HOME, "AASM_ML": "0", "AASM_MODE": "auto"})
+os.environ.update({"HOME": HOME, "AEGIS_ML": "0", "AEGIS_MODE": "auto"})
 for k in ("PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "UV_INDEX_URL", "PIP_CONFIG_FILE", "VIRTUAL_ENV"):
     os.environ.pop(k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory() as d:
     assert index_trust.norm(CORP) in state()["trusted"]
     # a company package that PyPI does not have: installed from that mirror, recorded as such, not a card
     assert cmd("pip install corp-utils").action == "allow"
-    rec = json.loads(Path(d, ".aasm", "last_review.json").read_text())["packages"][0]
+    rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())["packages"][0]
     assert rec.get("internal_index") and rec["verdict"] == "ALLOW", rec
     # the same mirror named in the command is still the person's own
     assert cmd(f"pip install -i {CORP} requests").action == "allow"
@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as d:
     set_pip_conf(EVIL)                                       # what that command does on disk
     r = cmd("pip install requests")
     assert r.action == "refuse" and "index added by the agent" in json.dumps(
-        json.loads(Path(d, ".aasm", "last_review.json").read_text()), ensure_ascii=False), r
+        json.loads(Path(d, ".aegis", "last_review.json").read_text()), ensure_ascii=False), r
 
     # 4. through the file tools: the URL is read from the new text
     other = "https://other.example/simple"
@@ -92,12 +92,12 @@ with tempfile.TemporaryDirectory() as d:
     assert index_trust.norm(CORP) in state()["trusted"]      # the person's mirror stays trusted
 
     # 6. user mode: the agent's index is the person's question, the person's own index is nothing to ask about
-    os.environ["AASM_MODE"] = "user"
+    os.environ["AEGIS_MODE"] = "user"
     set_pip_conf(EVIL)
     assert cmd("pip install requests").action == "confirm"
     set_pip_conf(CORP)
     assert cmd("pip install requests").action == "allow"
-    os.environ["AASM_MODE"] = "auto"
+    os.environ["AEGIS_MODE"] = "auto"
 
     # 7. npm: the person's .npmrc registry is trusted, one chosen in the command is not, one the agent set is not
     reg = "https://npm.corp.example"

@@ -14,12 +14,12 @@ folder of the checkout.
 ## Explaining a decision (/aegis, "why?")
 
 Every decision is written to the project directory of the session:
-- `.aasm/reviews/<decision id>.json`: one file per decision. Guard messages end with `(decision id: D....)`.
-- `.aasm/last_review.json`: a copy of the most recent decision.
+- `.aegis/reviews/<decision id>.json`: one file per decision. Guard messages end with `(decision id: D....)`.
+- `.aegis/last_review.json`: a copy of the most recent decision.
 
 1. Find the decision the user means.
-   - If the guard message the user refers to shows a decision id, read `.aasm/reviews/<that id>.json` with the Read tool.
-   - Otherwise read `.aasm/last_review.json`, and check that `generated_at` and `command` match what the user means.
+   - If the guard message the user refers to shows a decision id, read `.aegis/reviews/<that id>.json` with the Read tool.
+   - Otherwise read `.aegis/last_review.json`, and check that `generated_at` and `command` match what the user means.
    - If there is no record, or it belongs to another command, say so. Offer a scan (below) instead of guessing.
 2. Explain each package in `packages` in plain language:
    - where the evidence is (`location`, with the `evidence[].snippet`);
@@ -46,8 +46,8 @@ Every decision is written to the project directory of the session:
 1. Run `python3 -I "${CLAUDE_PLUGIN_ROOT}/guard_cli.py" paths --project <project> --judge`. Add `--decision <id>` to
    use a decision other than the latest one.
 2. If it prints a request (`[AegisPilot attack path] Please judge ...`), do exactly what it says:
-   - read only the advisory files it names (under `.aasm/osv/`) and the project's own code;
-   - write `.aasm-ai/cve_judgments.json` with quotes copied verbatim;
+   - read only the advisory files it names (under `.aegis/osv/`) and the project's own code;
+   - write `.aegis-ai/cve_judgments.json` with quotes copied verbatim;
    - then run `python3 -I "${CLAUDE_PLUGIN_ROOT}/guard_cli.py" paths --project <project>`.
 3. Show the user the report as printed. If it lists `judgement rejected`, fix the quoted evidence and run it again.
 

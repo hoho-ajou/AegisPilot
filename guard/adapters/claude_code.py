@@ -171,7 +171,7 @@ def read_agent_config(project, home, env) -> dict:
                     cmd = str(h.get("command", "")) if isinstance(h, dict) else ""
                     hooks.append({"scope": scope, "event": event, "matcher": g.get("matcher"),
                                   "script": os.path.basename(cmd.split()[-1]) if cmd.split() else None,
-                                  "is_guard": "pretooluse_check.py" in cmd or "agent-dependency-guard" in cmd})
+                                  "is_guard": "pretooluse_check.py" in cmd or "aegis-pilot" in cmd})
     servers = _claude_mcp_servers(project, home, cdir, mcp_server_entry)
     plugin_servers, plugin_hooks, plugin_skills, enabled = _enabled_plugins(cdir, layers, mcp_server_entry)
     servers += plugin_servers

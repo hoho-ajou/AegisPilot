@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-os.environ.update({"HOME": tempfile.mkdtemp(), "AASM_ML": "0", "AASM_MODE": "auto"})
+os.environ.update({"HOME": tempfile.mkdtemp(), "AEGIS_ML": "0", "AEGIS_MODE": "auto"})
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
 import guard_core  # noqa: E402
 import scan_engine as se  # noqa: E402
@@ -107,13 +107,13 @@ direct.checkout = repo_with({"setup.py": EVIL_SETUP})
 with tempfile.TemporaryDirectory() as d:
     r = guard_core.check_command("pip install git+https://github.com/o/r@v1", d)
     assert r.action == "refuse" and "ack id" in r.reason, r
-    rec = json.loads(Path(d, ".aasm", "last_review.json").read_text())["packages"][0]
+    rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())["packages"][0]
     assert rec["direct_source"] == "https://github.com/o/r@v1" and rec["verdict"] == "BLOCK", rec
 
     def fails(s, dest):
         raise OSError("HTTP Error 404: Not Found")
     direct.checkout = fails
     r = guard_core.check_command("pip install git+https://github.com/o/gone@v1", d)
-    rec = json.loads(Path(d, ".aasm", "last_review.json").read_text())["packages"][0]
+    rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())["packages"][0]
     assert r.action == "refuse" and rec["evidence"][0]["rule"] == "unscanned_source" and "does not exist on" not in r.reason, (r, rec)
 print("direct_sources: all cases passed")

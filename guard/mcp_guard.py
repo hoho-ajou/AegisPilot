@@ -20,7 +20,7 @@ from typing import Any
 GUARD_DIR = Path(__file__).resolve().parent
 # the servers seen so far, per config file. Not in the guard folder (2026-10-23): a file the guard writes there at run
 # time showed up as "added after the build" in the integrity check, and a system install's folder is not writable.
-SNAPSHOT_PATH = Path.home() / ".aasm" / "mcp_snapshot.json"
+SNAPSHOT_PATH = Path.home() / ".aegis" / "mcp_snapshot.json"
 
 # starting allowlist: well-known, officially-published MCP servers. Empty-ish
 # on purpose for V1 - the point isn't to pre-approve everything plausible,

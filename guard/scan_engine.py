@@ -248,7 +248,7 @@ def _ml_predict(name, version, handoff=None):
         return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
 
 
-# [ML stage 2] the rule-based verdict, used as is when there is no ML result (failure or AASM_ML=0)
+# [ML stage 2] the rule-based verdict, used as is when there is no ML result (failure or AEGIS_ML=0)
 def _compute_verdict_rules(features: ScanFeatures) -> Verdict:
     return Verdict(*rule_engine.score_rules(RULESET, features), features)
 
@@ -282,7 +282,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
 
     import threading
 
-    ml_artifact_policy = os.environ.get("AASM_ML_ARTIFACT", "model")   # "installed": hand the ML model the file we analyze; "model": it picks its own (sdist first)
+    ml_artifact_policy = os.environ.get("AEGIS_ML_ARTIFACT", "model")   # "installed": hand the ML model the file we analyze; "model": it picks its own (sdist first)
     art: dict = {"archive_ready": threading.Event()}
     tmp = tempfile.TemporaryDirectory()          # outlives the pool: the ML process may still be reading the archive
 

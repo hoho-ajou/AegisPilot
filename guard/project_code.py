@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 MAX_FILES = 2000
 MAX_FILE_BYTES = 1_000_000
 SKIP_DIRS = {".git", ".venv", "venv", "env", ".env", "node_modules", "site-packages", "__pycache__", "build", "dist",
-             ".tox", ".mypy_cache", ".pytest_cache", ".aasm", ".claude"}
+             ".tox", ".mypy_cache", ".pytest_cache", ".aegis", ".claude"}
 
 # calls an attacker can abuse when the argument is attacker-controlled
 RISKY_CALLS = {

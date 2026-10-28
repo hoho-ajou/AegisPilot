@@ -26,7 +26,7 @@ MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
 # Below this size the extra requests cost more than they save (pandas 7 MB: 1.2 s -> 1.6 s).
 RANGE_MIN_BYTES = 16 * 1024 * 1024
 # which release file to read: "installed" = what pip installs (compatible wheel, else sdist), "sdist_first" = old behaviour
-ARTIFACT_POLICY = switches.get("AASM_ARTIFACT_POLICY", "installed") or "installed"   # built guard: system config only
+ARTIFACT_POLICY = switches.get("AEGIS_ARTIFACT_POLICY", "installed") or "installed"   # built guard: system config only
 
 PYPI_JSON_URL = "https://pypi.org/pypi/{name}/json"
 
@@ -49,7 +49,7 @@ def fetch(name: str, version: str | None, dest_dir: Path,
         return resolved, []
 
     # A release ships an sdist and/or many platform wheels. pip installs the compatible wheel and builds the
-    # sdist only when there is none, so that is the file we read (artifact_select; AASM_ARTIFACT_POLICY=sdist_first
+    # sdist only when there is none, so that is the file we read (artifact_select; AEGIS_ARTIFACT_POLICY=sdist_first
     # restores the old "sdist first" choice).
     import artifact_select
     candidates = releases[resolved]

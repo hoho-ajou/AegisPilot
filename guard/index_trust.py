@@ -16,7 +16,7 @@ An install reads where it would fetch from (index_config.findings, .npmrc, flags
   the command itself (-i, --registry, PIP_INDEX_URL=... in the command, a requirements file's -i line)
                                   the agent chose it -> card, unless it is an index the person already uses
 
-State: ~/.aasm/indexes.json (a protected path for the agent's own writes). Things the guard does not see (a script that
+State: ~/.aegis/indexes.json (a protected path for the agent's own writes). Things the guard does not see (a script that
 writes pip.conf) land in "trusted" - the same limit as every other bypass of the hook.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ _URL = re.compile(r"https?://[^\s'\"<>]+")
 
 
 def state_file() -> Path:
-    return Path.home() / ".aasm" / "indexes.json"
+    return Path.home() / ".aegis" / "indexes.json"
 
 
 def norm(url: str) -> str:

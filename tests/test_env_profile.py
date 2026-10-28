@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory() as t:
     write(proj / ".mcp.json", json.dumps({"mcpServers": {"github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"],
                                                                     "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": SECRETS[1]}}}}), 0o644)
     write(proj / ".claude/settings.json", json.dumps({"permissions": {"deny": ["Read(./.env)"], "defaultMode": "acceptEdits"},
-        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 /x/agent-dependency-guard/hooks/pretooluse_check.py"}]}]}}), 0o644)
+        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 /x/aegis-pilot/hooks/pretooluse_check.py"}]}]}}), 0o644)
     env = {"HOME": str(home)}
 
     doc = env_profile.collect(proj, claude_code, home=home, env=env)

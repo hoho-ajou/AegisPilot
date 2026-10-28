@@ -1,6 +1,6 @@
 """Decision ids and per-decision records (run: python3 tests/test_reviews.py).
 
-Before, one shared .aasm/last_review.json was overwritten by parallel agents, so "why?" could show
+Before, one shared .aegis/last_review.json was overwritten by parallel agents, so "why?" could show
 another decision. Each decision now has its own file; last_review.json stays as the latest copy."""
 import json
 import sys
@@ -24,11 +24,11 @@ with tempfile.TemporaryDirectory() as t:
         assert saved["command"] == d["command"] and [p["pid"] for p in saved["packages"]] == ["P01", "P02"]
     latest = R.load_review(proj)
     assert latest["decision_id"] in ids and latest == R.load_review(proj, latest["decision_id"])   # last_review = a complete copy
-    assert not list((proj / ".aasm").glob(".*.tmp")) and not list((proj / ".aasm/reviews").glob(".*.tmp"))
+    assert not list((proj / ".aegis").glob(".*.tmp")) and not list((proj / ".aegis/reviews").glob(".*.tmp"))
     assert R.load_review(proj, "../../etc/passwd") is None and R.load_review(proj, "Dzzzz") is None   # ids are validated
     # old decisions are trimmed
     R.MAX_REVIEWS_KEPT = 10
     R.write_report(proj, {"kind": "install", "packages": []})
-    assert len(list((proj / ".aasm/reviews").glob("D*.json"))) == 10
+    assert len(list((proj / ".aegis/reviews").glob("D*.json"))) == 10
 
 print("reviews: all cases passed")

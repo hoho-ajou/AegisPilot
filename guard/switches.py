@@ -1,21 +1,21 @@
 """
 AegisPilot - environment switches that can only make the guard weaker (2026-10-23).
 
-Some AASM_* variables exist for tests and slow machines: another rules folder, rule modules off (rule_modules.py), MCP /
+Some AEGIS_* variables exist for tests and slow machines: another rules folder, rule modules off (rule_modules.py), MCP /
 plugin / hook scanning off, another
 "system" policy file, a shorter hook deadline (a timed-out hook lets the command through), another artifact choice, the
 verdict cache. Set in the environment of a built guard, each would be a quiet way around it - an agent that writes
-`export AASM_RULES_DIR=...` into ~/.bashrc changes every later session.
+`export AEGIS_RULES_DIR=...` into ~/.bashrc changes every later session.
 
 So in a built guard (BUILD_INFO.json next to the code) these are read from a settings file, never the environment
 (2026-10-23: switching a check on or off is a file setting):
-  /etc/aasm/config.json {"env": {"AASM_...": "..."}}  honoured when it is owned by root and not writable by group or
+  /etc/aegis/config.json {"env": {"AEGIS_...": "..."}}  honoured when it is owned by root and not writable by group or
                                                       others (an administrator's choice, out of the agent's reach); wins
-  ~/.aasm/config.json   the same format, for a guard installed in the user's folders: a protected path (".aasm/",
+  ~/.aegis/config.json   the same format, for a guard installed in the user's folders: a protected path (".aegis/",
                         guard_paths.GUARD_FRAGMENTS), so an agent that writes it is stopped like one that edits the guard.
                         Not read by a system install (a guard the user cannot write): there only the administrator decides.
 In a development checkout the environment works as before (the tests use it).
-Switches that do not weaken anything (AASM_MODE, AASM_FAIL_CLOSED, AASM_ML ...) are read from the environment as usual.
+Switches that do not weaken anything (AEGIS_MODE, AEGIS_FAIL_CLOSED, AEGIS_ML ...) are read from the environment as usual.
 """
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ import stat
 from pathlib import Path
 
 GUARD_DIR = Path(__file__).resolve().parent
-SYSTEM_CONFIG = Path("/etc/aasm/config.json")
-USER_CONFIG = Path.home() / ".aasm" / "config.json"
-WEAKENING = ("AASM_RULES_DIR", "AASM_MCP_SCAN", "AASM_SYSTEM_POLICY", "AASM_HOOK_DEADLINE_SECONDS",
-             "AASM_ARTIFACT_POLICY", "AASM_CACHE", "AASM_RULE_MODULES")
+SYSTEM_CONFIG = Path("/etc/aegis/config.json")
+USER_CONFIG = Path.home() / ".aegis" / "config.json"
+WEAKENING = ("AEGIS_RULES_DIR", "AEGIS_MCP_SCAN", "AEGIS_SYSTEM_POLICY", "AEGIS_HOOK_DEADLINE_SECONDS",
+             "AEGIS_ARTIFACT_POLICY", "AEGIS_CACHE", "AEGIS_RULE_MODULES")
 
 
 def released() -> bool:
@@ -49,7 +49,7 @@ def _system_env(path: Path = SYSTEM_CONFIG) -> dict:
 
 
 def _user_env(path: Path | None = None) -> dict:
-    """The "env" of ~/.aasm/config.json, or {} when it is missing or unreadable, or when this guard is a system install."""
+    """The "env" of ~/.aegis/config.json, or {} when it is missing or unreadable, or when this guard is a system install."""
     if not os.access(GUARD_DIR, os.W_OK):
         return {}                                        # root-owned guard: the user's file does not override it
     try:

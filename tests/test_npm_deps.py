@@ -8,7 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 
-os.environ.update({"HOME": tempfile.mkdtemp(), "AASM_ML": "0", "AASM_MODE": "auto"})
+os.environ.update({"HOME": tempfile.mkdtemp(), "AEGIS_ML": "0", "AEGIS_MODE": "auto"})
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guard"))
 import guard_core  # noqa: E402
 import scan_engine as se  # noqa: E402
@@ -70,7 +70,7 @@ se.scan_npm_package = fake_scan
 se.ECOSYSTEM_SCANNERS["npm"] = fake_scan
 with tempfile.TemporaryDirectory() as d:
     r = guard_core.check_command("npm install app", d)
-    doc = json.loads(Path(d, ".aasm", "last_review.json").read_text())
+    doc = json.loads(Path(d, ".aegis", "last_review.json").read_text())
     assert r.action == "refuse" and doc["verdict"] == "BLOCK", (r, doc["verdict"])
     evil = [p for p in doc["packages"] if p["package"] == "evil-native"][0]
     assert evil["via"] == "app → evil-native" and evil["install_script_dependency"], evil
@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory() as d:
     npm.metadata = lambda name: (_ for _ in ()).throw(AssertionError("no registry walk with a lock"))
     npm.malicious_releases = lambda pairs: {}
     r = guard_core.check_command("npm install", d)
-    doc = json.loads(Path(d, ".aasm", "last_review.json").read_text())
+    doc = json.loads(Path(d, ".aegis", "last_review.json").read_text())
     assert r.action == "refuse" and doc["npm_dependency_scripts"]["from"] == "package-lock.json", doc.get("npm_dependency_scripts")
 
     # nothing with an install script: nothing more to scan

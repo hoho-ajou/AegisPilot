@@ -2,7 +2,7 @@
 
 AegisPilot works without configuration. This page lists what you can change, where it lives, and the default.
 
-All files below that sit in `.aasm/` or `~/.aasm/` are protected paths. When the agent writes one of them, AegisPilot asks you first. Edit them yourself.
+All files below that sit in `.aegis/` or `~/.aegis/` are protected paths. When the agent writes one of them, AegisPilot asks you first. Edit them yourself.
 
 For the mode setting (`user` or `auto`), see [usage.md](usage.md#modes-user-and-auto).
 
@@ -12,8 +12,8 @@ Lists of packages that people have already judged.
 
 | Layer | File | Notes |
 | --- | --- | --- |
-| system | `/etc/aasm/policy.json` | Meant to be owned by root, so the agent can read it but not change it. Wins over the project file. |
-| project | `<project>/.aasm/policy.json` | The same file that holds `"mode"`. Protected, but only as strong as that protection. |
+| system | `/etc/aegis/policy.json` | Meant to be owned by root, so the agent can read it but not change it. Wins over the project file. |
+| project | `<project>/.aegis/policy.json` | The same file that holds `"mode"`. Protected, but only as strong as that protection. |
 
 Default: no lists. Both files are read on every install decision.
 
@@ -46,8 +46,8 @@ The rule files shipped in `guard/rules/` are the base rules. Do not edit them; t
 
 | Location | Who | Read when |
 | --- | --- | --- |
-| `~/.aasm/rules/*.json` | user | the guard is installed in the user's own folders. Not read by a system install. |
-| `/etc/aasm/rules/*.json` | administrator | the folder and files are owned by root and not writable by other users. Applied after user modules. |
+| `~/.aegis/rules/*.json` | user | the guard is installed in the user's own folders. Not read by a system install. |
+| `/etc/aegis/rules/*.json` | administrator | the folder and files are owned by root and not writable by other users. Applied after user modules. |
 
 Default: no modules. Within one location, modules are applied in file name order.
 
@@ -90,11 +90,11 @@ To use a company index, set it up yourself, outside the agent, before the agent 
 pip config set global.index-url https://pypi.corp.example/simple
 ```
 
-State is kept in `~/.aasm/indexes.json`. A config file written by something the guard does not see (for example a script run outside the agent) is treated as your own setting.
+State is kept in `~/.aegis/indexes.json`. A config file written by something the guard does not see (for example a script run outside the agent) is treated as your own setting.
 
 ## Environment switches
 
-Switches are environment variables named `AASM_*`.
+Switches are environment variables named `AEGIS_*`.
 
 ### Switches read from the environment
 
@@ -102,9 +102,9 @@ These do not weaken the checks, so they are always read from the environment.
 
 | Switch | Default | Values |
 | --- | --- | --- |
-| `AASM_MODE` | not set (`user`, or the project's `.aasm/policy.json`) | `user`, `auto` |
-| `AASM_FAIL_CLOSED` | `0` | `1`: when the guard cannot finish (time limit, internal error), it refuses the command instead of asking |
-| `AASM_SCAN_PROCESSES` | `1` | `0`: scan several packages with threads only, no worker processes |
+| `AEGIS_MODE` | not set (`user`, or the project's `.aegis/policy.json`) | `user`, `auto` |
+| `AEGIS_FAIL_CLOSED` | `0` | `1`: when the guard cannot finish (time limit, internal error), it refuses the command instead of asking |
+| `AEGIS_SCAN_PROCESSES` | `1` | `0`: scan several packages with threads only, no worker processes |
 
 ### Switches that a built guard ignores in the environment
 
@@ -112,24 +112,24 @@ These switches can weaken the checks. An agent could set them for every later se
 
 | File | Read when |
 | --- | --- |
-| `/etc/aasm/config.json` | it is owned by root and not writable by group or others. Wins over the user file. |
-| `~/.aasm/config.json` | the guard is installed in the user's folders. Not read by a system install. |
+| `/etc/aegis/config.json` | it is owned by root and not writable by group or others. Wins over the user file. |
+| `~/.aegis/config.json` | the guard is installed in the user's folders. Not read by a system install. |
 
 Format:
 
 ```json
-{"env": {"AASM_CACHE": "1"}}
+{"env": {"AEGIS_CACHE": "1"}}
 ```
 
 | Switch | Default | Effect |
 | --- | --- | --- |
-| `AASM_RULES_DIR` | the `rules/` folder of the guard | read the base rules from another folder |
-| `AASM_RULE_MODULES` | `1` | `0`: do not apply rule modules |
-| `AASM_MCP_SCAN` | `1` | `0`: do not scan the code of MCP servers, plugins and hooks; only check their registration |
-| `AASM_SYSTEM_POLICY` | `/etc/aasm/policy.json` | read the system allow and deny lists from another file |
-| `AASM_HOOK_DEADLINE_SECONDS` | `570` | time limit of one check. When it is reached, the command is not checked and the guard asks (or refuses with `AASM_FAIL_CLOSED=1`). |
-| `AASM_ARTIFACT_POLICY` | `installed` | which release file of a PyPI package to read. `installed`: the file pip would install (a compatible wheel, else the sdist). `sdist_first`: the sdist when there is one. |
-| `AASM_CACHE` | `0` | `1`: turn on the verdict cache (below) |
+| `AEGIS_RULES_DIR` | the `rules/` folder of the guard | read the base rules from another folder |
+| `AEGIS_RULE_MODULES` | `1` | `0`: do not apply rule modules |
+| `AEGIS_MCP_SCAN` | `1` | `0`: do not scan the code of MCP servers, plugins and hooks; only check their registration |
+| `AEGIS_SYSTEM_POLICY` | `/etc/aegis/policy.json` | read the system allow and deny lists from another file |
+| `AEGIS_HOOK_DEADLINE_SECONDS` | `570` | time limit of one check. When it is reached, the command is not checked and the guard asks (or refuses with `AEGIS_FAIL_CLOSED=1`). |
+| `AEGIS_ARTIFACT_POLICY` | `installed` | which release file of a PyPI package to read. `installed`: the file pip would install (a compatible wheel, else the sdist). `sdist_first`: the sdist when there is one. |
+| `AEGIS_CACHE` | `0` | `1`: turn on the verdict cache (below) |
 
 `guard_cli.py verify` lists switches that are set in the environment but ignored.
 
@@ -141,8 +141,8 @@ Off by default. When on, a scan verdict for an exact package version is reused f
 
 | | |
 | --- | --- |
-| Turn on | `"AASM_CACHE": "1"` in `~/.aasm/config.json` or `/etc/aasm/config.json` |
-| File | `<project>/.aasm/cache/verdicts.json` |
+| Turn on | `"AEGIS_CACHE": "1"` in `~/.aegis/config.json` or `/etc/aegis/config.json` |
+| File | `<project>/.aegis/cache/verdicts.json` |
 | Lifetime | 6 hours per entry, at most 2000 entries |
 
 What is cached:

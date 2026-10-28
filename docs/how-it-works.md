@@ -59,11 +59,11 @@ Adjustments that need more than the package's own files (`guard/rules/post.json`
 
 ### 6. Lists and verdict
 
-The allow and deny lists are applied ([configuration.md](configuration.md#allow-and-deny-lists)). The result is written to `.aasm/reviews/<decision id>.json` and `.aasm/last_review.json`, and the hook answers according to the mode ([usage.md](usage.md#modes-user-and-auto)).
+The allow and deny lists are applied ([configuration.md](configuration.md#allow-and-deny-lists)). The result is written to `.aegis/reviews/<decision id>.json` and `.aegis/last_review.json`, and the hook answers according to the mode ([usage.md](usage.md#modes-user-and-auto)).
 
 ### Time limits
 
-All checks of one command share a 540-second budget. The hook stops itself at 570 seconds and the hook timeout in Claude Code is 600 seconds. A hook that reaches Claude Code's timeout, or crashes, lets the command through, so the guard always answers before that. When it cannot finish, it asks instead of passing (or refuses, with `AASM_FAIL_CLOSED=1`).
+All checks of one command share a 540-second budget. The hook stops itself at 570 seconds and the hook timeout in Claude Code is 600 seconds. A hook that reaches Claude Code's timeout, or crashes, lets the command through, so the guard always answers before that. When it cannot finish, it asks instead of passing (or refuses, with `AEGIS_FAIL_CLOSED=1`).
 
 ## The behavior check
 
@@ -77,12 +77,12 @@ A hook that is turned off checks nothing, so the guard protects itself from the 
 
 A file edit or a shell command is checked against these paths:
 
-- the guard's own folder, any path containing `agent-dependency-guard/`, and the agent's installed plugins (`~/.claude/plugins/`);
-- `.aasm/` (in any project, and `~/.aasm/`): decision records, settings, acks, rule modules;
+- the guard's own folder, any path containing `aegis-pilot/`, and the agent's installed plugins (`~/.claude/plugins/`);
+- `.aegis/` (in any project, and `~/.aegis/`): decision records, settings, acks, rule modules;
 - agent settings: `.claude/settings.json`, `.claude/settings.local.json`, `.claude/hooks/`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/hooks/`;
 - for shell commands also MCP config files: `.mcp.json`, `.claude.json`.
 
-A folder counts with or without a trailing `/` (`rm -rf .aasm` is caught like `rm -rf .aasm/`). A shell command counts as writing when it names a protected path and contains a write operation (`sed -i`, `mv`, `rm`, `cp`, `truncate`, `tee`, `chmod`, `dd`, or a `>` / `>>` redirect to a file). Redirects such as `2>&1` and `> /dev/null` do not count. Reading a protected file is not affected.
+A folder counts with or without a trailing `/` (`rm -rf .aegis` is caught like `rm -rf .aegis/`). A shell command counts as writing when it names a protected path and contains a write operation (`sed -i`, `mv`, `rm`, `cp`, `truncate`, `tee`, `chmod`, `dd`, or a `>` / `>>` redirect to a file). Redirects such as `2>&1` and `> /dev/null` do not count. Reading a protected file is not affected.
 
 For edits of agent settings files, the guard compares the old and new content. The approval dialog is always used, in both modes, when a guard hook command disappears, the plugin is set to `false` in `"enabledPlugins"`, `"disableAllHooks"` is turned on, or a JSON settings file would no longer parse. Other settings edits go through the normal scan. The list of actions that always ask is in [usage.md](usage.md#self-protection).
 
@@ -97,7 +97,7 @@ A released build contains `RELEASE_MANIFEST.json`, the SHA-256 checksum of every
 
 Any finding turns the decision into a REVIEW and lists the changed files.
 
-A clone of the default branch has no checksum list. There the guard records a baseline of its files on first run (`aasm_manifest.json`) and compares against that.
+A clone of the default branch has no checksum list. There the guard records a baseline of its files on first run (`aegis_manifest.json`) and compares against that.
 
 Hooks run Python with `-I` (isolated mode), so `PYTHON*` environment variables and the user's site-packages, including `.pth` files planted there by a `pip install --user`, do not run inside the guard. The guard folder is placed after the standard library on the import path, so a planted `json.py` next to the guard is not imported.
 
@@ -119,7 +119,7 @@ python3 <guard>/guard_cli.py repair             # restore, after typing "repair"
 `repair` puts the guard back to its official build:
 
 1. It gets a source: for a plugin, the public repository at the release tag recorded in `BUILD_INFO.json`, downloaded from GitHub. With `--from DIR`, another built copy of the guard. The source must match its own checksum list, or it is not used.
-2. Every file that differs from the source, and every extra `.py`, `.pth`, `.json` or `.pyc` file, is copied to `~/.aasm/quarantine/<time>/` before anything changes. A `REPAIR.json` there records what was done.
+2. Every file that differs from the source, and every extra `.py`, `.pth`, `.json` or `.pyc` file, is copied to `~/.aegis/quarantine/<time>/` before anything changes. A `REPAIR.json` there records what was done.
 3. The source's files are copied over, extra files are removed, and the result is checked again.
 
 | Option | Effect |
