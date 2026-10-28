@@ -17,7 +17,7 @@ import shutil
 import sys
 from pathlib import Path
 
-PLUGIN_NAMES = {"aegis-pilot", "aegis-pilot"}
+PLUGIN_NAMES = {"aegis-pilot"}
 HOOK_MARKERS = ("pretooluse_check.py", "pretooluse_editwrite_check.py", "codex_pretooluse.py")
 MANAGED_DIRS = (Path("/etc/claude-code"), Path("/Library/Application Support/ClaudeCode"))
 
