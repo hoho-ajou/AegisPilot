@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "about": "Verdict adjustments after the scan (post_rules.py) and comparison with the previous release (version_diff.py). rules are checked top to bottom and only the first match applies. applies_to is the scan verdict the rule looks at (any = all); verdict is the verdict when it matches.",
+  "rules": [
+    {"id": "known_malicious", "title": "Release that OSV records as malicious (including releases removed from PyPI)", "applies_to": "any", "verdict": "BLOCK"},
+    {"id": "new_risky_code", "title": "This release adds risky code the previous release did not have", "applies_to": ["ALLOW", "NEEDS_HUMAN_REVIEW"], "verdict": "NEEDS_HUMAN_REVIEW"},
+    {"id": "late_file", "title": "A file that will be installed was recently added to an old release", "applies_to": ["ALLOW", "NEEDS_HUMAN_REVIEW"], "verdict": "NEEDS_HUMAN_REVIEW"},
+    {"id": "osv_unavailable", "title": "Could not reach OSV (vulnerability and malware records) during the scan", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"},
+    {"id": "typosquat", "title": "Recent project with a name close to a popular package", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"},
+    {"id": "new_package", "title": "Newly registered project", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"}
+  ],
+  "known_malicious": {
+    "about": "OSV records that call this release malicious: an id prefix (OpenSSF malicious-packages) or the description text. The text counts only when the package itself is the subject (phrases like 'malicious URLs' that describe what a vulnerability enables are excluded).",
+    "id_prefixes": ["MAL-"],
+    "text_regex": "malicious code (in|was|were)|contain(s|ed)? malicious|embedded malicious|(is|are|was|were) considered malicious|(project|package|account)\\b.{0,40}\\bwas taken over|backdoored",
+    "text_ignorecase": true,
+    "details_chars": 300,
+    "max_ids": 3
+  },
+  "typosquat": {
+    "about": "Name close to a popular package name (distance limits in scoring.json subscores.typosquat). Projects older than this are not suspected on the name alone.",
+    "established_days": 730
+  },
+  "new_package": {
+    "about": "Review if the project was first registered fewer than this many days ago.",
+    "days": 30
+  },
+  "osv_probe": {
+    "about": "Release queried to check that OSV actually answers. It must be one that always returns records when OSV works.",
+    "name": "jinja2",
+    "version": "2.10",
+    "timeout_seconds": 10
+  },
+  "version_diff": {
+    "about": "Whether this release adds risky code the previous release did not have. Uses only signals that ordinary updates rarely add.",
+    "signal_titles": {
+      "import_time": "New dangerous call that runs when the module is imported",
+      "binary_py": "Binary file with a .py name",
+      "new_pth": "New .pth file with an import line",
+      "encoded_payload": "New long encoded string together with decode, exec or write code"
+    },
+    "recent_days": 30,
+    "max_bisect_steps": 8,
+    "max_file_bytes": 2000000,
+    "max_signals": 10,
+    "skip_paths": "(^|/)(tests?|testing|docs?|examples?|benchmarks?)/|(^|/)test_[^/]*\\.py$|_test\\.py$",
+    "prerelease": "(a|b|rc|dev|alpha|beta)\\d*",
+    "import_time": {
+      "about": "Dangerous calls that run when the module is imported (outside functions). builtins.* calls are skipped when the first argument is a constant string.",
+      "danger_prefixes": [
+        "subprocess.", "os.system", "os.popen", "os.exec", "os.spawn", "os.fork", "os.startfile", "pty.spawn",
+        "socket.", "urllib.request.urlopen", "urllib.request.urlretrieve", "requests.get", "requests.post",
+        "httpx.get", "httpx.post", "ctypes.", "marshal.loads", "builtins.exec", "builtins.eval",
+        "builtins.compile", "webbrowser.open"
+      ],
+      "constant_arg_ok_prefixes": ["builtins."],
+      "builtin_names": {"exec": "builtins.exec", "eval": "builtins.eval", "compile": "builtins.compile"},
+      "quick": "subprocess|system\\s*\\(|popen|spawn|fork|startfile|socket|urlopen|urlretrieve|requests|httpx|ctypes|marshal|exec|eval|compile|webbrowser|Popen",
+      "quick_added_extra": "|\\brun\\s*\\(|\\bcall\\s*\\(|check_output|getoutput"
+    },
+    "binary_py": {
+      "head_lines": 400,
+      "contains": ["\u0000"],
+      "starts_with": ["MZ"],
+      "max_replacement_chars": 20,
+      "detail": "binary with a Python file name"
+    },
+    "encoded_payload": {
+      "blob": "[A-Za-z0-9+/=_-]{400,}",
+      "with": "\\b(exec|eval|b64decode|decompress|subprocess|Popen|system|write)\\b",
+      "detail": "long encoded string + exec, decode or write"
+    },
+    "new_pth": {
+      "line_prefix": "import ",
+      "detail_max": 120
+    }
+  },
+  "transitive": {
+    "about": "Dependencies pulled in by the packages the command installs directly (transitive dependencies). Followed using PyPI metadata only to pick the version pip would choose (the locked version for lock installs); all of them are sent to OSV in one query to find malicious releases, and only releases uploaded within recent_days get a full scan, because hijacked releases are almost always fresh uploads.",
+    "recent_days": 30,
+    "max_depth": 4,
+    "max_packages": 80,
+    "max_scans": 10,
+    "workers": 8,
+    "budget_seconds": 60
+  },
+  "late_file": {
+    "about": "A file pip will install was added long after the release came out, and recently.",
+    "min_days_late": 7,
+    "within_days": 90
+  }
+}

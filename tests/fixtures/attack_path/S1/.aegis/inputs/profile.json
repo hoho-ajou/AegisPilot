@@ -1,0 +1,17 @@
+{
+ "agent": "claude-code",
+ "settings_permissions": {
+  "allow": [
+   "Bash(*)",
+   "Edit",
+   "Write"
+  ],
+  "deny": []
+ },
+ "mcp_servers": {},
+ "files_present": [
+  "./.env  (variable names: OPENAI_API_KEY, DATABASE_URL; values are not collected)",
+  "~/.ssh/id_ed25519  (SSH private key, existence checked only)"
+ ],
+ "runs_as": "OS user ubuntu (the agent and pip install both run as this user)"
+}

@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "about": "Where each coding agent keeps its extensions (MCP servers, hooks, plugins) and in what format. The guard checks every agent's files, not only those of the agent that called it: an agent running under Claude Code that edits ~/.codex/config.toml or .cursor/mcp.json plants an extension in that other agent. Only the formats are data here; guard/agent_config.py interprets them. To add an agent, write one entry in this file and put the evidence you checked in source (verified false = not confirmed against official docs). files = path endings (user and project locations), format = json|toml, servers/hooks/enabled = key paths inside the document (joined with '.', '*' = any key), plugin_dirs = folders where plugins are installed ({config} = the agent's config folder, {market}, {name}; a trailing '*' is a version folder). plugin_manifest = the definition file inside a plugin folder. marketplaces = local marketplace copies (known = registry list, dirs = copy folders, catalogue = list file inside a copy). vars = variables the agent fills in hook and MCP commands (plugin_root, project_dir).",
+  "agents": {
+    "claude-code": {
+      "source": "a local installation (2026-10-23) and the repository adapter (guard/adapters/claude_code.py)",
+      "config_dir": {"env": "CLAUDE_CONFIG_DIR", "default": "~/.claude"},
+      "mcp": [
+        {"files": [".mcp.json"], "format": "json", "servers": ["mcpServers"]},
+        {"files": [".claude.json"], "format": "json", "servers": ["mcpServers", "projects.*.mcpServers"]}
+      ],
+      "hooks": [{"files": [".claude/settings.json", ".claude/settings.local.json"], "format": "json", "hooks": "hooks"}],
+      "hook_dirs": [".claude/hooks/"],
+      "plugins": [{"files": [".claude/settings.json", ".claude/settings.local.json"], "format": "json", "enabled": "enabledPlugins"}],
+      "plugin_dirs": ["{config}/plugins/marketplaces/{market}/plugins/{name}", "{config}/plugins/marketplaces/{market}/{name}",
+                      "{config}/plugins/cache/{market}/{name}/*", "{config}/plugins/cache/{market}/{name}"],
+      "plugin_manifest": ".claude-plugin/plugin.json",
+      "marketplaces": {"known": "{config}/plugins/known_marketplaces.json", "dirs": "{config}/plugins/marketplaces",
+                       "catalogue": ".claude-plugin/marketplace.json"},
+      "vars": {"plugin_root": ["CLAUDE_PLUGIN_ROOT"], "project_dir": ["CLAUDE_PROJECT_DIR"]},
+      "cli": {"bin": "claude", "mcp_add": ["mcp", "add"], "value_opts": ["-s", "--scope", "-t", "--transport", "--client-id", "--callback-port"],
+              "multi_opts": ["-e", "--env", "-H", "--header"]}
+    },
+    "claude-desktop": {
+      "source": "Anthropic's MCP guide (mcpServers in claude_desktop_config.json)",
+      "mcp": [{"files": ["claude_desktop_config.json"], "format": "json", "servers": ["mcpServers"]}]
+    },
+    "codex": {
+      "source": "official docs learn.chatgpt.com/docs/extend/mcp (read 2026-10-23), the layout of a local ~/.codex/config.toml and plugins/cache, the repository's .codex/hooks.json",
+      "config_dir": {"env": "CODEX_HOME", "default": "~/.codex"},
+      "mcp": [{"files": [".codex/config.toml"], "format": "toml", "servers": ["mcp_servers"]}],
+      "hooks": [{"files": [".codex/hooks.json"], "format": "json", "hooks": "hooks"}],
+      "hook_dirs": [".codex/hooks/"],
+      "plugins": [{"files": [".codex/config.toml"], "format": "toml", "enabled": "plugins"}],
+      "plugin_dirs": ["{config}/plugins/cache/{market}/{name}/*", "{config}/plugins/cache/{market}/{name}"],
+      "plugin_manifest": ".codex-plugin/plugin.json",
+      "cli": {"bin": "codex", "mcp_add": ["mcp", "add"], "value_opts": ["--url", "--oauth-client-id", "--oauth-client-secret"],
+              "multi_opts": ["--env"]}
+    },
+    "cursor": {
+      "source": "official docs cursor.com/docs/mcp (mcpServers in .cursor/mcp.json, ~/.cursor/mcp.json)",
+      "mcp": [{"files": [".cursor/mcp.json"], "format": "json", "servers": ["mcpServers"]}]
+    },
+    "vscode": {
+      "source": "official docs code.visualstudio.com/docs/agents/reference/mcp-configuration (servers in .vscode/mcp.json)",
+      "mcp": [{"files": [".vscode/mcp.json"], "format": "json", "servers": ["servers"]}]
+    },
+    "gemini-cli": {
+      "source": "a copy of the Gemini CLI settings docs (mcpServers in ~/.gemini/settings.json, .gemini/settings.json); the official page itself could not be read",
+      "mcp": [{"files": [".gemini/settings.json"], "format": "json", "servers": ["mcpServers"]}]
+    },
+    "windsurf": {
+      "source": "third-party guides only (mcpServers in ~/.codeium/windsurf/mcp_config.json)",
+      "verified": false,
+      "mcp": [{"files": [".codeium/windsurf/mcp_config.json"], "format": "json", "servers": ["mcpServers"]}]
+    }
+  }
+}

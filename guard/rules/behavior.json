@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "about": "Behavior check (guard/behavior): without running the code, recover values (constant folding, decoding, name assembly) and follow how they flow to turn 'what it does and when' into facts; this table then sets the verdict. The vocabulary below applies only to recovered values (paths, hosts, commands), not to text patterns. Phase: auto = install, interpreter start, import (runs without the user calling anything); call = inside a function (runs only when something calls it). null = kept as evidence only, not used for the verdict.",
+  "phases": {
+    "auto": ["install", "interpreter_start", "import"],
+    "call": ["call", "command"]
+  },
+  "findings": {
+    "download_exec":    {"auto": "block",  "call": "review", "label": "Runs downloaded content",
+                         "text": "Runs content (or a file) fetched from the network",
+                         "benign": "Installers that download and run a platform binary (npm install scripts such as esbuild)"},
+    "decode_exec":      {"auto": "block",  "call": "review", "label": "Runs decoded code",
+                         "text": "Unpacks hidden (encoded or compressed) code and runs it",
+                         "benign": "Code generators or serialization libraries that unpack and run their own data (rare)"},
+    "secret_exfil":     {"auto": "block",  "call": "block",  "label": "Sends secrets out",
+                         "text": "Reads credential files, browser or wallet storage, or the whole environment and sends it out",
+                         "benign": "SDKs and publish tools that send a credential to its own service (twine, docker login), only in code inside functions"},
+    "suspicious_send":  {"auto": "block",  "call": "review", "label": "Sends data to a suspicious address",
+                         "text": "Sends user or system info to a webhook, collector service or bare IP address",
+                         "benign": "Almost none"},
+    "sysinfo_beacon":   {"auto": "review", "call": null,     "label": "Sends system info at install or import",
+                         "text": "Sends info such as user name, host name or working directory out when it runs",
+                         "benign": "Tools that send install statistics (rare, usually with user consent)"},
+    "persistence":      {"auto": "block",  "call": null, "label": "Registers itself to run automatically",
+                         "text": "Adds itself to startup programs, shell startup files, services or scheduled tasks",
+                         "benign": "CLIs that install shell completion (inside a function the user calls)"},
+    "remote_shell":     {"auto": "block",  "call": "block",  "label": "Remote shell",
+                         "text": "Connects a shell to an outside server",
+                         "benign": "None"},
+    "hidden_call":      {"auto": "review", "call": "review", "label": "Calls a built-in under a hidden name",
+                         "text": "Assembles or hides the name of an exec function before calling it (a pattern that evades analysis)",
+                         "benign": "Compatibility code that picks a built-in with getattr"},
+    "unreadable_exec":  {"auto": "review", "call": null,     "label": "Runs code that cannot be read",
+                         "text": "At install or import, runs a value that analysis cannot recover as code or a command",
+                         "benign": "Plugin loaders that run code read from config"},
+    "install_process":  {"auto": "review", "call": null,     "label": "Runs an external command during install",
+                         "text": "The install script runs a program that is not a build tool",
+                         "benign": "setup.py calling a build tool missing from the build list", "phases": ["install", "interpreter_start"]}
+  },
+  "values": {
+    "credential_path": [
+      "(^|/)\\.ssh(/|$)", "id_rsa|id_ed25519|id_ecdsa", "(^|/)\\.aws/(credentials|config)", "(^|/)\\.npmrc$", "(^|/)\\.pypirc$",
+      "(^|/)\\.git-credentials$", "(^|/)\\.docker/config\\.json$", "(^|/)\\.kube/config$", "(^|/)\\.netrc$", "^/etc/(passwd|shadow)$",
+      "(^|/)\\.config/gcloud(/|$)", "(^|/)\\.azure(/|$)", "(^|/)\\.gnupg(/|$)", "(^|/)\\.env$",
+      "login data|local state|cookies$|web data$", "(^|/)(exodus|electrum|atomic|metamask|wallets?)(/|$)|wallet\\.dat",
+      "discord(canary|ptb)?/(local storage|leveldb)", "telegram desktop|tdata(/|$)", "keychain|\\.keychain-db$",
+      "(^|/)\\.bash_history$|(^|/)\\.zsh_history$", "(^|/)\\.config/(solana|filezilla)(/|$)|filezilla/(recentservers|sitemanager)"
+    ],
+    "autostart_path": [
+      "start menu/programs/startup", "(^|/)\\.(bashrc|bash_profile|profile|zshrc|zprofile)$", "(^|/)\\.config/autostart(/|$)",
+      "(^|/)\\.config/systemd/user(/|$)|^/etc/systemd/system(/|$)|\\.service$", "(^|/)library/launch(agents|daemons)(/|$)",
+      "^/etc/cron|(^|/)crontab$", "^/etc/(rc\\.local|profile\\.d)", "currentversion/run(once)?(/|$)"
+    ],
+    "secret_env": "(^|_)(API_?KEY|ACCESS_KEY|SECRET(_KEY)?|TOKEN|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY|COOKIE)(_|$)|^(AWS_|GITHUB_TOKEN|GH_TOKEN|NPM_TOKEN|PYPI_|TWINE_)",
+    "collector_host": "webhook\\.site|oastify\\.com|burpcollaborator\\.net|(^|\\.)interact\\.sh$|\\.oast\\.(fun|pro|live|site|online|me)$|pipedream\\.net|requestbin|hookbin|dnslog\\.cn|ceye\\.io|canarytokens|beeceptor\\.com|requestcatcher\\.com|ngrok(-free)?\\.(io|app)$|transfer\\.sh$|(^|\\.)trycloudflare\\.com$|(^|\\.)serveo\\.net$|(^|\\.)bin\\.sh$|ipinfo\\.io|ip-api\\.com|ipify\\.org",
+    "messenger_url": "discord(app)?\\.com/api/webhooks|api\\.telegram\\.org/bot|pastebin\\.com/api|hooks\\.slack\\.com/services",
+    "build_commands": ["git", "hg", "svn", "make", "gmake", "nmake", "cmake", "ninja", "meson", "scons", "bazel", "gcc", "g++", "cc", "c++",
+                       "clang", "clang++", "cl", "link", "ld", "ar", "nvcc", "hipcc", "icc", "gfortran", "f2py", "swig", "protoc", "cython",
+                       "pkg-config", "llvm-config", "xcrun", "xcode-select", "uname", "which", "where", "whereis", "sw_vers", "lsb_release",
+                       "ldconfig", "rustc", "cargo", "go", "javac", "mvn", "gradle", "ant", "npm", "yarn", "pnpm", "npx", "node-gyp", "tsc",
+                       "python", "python3", "python2", "py", "sys.executable", "sh ./configure", "./configure", "configure", "autoreconf",
+                       "autoconf", "automake", "libtool", "svnversion", "patch", "install_name_tool", "otool", "patchelf", "strip", "lipo", "codesign",
+                       "echo", "true", "test", "mkdir", "cp", "mv", "rm", "ln", "touch", "chmod", "tar", "unzip", "pip-compile", "pybind11-config",
+                       "conda", "brew", "apt-get", "dpkg", "rpm", "nproc", "sysctl", "getconf", "ccache", "sccache", "doxygen", "sphinx-build",
+                       "pandoc", "msgfmt", "pyrcc5", "pyuic5", "rcc", "uic", "moc", "qmake", "flex", "bison", "yacc", "lex", "m4", "perl", "node"],
+    "interpreters": ["sh", "bash", "zsh", "dash", "ksh", "python", "python3", "python2", "py", "node", "perl", "ruby", "php", "pwsh", "powershell",
+                     "powershell.exe", "iex", "invoke-expression", "cmd", "cmd.exe", "bun", "deno"]
+  },
+  "limits": {"seconds": 10.0, "max_files": 3000, "max_file_bytes": 1500000, "max_string": 2000000, "max_iter": 200000,
+             "max_depth": 4, "max_steps": 400000}
+}

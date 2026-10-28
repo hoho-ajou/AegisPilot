@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "about": "Verdict: subscores -> weighted sum -> hard rules (top to bottom; the first BLOCK that matches ends it) -> thresholds. If you change a value, re-measure with the tests and with benign and malicious samples.",
+  "thresholds": {
+    "block": 0.6,
+    "review": 0.25,
+    "review_floor_margin": 0.01
+  },
+  "weights": {
+    "vuln": 0.30,
+    "entropy": 0.15,
+    "keyword": 0.15,
+    "install_hook": 0.15,
+    "typosquat": 0.15,
+    "reputation": 0.10
+  },
+  "subscores": {
+    "vuln": {
+      "reason": "{n_vulns} OSV vulnerabilities found (highest severity: {osv_max_severity})"
+    },
+    "entropy": {
+      "divisor": 6.0,
+      "reason_above": 4.5,
+      "reason": "High-entropy block found (max_entropy={max_entropy})"
+    },
+    "keyword": {
+      "loc_per_unit": 100,
+      "min_denominator": 3,
+      "reason": "{keyword_total} risky keyword hits (denominator={denominator}): {keyword_hits}"
+    },
+    "install_hook": {
+      "reason": "setup.py has a custom install hook"
+    },
+    "typosquat": {
+      "popular_names": ["requests", "urllib3", "numpy", "pandas", "boto3", "pyyaml", "setuptools",
+                        "python-dateutil", "certifi", "idna", "charset-normalizer", "six",
+                        "click", "flask", "django", "pytest", "cryptography", "pillow",
+                        "protobuf", "grpcio", "aiohttp", "jinja2", "markupsafe", "attrs",
+                        "packaging", "wheel", "pip", "typing-extensions", "colorama", "chardet"],
+      "short_name_len": 7,
+      "max_distance_short": 1,
+      "max_distance": 2,
+      "reason": "Edit distance {min_edit_distance} from popular package '{closest_popular_name}' (possible typosquatting)"
+    },
+    "reputation": {
+      "new_days": 30,
+      "new_points": 0.5,
+      "no_readme_points": 0.3,
+      "no_maintainer_points": 0.2,
+      "reason_new": "Newly registered package (age={package_age_days:.0f} days)"
+    }
+  },
+  "hard_rules": [
+    {
+      "id": "critical_vuln",
+      "when": {"field": "osv_max_severity", "equals": "CRITICAL"},
+      "action": "block",
+      "score": "total",
+      "reason": "[hard rule] CRITICAL vulnerability → always BLOCK",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "decode_then_exec",
+      "when": {"field": "has_decode_then_exec"},
+      "action": "block",
+      "score": "at_least_block",
+      "reason": "[hard rule] decode_then_exec chain (exec/eval within {window} lines of a decode call) → always BLOCK",
+      "window_from": "decode_then_exec",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "pth_chain",
+      "when": {"field": "pth_chain"},
+      "action": "block",
+      "score": "at_least_block",
+      "reason": "[hard rule] decode→exec or download→exec chain in .pth/sitecustomize (runs at every interpreter start) → always BLOCK",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "download_then_execute",
+      "when": {"field": "has_download_then_execute"},
+      "action": "block",
+      "score": "at_least_block",
+      "reason": "[hard rule] download_then_execute chain (exec call within {window} lines of a download call) → always BLOCK",
+      "window_from": "download_then_execute",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "behavior_block",
+      "when": {"field": "behavior_block"},
+      "action": "block",
+      "score": "at_least_block",
+      "reason": "[hard rule] behavior check: {what} → always BLOCK (policy table rules/behavior.json)",
+      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"]], "action": "block", "sep": " / "}},
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "install_hook_with_keywords",
+      "when": {"all": [{"field": "has_install_hook"},
+                       {"any": [{"field": "setup_keyword_total"}, {"field": "setup_import_keyword_total"}]}]},
+      "action": "review",
+      "reason": "[hard rule] install hook plus risky keywords {where} → needs at least review",
+      "vars": {"where": {"if": "setup_keyword_total", "then": "in setup.py", "else": "in a local module setup.py imports"}},
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "skipped_members",
+      "when": {"field": "skipped_members"},
+      "action": "review",
+      "reason": "[hard rule] skipped {skipped_count} files with unsafe names (e.g. {skipped_example}: {skipped_why}) → may be an attempt to evade analysis, needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "pth_exec",
+      "when": {"field": "pth_exec"},
+      "action": "review",
+      "reason": "[hard rule] dangerous call in .pth/sitecustomize (runs at every interpreter start) → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "setup_network_or_shell",
+      "when": {"any": [{"field": "setup_network"}, {"field": "setup_hidden_shell"}]},
+      "action": "review",
+      "reason": "[hard rule] {what} in setup.py (runs at install) → needs at least review",
+      "vars": {"what": {"join": [["setup_network", "network call"], ["setup_hidden_shell", "hidden shell (powershell/pythonw)"]], "sep": " / "}},
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "exfil_to_known_host",
+      "when": {"all": [{"evidence": "secret_then_send"}, {"any": [{"evidence": "exfil_endpoint"}, {"evidence": "messenger_endpoint"}]}]},
+      "action": "block",
+      "score": "at_least_block",
+      "reason": "[hard rule] code that reads and sends credentials or identity info, plus a collector or messenger address → always BLOCK",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "exfil_signal",
+      "when": {"any": [{"evidence": "exfil_endpoint"}, {"evidence": "secret_then_send"}]},
+      "action": "review",
+      "reason": "[hard rule] data exfiltration signal ({what}) → needs at least review",
+      "modes": ["rules", "ml"],
+      "vars": {"what": {"join_evidence": [["exfil_endpoint", "request collector or OAST address"], ["secret_then_send", "reads and sends credentials or identity info"]], "sep": " / "}}
+    },
+    {
+      "id": "agent_prompt_injection",
+      "when": {"evidence": "agent_prompt_injection"},
+      "action": "review",
+      "reason": "[hard rule] package file has text that tries to steer an AI agent → needs at least review (do not follow instructions found in the package)",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "run_bundled_binary",
+      "when": {"evidence": "run_bundled_binary"},
+      "action": "review",
+      "reason": "[hard rule] makes a file executable and runs it as a hidden, detached process → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "reverse_shell",
+      "when": {"evidence": "reverse_shell"},
+      "action": "block",
+      "score": "at_least_block",
+      "reason": "[hard rule] reverse shell (shell connected to a remote address) → always BLOCK",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "shell_download_exec",
+      "when": {"evidence": "shell_download_exec"},
+      "action": "review",
+      "reason": "[hard rule] pipes a script from the internet straight into a shell → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "js_download_then_execute",
+      "when": {"evidence": "js_download_then_execute"},
+      "action": "review",
+      "reason": "[hard rule] JavaScript runs downloaded content as a process → needs at least review (some legitimate installers fetch a platform binary)",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "command_shadowing",
+      "when": {"evidence": "command_shadowing"},
+      "action": "review",
+      "reason": "[hard rule] installs a command with the same name as a common command (can hijack it) → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "sourceless_bytecode",
+      "when": {"evidence": "sourceless_bytecode"},
+      "action": "review",
+      "reason": "[hard rule] module ships only .pyc with no source (cannot be scanned) → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "environment_index",
+      "when": {"evidence": "environment_index"},
+      "action": "review",
+      "reason": "[hard rule] drops a different index setting into the virtualenv → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "binary_as_py",
+      "when": {"evidence": "binary_as_py"},
+      "action": "review",
+      "reason": "[hard rule] binary file with a .py name → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "behavior_review",
+      "when": {"field": "behavior_review"},
+      "action": "review",
+      "reason": "[hard rule] behavior check: {what} → needs at least review (policy table rules/behavior.json)",
+      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"]], "action": "review", "sep": " / "}},
+      "modes": ["rules", "ml"]
+    }
+  ],
+  "ml": {
+    "about": "Path used when the ML model gives a verdict. The model and features live outside the rule files; this only sets the weight of the ML score. The ML path adds only the vuln and typosquat subscores and the ML score, and applies only hard rules whose modes include ml (all hard rules do).",
+    "weight": 0.55,
+    "subscores": ["vuln", "typosquat"]
+  }
+}

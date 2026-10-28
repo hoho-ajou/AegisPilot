@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# AegisPilot writes these at run time
+.aegis/
+.aegis-ai/
+!tests/fixtures/**/.aegis/
+guard/aegis_manifest.json
+
+# builds made by scripts/build_dist.py next to a checkout
+*.building/
+
+# benchmark data and results stay outside the repository (AEGIS_BENCH)
+benchmark/results/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

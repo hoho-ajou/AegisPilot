@@ -1,0 +1,21 @@
+{
+  "name": "aegis-pilot",
+  "displayName": "AegisPilot",
+  "version": "0.1.0",
+  "description": "Checks every package your coding agent installs (pip, npm, git/URL, MCP servers, plugins, hooks) before it runs: reads the code without executing it, explains what it would do, and blocks or asks.",
+  "author": {
+    "name": "hoho-ajou",
+    "url": "https://github.com/hoho-ajou"
+  },
+  "homepage": "https://github.com/hoho-ajou/AegisPilot",
+  "repository": "https://github.com/hoho-ajou/AegisPilot",
+  "license": "Apache-2.0",
+  "keywords": [
+    "security",
+    "supply-chain",
+    "pip",
+    "npm",
+    "hooks",
+    "malware"
+  ]
+}

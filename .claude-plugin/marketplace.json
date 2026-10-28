@@ -1,0 +1,22 @@
+{
+  "name": "hoho-ajou",
+  "owner": {
+    "name": "hoho-ajou"
+  },
+  "description": "AegisPilot by hoho-ajou: a pre-install supply-chain check for coding agents.",
+  "plugins": [
+    {
+      "name": "aegis-pilot",
+      "displayName": "AegisPilot",
+      "description": "Checks every package your coding agent installs (pip, npm, git/URL, MCP servers, plugins, hooks) before it runs: reads the code without executing it, explains what it would do, and blocks or asks.",
+      "homepage": "https://github.com/hoho-ajou/AegisPilot",
+      "license": "Apache-2.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/hoho-ajou/AegisPilot.git",
+        "path": "guard",
+        "ref": "v0.1.0"
+      }
+    }
+  ]
+}
