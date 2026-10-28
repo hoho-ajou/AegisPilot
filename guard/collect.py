@@ -26,7 +26,7 @@ def parse_requires(requires_dist: list[str] | None) -> list[dict]:
     extra (`extra == "x"`) - pip installs neither by default. Unparsable entries are kept by name, never lost."""
     out: dict[str, dict] = {}
     try:
-        from packaging.requirements import Requirement
+        from _vendor.packaging.requirements import Requirement
     except Exception:                                            # no packaging: fall back to the leading name
         Requirement = None
     for raw in requires_dist or []:

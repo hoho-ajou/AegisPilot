@@ -185,7 +185,7 @@ def _sig_key(h: dict) -> tuple:
 # ------------------------------------------------------------------------------------------------ release history
 def _vkey(v: str):
     try:
-        from packaging.version import Version
+        from _vendor.packaging.version import Version
         return (0, Version(v))
     except Exception:
         return (1, tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-+]", v)))

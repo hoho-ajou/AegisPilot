@@ -103,6 +103,10 @@ PROTECTED_FILES = [
 ]
 
 
+# the bundled third-party code is imported by the guard like its own modules
+PROTECTED_FILES += sorted(str(p.relative_to(GUARD_DIR)) for p in (GUARD_DIR / "_vendor").rglob("*.py"))
+
+
 def _sha256(path: Path) -> str | None:
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()

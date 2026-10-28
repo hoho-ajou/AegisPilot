@@ -9,7 +9,7 @@ claude plugin marketplace add hoho-ajou/AegisPilot
 claude plugin install aegis-pilot@hoho-ajou
 ```
 
-Requires Python 3.11 or later as `python3`. AegisPilot uses only the Python standard library. Other install methods (manual, Codex, system-wide) are in [docs/install.md](docs/install.md).
+Requires Python 3.11 or later as `python3`. Nothing else is installed: AegisPilot uses the Python standard library and bundles one small library ([packaging](guard/_vendor/README.md)). Other install methods (manual, Codex, system-wide) are in [docs/install.md](docs/install.md).
 
 ## What you see
 

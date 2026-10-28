@@ -456,7 +456,7 @@ def _advice_fields(f) -> dict:
     instruction. fix_version = the lowest fixed version above the current one for each vulnerability, then the highest of
     those (fixing only the first would leave the others)."""
     try:
-        from packaging.version import InvalidVersion, Version
+        from _vendor.packaging.version import InvalidVersion, Version
     except Exception:                       # no 'packaging' (stdlib only): plain release numbers still compare
         InvalidVersion = ValueError
 

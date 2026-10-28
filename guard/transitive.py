@@ -46,8 +46,8 @@ def pick_version(meta: dict, spec: str) -> str | None:
     """The version pip would install for `spec`: the newest non-yanked final release in range (pre-releases only when
     the range itself names one)."""
     try:
-        from packaging.specifiers import SpecifierSet
-        from packaging.version import InvalidVersion, Version
+        from _vendor.packaging.specifiers import SpecifierSet
+        from _vendor.packaging.version import InvalidVersion, Version
     except Exception:
         return (meta.get("info") or {}).get("version")
     try:

@@ -13,7 +13,7 @@ There are three ways to install AegisPilot. Use one of them.
 | | Plugin | Manual | System |
 | --- | --- | --- | --- |
 | Python | 3.11 or later as `python3` | 3.11 or later as `python3` | 3.11 or later as `python3` |
-| Python packages | none (standard library only) | none | none |
+| Python packages | none (the one library it needs, packaging, is bundled) | none | none |
 | Agent | Claude Code with plugin support | Claude Code, or Codex CLI | Claude Code |
 | Operating system | any that runs Claude Code | any that runs the agent | Linux or macOS |
 | Privileges | none | none | root (`sudo`) |

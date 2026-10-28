@@ -658,8 +658,8 @@ def satisfies(version: str, spec: str) -> bool:
     if not spec or spec == "*":
         return True
     try:
-        from packaging.specifiers import SpecifierSet
-        from packaging.version import Version
+        from _vendor.packaging.specifiers import SpecifierSet
+        from _vendor.packaging.version import Version
         return Version(version) in SpecifierSet(spec)
     except ImportError:
         pass
