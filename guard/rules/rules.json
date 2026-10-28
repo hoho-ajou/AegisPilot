@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "about": "Where to look, what to find, and what evidence to leave. Rules apply top to bottom, and this order is the order evidence piles up in. id is the rule name stored in the evidence; the output (r4) picks its wording by this name, so if you rename one, update the output too. detector is a check method the engine knows (listed in README.md); the other keys are that method's values. The verdict (block or review) is set by scoring.json.",
+  "about": "Where to look, what to find, and what evidence to leave. Rules apply top to bottom, and this order is the order evidence piles up in. id is the rule name stored in the evidence; the output (guard/output) picks its wording by this name, so if you rename one, update the output too. detector is a check method the engine knows (listed in README.md); the other keys are that method's values. The verdict (block or review) is set by scoring.json.",
   "max_evidence_per_rule": 3,
   "snippet_max": 120,
   "rules": [
