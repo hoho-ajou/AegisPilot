@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "about": "Examples for the post.json verdict adjustment rules. scan_verdict = scan verdict (default ALLOW), features = scan result values, osv_ok = OSV reachable (default true), vdiff/late = version comparison results. hit = this rule must match. Run: python3 guard/rule_check.py",
+  "examples": {
+    "known_malicious": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "MAL- record in OSV", "scan_verdict": "NEEDS_HUMAN_REVIEW",
+       "features": {"osv_vulns": [{"id": "MAL-2025-6794", "summary": "Malicious code in num2words (PyPI)"}]}},
+      {"expect": "hit", "verdict": "BLOCK", "why": "Description says the release was changed through an account takeover (ctx 0.2.6)",
+       "features": {"osv_vulns": [{"id": "PYSEC-2022-199", "summary": "", "details": "The ctx hosted project on PyPI was taken over via user account compromise"}]}},
+      {"expect": "miss", "why": "Text describing what a vulnerability enables is not malware (requests)",
+       "features": {"osv_vulns": [{"id": "GHSA-x", "summary": "Requests may follow redirects to malicious URLs"}]}},
+      {"expect": "miss", "why": "No decision if OSV could not be reached", "osv_ok": false,
+       "features": {"osv_vulns": [{"id": "MAL-1", "summary": ""}]}}
+    ],
+    "new_risky_code": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Shell exec at import time that the previous release did not have",
+       "vdiff": {"previous": "1.0", "signals": [{"kind": "import_time", "file": "pkg/__init__.py", "detail": "os.system"}], "since": null, "safe_version": "1.0"}},
+      {"expect": "miss", "why": "Version comparison found nothing", "vdiff": null},
+      {"expect": "miss", "verdict": "BLOCK", "why": "Left as is when already blocked", "scan_verdict": "BLOCK",
+       "vdiff": {"previous": "1.0", "signals": [{"kind": "new_pth", "file": "x.pth", "detail": "import os"}], "since": null, "safe_version": "1.0"}}
+    ],
+    "late_file": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Wheel recently added to an old release",
+       "late": {"file": "pkg-1.0-py3-none-any.whl", "release_date": "2021-01-01", "added_days_after": 1500, "added_days_ago": 3, "safe_version": "0.9"}},
+      {"expect": "miss", "why": "No files added later", "late": null}
+    ],
+    "osv_unavailable": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "OSV unreachable + ALLOW with no other evidence", "osv_ok": false},
+      {"expect": "miss", "why": "OSV reachable", "osv_ok": true},
+      {"expect": "miss", "why": "Scan verdict is already review", "osv_ok": false, "scan_verdict": "NEEDS_HUMAN_REVIEW"}
+    ],
+    "typosquat": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "One letter off requests, 3-day-old project", "name": "requets",
+       "features": {"min_edit_distance": 1, "closest_popular_name": "requests", "package_age_days": 3}},
+      {"expect": "hit", "why": "One letter off, no registration date", "name": "nunpy",
+       "features": {"min_edit_distance": 1, "closest_popular_name": "numpy", "package_age_days": null}},
+      {"expect": "miss", "why": "An 8-year-old project is not suspected on the name alone (grequests)", "name": "grequests",
+       "features": {"min_edit_distance": 1, "closest_popular_name": "requests", "package_age_days": 3000}},
+      {"expect": "miss", "why": "Differs only in separators or case", "name": "typing-extensions",
+       "features": {"min_edit_distance": 1, "closest_popular_name": "typing_extensions", "package_age_days": 3}},
+      {"expect": "miss", "why": "Short names allow only a one-letter difference", "name": "sixx",
+       "features": {"min_edit_distance": 2, "closest_popular_name": "six", "package_age_days": 3}}
+    ],
+    "new_package": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "First registered 3 days ago", "features": {"package_age_days": 3}},
+      {"expect": "miss", "why": "Project older than 30 days", "features": {"package_age_days": 30.5}},
+      {"expect": "miss", "why": "Registration date unknown", "features": {"package_age_days": null}}
+    ]
+  }
+}

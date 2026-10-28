@@ -1,0 +1,79 @@
+{
+ "kind": "install",
+ "mode": "user",
+ "verdict": "BLOCK",
+ "command": "pip install pyyaml==5.3.1",
+ "packages": [
+  {
+   "package": "pyyaml",
+   "version": "5.3.1",
+   "verdict": "BLOCK",
+   "score": 0.455,
+   "location": "GHSA-8q59-q68h-6hv4 (CVE-2020-14343, CRITICAL)",
+   "path": "installing or using this version exposes a published vulnerability",
+   "risk": "the vulnerability may be exploited and affect the application",
+   "reason": "OSV lists a vulnerability for this version",
+   "benign_cases": "the affected feature is not used, or only trusted input is handled",
+   "evidence": [
+    {
+     "rule": "osv",
+     "label": "known vulnerability",
+     "location": "GHSA-8q59-q68h-6hv4 (CVE-2020-14343, CRITICAL)",
+     "snippet": "Improper Input Validation in PyYAML",
+     "count": 1
+    },
+    {
+     "rule": "install_hook",
+     "label": "install hook",
+     "location": "setup.py:171",
+     "snippet": "def run(self):",
+     "count": 1
+    },
+    {
+     "rule": "keyword",
+     "label": "uses a dangerous API",
+     "location": "lib/yaml/constructor.py:538",
+     "snippet": "__import__(name)",
+     "count": 2
+    }
+   ],
+   "other_reasons": [
+    "2 OSV vulnerabilities found (highest severity: CRITICAL)",
+    "dangerous keyword found 4 times (denominator=123): {'__import__(': 4}",
+    "custom install hook in setup.py",
+    "[hard rule] CRITICAL vulnerability → always BLOCK"
+   ],
+   "headline": "OSV vulnerability",
+   "ml_status": "disabled",
+   "advice": {
+    "vuln_groups": [
+     {
+      "ids": [
+       "GHSA-8q59-q68h-6hv4",
+       "CVE-2020-14343",
+       "PYSEC-2021-142"
+      ],
+      "severity": "CRITICAL",
+      "cwe": "CWE-20",
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "published": "2021-02-09"
+     }
+    ],
+    "vuln_count": 1,
+    "ids": [
+     "GHSA-8q59-q68h-6hv4",
+     "CVE-2020-14343",
+     "PYSEC-2021-142"
+    ],
+    "severity": "CRITICAL",
+    "fix_version": "5.4",
+    "fix_missing": 0
+   },
+   "coverage": {
+    "analyzed": true,
+    "notes": []
+   }
+  }
+ ],
+ "integrity_findings": []
+}

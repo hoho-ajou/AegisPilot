@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "about": "What to look for: the pattern dictionary. Detection rules in rules.json and the engine look these up by name. literals match as written (the engine escapes regex special characters); regex entries are Python regular expressions.",
+  "signals": {
+    "dangerous_keywords": {
+      "description": "Risky keywords. Counted per file for the keyword score and evidence. bare_builtins are not counted when preceded by . or a word character (re.compile(, df.eval()",
+      "literals": ["eval(", "exec(", "os.system(", "subprocess.", "pickle.loads(",
+                   "base64.b64decode(", "socket.socket(", "urllib.request.urlopen(",
+                   "__import__(", "compile(", "marshal.loads("],
+      "bare_builtins": ["eval(", "exec(", "compile(", "__import__("]
+    },
+    "decode": {
+      "description": "Decode call (first half of the chain)",
+      "literals": ["base64.b64decode(", "marshal.loads("]
+    },
+    "exec": {
+      "description": "Dynamic exec (second half of the chain)",
+      "regex": ["(?<![\\w.])(eval|exec)\\("]
+    },
+    "download": {
+      "description": "Download call",
+      "literals": ["urllib.request.urlopen(", "requests.get(", "requests.post(", "urlretrieve("]
+    },
+    "execute": {
+      "description": "Only calls that actually run something. The bare subprocess. prefix also matches exception classes and constants, causing false positives (unstructured)",
+      "regex": ["subprocess\\.(run|call|Popen|check_call|check_output|getoutput|getstatusoutput)\\("],
+      "literals": ["os.system(", "os.popen(", "Popen("]
+    },
+    "install_hook": {
+      "description": "Custom install hook in setup.py",
+      "regex": [{"pattern": "cmdclass\\s*=", "ignorecase": true},
+                {"pattern": "class\\s+\\w*install\\w*\\(", "ignorecase": true},
+                "run\\(self\\)"]
+    },
+    "setup_network": {
+      "description": "Network call in setup.py at install time",
+      "regex": ["urlopen\\(|requests\\.(get|post|put)\\(|urlretrieve\\(|http\\.client|socket\\.(socket|gethostbyname)\\(|urllib\\.request\\."]
+    },
+    "setup_hidden_shell": {
+      "description": "Hidden shell in setup.py at install time",
+      "regex": [{"pattern": "powershell|EncodedCommand|WindowStyle|pythonw", "ignorecase": true}]
+    },
+    "secret_source": {
+      "description": "Code that reads credentials or personal info: credential file paths, browser, wallet or messenger storage, the whole environment, identity lookups through the shell (whoami and similar). Common calls such as a single os.environ.get or getpass.getuser are not included",
+      "regex": [{"pattern": "\\.ssh[/\\\\]|id_rsa|id_ed25519|\\.aws[/\\\\]credentials|\\.npmrc|\\.pypirc|\\.git-credentials|\\.docker[/\\\\]config\\.json|\\.kube[/\\\\]config|/etc/(passwd|shadow)\\b|['\\\"]/flag(\\.txt)?['\\\"]", "ignorecase": false}, {"pattern": "Login Data|Local State|exodus|wallet\\.dat|metamask|Telegram Desktop|discord[/\\\\\\\\]+(Local Storage|leveldb)|keychain-db", "ignorecase": true}, "os\\.environ\\.copy\\(\\)|dict\\(os\\.environ\\)|os\\.environ\\.items\\(\\)|json\\.dumps\\(\\s*(dict\\()?os\\.environ|str\\(os\\.environ\\)", "getoutput\\(\\s*['\\\"](whoami|hostname|id|uname|ipconfig|ifconfig|systeminfo|net user)\\b|check_output\\(\\s*\\[?\\s*['\\\"](whoami|hostname|ipconfig|ifconfig|systeminfo)\\b"],
+      "quick": [".ssh", "id_rsa", "id_ed25519", ".aws", ".npmrc", ".pypirc", "git-credentials", ".docker", ".kube", "/etc/", "/flag", "login data", "local state", "exodus", "wallet.dat", "metamask", "telegram desktop", "discord", "keychain-db", "os.environ", "getoutput", "check_output"]
+    },
+    "send_out": {
+      "description": "Calls that send data out",
+      "regex": ["requests\\.(post|put)\\(|httpx\\.(post|put)\\(|urllib\\.request\\.Request\\(|urlopen\\(|\\.sendall\\(|\\.sendto\\(|smtplib\\.SMTP|ftplib\\.FTP\\("]
+    },
+    "exfil_host": {
+      "description": "Request collector services and OAST addresses. Library code rarely contains these (examples in docs are excluded with skip_docstrings)",
+      "regex": [{"pattern": "webhook\\.site|oastify\\.com|burpcollaborator\\.net|\\binteract\\.sh|\\.oast\\.(fun|pro|live|site|online|me)\\b|pipedream\\.net|\\brequestbin\\b|\\bhookbin\\b|dnslog\\.cn|ceye\\.io|canarytokens|beeceptor\\.com|requestcatcher\\.com", "ignorecase": true}],
+      "quick": ["webhook.site", "oastify", "burpcollaborator", "interact.sh", ".oast.", "pipedream", "requestbin", "hookbin", "dnslog", "ceye.io", "canarytokens", "beeceptor", "requestcatcher"]
+    },
+    "messenger_host": {
+      "description": "Messenger bots and webhooks, paste and file sharing, tunnel addresses. Normal integrations use them too (tqdm's Telegram notifications, for example), so on its own this is kept as evidence only; it affects the verdict only together with code that reads and sends data",
+      "regex": [{"pattern": "discord(app)?\\.com/api/webhooks|api\\.telegram\\.org/bot|pastebin\\.com/api|transfer\\.sh|ngrok(-free)?\\.(io|app)", "ignorecase": true}],
+      "quick": ["discord", "api.telegram", "pastebin", "transfer.sh", "ngrok"]
+    },
+    "prompt_injection": {
+      "description": "Instructions aimed at an AI reading the package (coding agent, AI reviewer): ignore previous instructions, unrestricted mode, swapped system prompt. Almost never in normal package code or docs. Matched against lowercased text (lowercase)",
+      "lowercase": true,
+      "regex": ["ignore\\s+(all\\s+|any\\s+)?(of\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding)\\s+(instructions|prompts?|messages|rules|directions)", "disregard\\s+(all\\s+|any\\s+)?(of\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding)\\s+(instructions|prompts?|messages|rules|directions)", "forget\\s+(all\\s+|any\\s+)?(of\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding)\\s+(instructions|prompts?|messages|rules|directions)", "system\\s+override\\s*[—–:/|-]", "you\\s+are\\s+now\\s+(operating\\s+)?in\\s+(an?\\s+)?(unrestricted|developer|god|jailbreak|dan)\\s+mode", "all\\s+safety\\s+(guidelines|restrictions|filters|rules)\\s+(are|have\\s+been)\\s+(suspended|disabled|removed|lifted)", "(enable|activate|enter)\\s+(unrestricted|jailbreak|dan)\\s+mode\\b", "do\\s+anything\\s+now\\b", "new\\s+system\\s+(prompt|instructions)\\s*:"],
+      "quick": ["ignore", "disregard", "forget", "system override", "you are now", "safety", "jailbreak", "unrestricted", "anything now", "new system"]
+    },
+    "injection_discussion": {
+      "description": "Text that discusses instructions aimed at AI: words that appear around an attack sentence when defense guides, security docs or test data quote it as an example (prompt injection, untrusted, do not follow, treat as data, etc.). Matched in lowercase",
+      "lowercase": true,
+      "regex": ["prompt[ -]?injection", "\\binjection\\b", "\\buntrusted\\b", "\\bnever (follow|obey|execute|act on)\\b", "\\b(do not|don't|must not|should not|shouldn't|never) (follow|obey|comply|act on)\\b", "\\bnot (an? )?instructions?\\b", "\\b(as|is|are) (data|untrusted)\\b", "\\bjailbreak", "\\bguardrail", "red[ -]?team", "\\badversarial\\b", "\\bsanitiz", "\\b(attacks?|attackers?|hostile|malicious)\\b"],
+      "quick": ["injection", "untrusted", "never", "not", "follow", "obey", "comply", "act on", "data", "jailbreak", "guardrail", "red", "adversarial", "sanitiz", "attack", "hostile", "malicious"]
+    },
+    "make_executable": {
+      "description": "Sets the execute bit on a file or checks that it is executable",
+      "regex": ["\\bchmod\\(|os\\.X_OK|stat\\.S_IEXEC|stat\\.S_IXUSR"],
+      "quick": ["chmod(", "x_ok", "s_iexec", "s_ixusr"]
+    },
+    "detached_spawn": {
+      "description": "Starts a hidden, detached child process (new session, no window, cut off from the parent). Keeps running in the background after install or import",
+      "regex": ["start_new_session\\s*=\\s*True|DETACHED_PROCESS|CREATE_NO_WINDOW|0x0*8000000\\b|preexec_fn\\s*=\\s*os\\.setsid|\\bnohup\\b"],
+      "quick": ["start_new_session", "detached_process", "create_no_window", "8000000", "setsid", "nohup"]
+    },
+    "binary_marker": {
+      "description": "NUL bytes that a text file cannot contain: a binary (executable or similar) with a .py name",
+      "regex": ["\u0000"],
+      "quick": ["\u0000"]
+    },
+    "js_decode": {
+      "description": "JavaScript decode or decrypt (first half of the chain): base64 or hex buffers, atob, deciphers",
+      "regex": ["Buffer\\.from\\([^()]*?,\\s*['\"](base64|hex)['\"]\\s*\\)", "(?<![\\w.$])atob\\s*\\(", "createDecipher(iv)?\\s*\\("],
+      "quick": ["buffer.from", "atob", "createdecipher"]
+    },
+    "js_exec": {
+      "description": "JavaScript dynamic exec (second half of the chain): eval, new Function, vm run, module compile",
+      "regex": ["(?<![\\w.$])eval\\s*\\(", "\\bnew\\s+Function\\s*\\(", "\\bvm\\.(runInThisContext|runInNewContext|runInContext|compileFunction)\\s*\\(", "\\bnew\\s+vm\\.Script\\s*\\(", "\\._compile\\s*\\("],
+      "quick": ["eval", "function", "vm.", "_compile"]
+    },
+    "js_exec_decoded": {
+      "description": "Runs a decoded value in place: eval(atob(…)), new Function(Buffer.from(…)) and similar. It fits on one line, so it stays meaningful in minified code",
+      "regex": ["(?<![\\w.$])(eval|Function)\\s*\\(\\s*(atob|unescape|decodeURIComponent|String\\.fromCharCode|Buffer\\.from)\\s*\\(", "\\bvm\\.run\\w*\\s*\\(\\s*(atob|Buffer\\.from)\\s*\\(", "\\._compile\\s*\\(\\s*(atob|Buffer\\.from)\\s*\\("],
+      "quick": ["eval", "function", "vm.run", "_compile"]
+    },
+    "js_download": {
+      "description": "JavaScript download call",
+      "regex": ["\\bhttps?\\.(get|request)\\s*\\(", "require\\(\\s*['\"](node:)?https?['\"]\\s*\\)\\.(get|request)\\s*\\(", "(?<![\\w.$])fetch\\s*\\(", "\\baxios(\\.get)?\\s*\\(", "(?<![\\w.$])got(\\.get)?\\s*\\("],
+      "quick": ["http", "fetch", "axios", "got"]
+    },
+    "js_execute": {
+      "description": "JavaScript process launch (child_process). Regex .exec( is not counted",
+      "regex": ["\\b(child_process|childProcess|cp|proc)\\.(exec|execSync|spawn|spawnSync|execFile|execFileSync)\\s*\\(", "(?<![\\w.$])(exec|execSync|spawnSync|execFileSync|spawn|execFile)\\s*\\(", "require\\(\\s*['\"](node:)?child_process['\"]\\s*\\)\\s*\\.(exec|execSync|spawn|spawnSync|execFile|execFileSync)\\s*\\("],
+      "quick": ["exec", "spawn"]
+    },
+    "js_secret_source": {
+      "description": "JavaScript reads credentials or environment info: credential file paths, turning the whole environment into a string. Common pass-through such as {...process.env} is not included",
+      "regex": [{"pattern": "\\.ssh[/\\\\]|id_rsa|id_ed25519|\\.aws[/\\\\]credentials|\\.npmrc|\\.pypirc|\\.git-credentials|\\.docker[/\\\\]config\\.json|\\.kube[/\\\\]config|/etc/(passwd|shadow)\\b", "ignorecase": false}, {"pattern": "Login Data|Local State|exodus|wallet\\.dat|metamask|Telegram Desktop|keychain-db", "ignorecase": true}, "JSON\\.stringify\\(\\s*process\\.env\\s*[,)]", "Object\\.(keys|entries|values)\\(\\s*process\\.env\\s*\\)"],
+      "quick": [".ssh", "id_rsa", "id_ed25519", ".aws", ".npmrc", ".pypirc", "git-credentials", ".docker", ".kube", "/etc/", "login data", "local state", "exodus", "wallet.dat", "metamask", "telegram desktop", "keychain-db", "process.env"]
+    },
+    "js_send_out": {
+      "description": "JavaScript calls that send data out: HTTP requests, fetch, DNS lookups (DNS exfiltration), sockets",
+      "regex": ["\\bhttps?\\.request\\s*\\(", "(?<![\\w.$])fetch\\s*\\(", "\\baxios\\.(post|put)\\s*\\(", "\\bdns\\.(lookup|resolve\\w*)\\s*\\(", "\\bnet\\.(connect|createConnection)\\s*\\(", "\\bnew\\s+WebSocket\\s*\\("],
+      "quick": ["request", "fetch", "axios", "dns.", "net.", "websocket"]
+    },
+    "shell_download_exec": {
+      "description": "Shell runs downloaded content right away: curl|sh, sh -c \"$(curl …)\", download then chmod +x then run, PowerShell iex(iwr …)",
+      "regex": ["\\b(curl|wget)\\b[^|;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(ba|z|da)?sh\\s+(-\\w+\\s+)*-c\\s+[\"']?\\$\\(\\s*(curl|wget)\\b", "\\b(ba|z)?sh\\s+<\\(\\s*(curl|wget)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(curl|wget)\\b", "(^|[;&|]\\s*|\\s)(source|\\.)\\s+<\\(\\s*(curl|wget)\\b", "\\b(curl|wget)\\b[^\\n]*(&&|;)\\s*chmod\\s+([+\\w]*x\\b|[0-7]?[1357][0-7]{2}\\b)[^\\n]*(&&|;)\\s*\\S", "\\b(curl|wget)\\b[^\\n|]*\\s(-o|-O|--output)\\s+\\S+[^\\n]*(&&|;)\\s*(sudo\\s+)?(ba|z)?sh\\s+\\S", {"pattern": "\\b(iex|invoke-expression)\\b[^\\n]*\\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring)\\b|\\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring)\\b[^\\n]*\\|\\s*(iex|invoke-expression)\\b", "ignorecase": true}],
+      "quick": ["curl", "wget", "iex", "invoke-expression"]
+    },
+    "shell_decode_exec": {
+      "description": "Shell decodes an encoded blob embedded in the code (or downloaded) and runs it right away: echo <blob> | base64 -d | sh, eval \"$(echo <blob> | base64 -d)\", curl … | base64 -d | sh, PowerShell -EncodedCommand. Decoding a variable (transport encoding for remote execution) is not included",
+      "regex": ["\\b(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\bbase64\\s+(-d|--decode|-D)\\s*<<<\\s*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(curl|wget)\\b[^\\n]*\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b", {"pattern": "\\s-e(nc|ncodedcommand)?\\s+[A-Za-z0-9+/=]{40,}", "ignorecase": true}],
+      "quick": ["base64", "-e"]
+    },
+    "reverse_shell": {
+      "description": "Reverse shell: attaches the shell's input and output to a remote address (/dev/tcp, nc -e, bash -i >&, socat exec)",
+      "regex": ["/dev/(tcp|udp)/[\\w.-]+/\\d+", "\\bnc(at)?\\b[^\\n;|&]*\\s-[a-z]*[ec]\\s+/bin/(ba)?sh\\b", "\\b(ba)?sh\\s+-i\\s*[<>]&", "\\bsocat\\b[^\\n]*\\bexec:", "\\bmkfifo\\s+/\\S+[^\\n]*\\|\\s*nc(at)?\\s+[\\w.-]+\\s+\\d{2,5}\\b"],
+      "quick": ["/dev/tcp", "/dev/udp", "nc", "sh -i", "socat", "mkfifo"]
+    },
+    "shell_secret_source": {
+      "description": "Shell reads credentials or environment info: credential file paths, the whole environment (env, printenv)",
+      "regex": [{"pattern": "\\.ssh[/\\\\]|id_rsa|id_ed25519|\\.aws[/\\\\]credentials|\\.npmrc|\\.pypirc|\\.git-credentials|\\.docker[/\\\\]config\\.json|\\.kube[/\\\\]config|/etc/(passwd|shadow)\\b", "ignorecase": false}, {"pattern": "\\$\\(\\s*(env|printenv)\\s*\\)|`\\s*(env|printenv)\\s*`|(^|[;&|(]\\s*)(env|printenv)\\s*\\|", "multiline": true}],
+      "quick": [".ssh", "id_rsa", "id_ed25519", ".aws", ".npmrc", ".pypirc", "git-credentials", ".docker", ".kube", "/etc/", "env"]
+    },
+    "shell_send_out": {
+      "description": "Shell sends data out: curl data or file upload, wget POST, nc connecting to an address",
+      "regex": ["\\bcurl\\b[^\\n]*\\s(-d|--data(-binary|-raw|-urlencode)?|-F|--form|-T|--upload-file)(\\s|=|@)", "\\bwget\\b[^\\n]*--post-(data|file)", "\\bnc(at)?\\s+(-\\w+\\s+)*[\\w.-]+\\s+\\d{2,5}\\b"],
+      "quick": ["curl", "wget", "nc"]
+    },
+    "setup_local_import": {
+      "description": "Indented import inside setup.py (an import that runs only inside the install hook). Top-level imports such as setuptools are excluded",
+      "regex": [{"pattern": "^[ \\t]+(?:from\\s+([\\w]+)[\\w.]*\\s+import|import\\s+([\\w]+))", "multiline": true}]
+    },
+    "pth_import_line": {
+      "description": ".pth lines that Python executes: start with import followed by a space or tab",
+      "regex": ["^import[ \\t]"]
+    },
+    "pth_risky": {
+      "description": "Dangerous calls in .pth or sitecustomize",
+      "regex": ["(?<![\\w.])(exec|eval)\\(|\\bsubprocess\\b|\\bos\\.(system|popen|exec\\w*|spawn\\w*)\\b|b64decode\\(|marshal\\.loads\\(|\\bsocket\\b|urlopen\\(|urlretrieve\\(|\\brequests\\.|\\bhttp\\.client\\b|\\bctypes\\b"]
+    },
+    "long_block": {
+      "description": "Candidate long encoded blob (entropy is measured on these)",
+      "regex": ["[A-Za-z0-9+/=]{80,}"]
+    }
+  },
+  "paths": {
+    "test": {
+      "description": "Test code: package users do not run it. Widened to cover e2e-tests/conftest.py (a falcon false positive)",
+      "regex": "(^|[\\\\/])([\\w.]*[-_.])?tests?([\\\\/]|$)|(^|[\\\\/])(test_\\w+|\\w+_test|conftest)\\.py$"
+    },
+    "dev_toplevel": {
+      "description": "Maintenance folders at the package top level (not run at install or import). Top level only: runtime subpackages such as pkg/scripts/ are still scanned",
+      "names": ["scripts", "tools", "docs", "doc", "examples", "example", "benchmarks", "bench", "ci"]
+    },
+    "startup_py": {
+      "description": "Files that run at every Python start (when at the wheel top level)",
+      "names": ["sitecustomize.py", "usercustomize.py"]
+    },
+    "text_files": {
+      "description": "Files read by rules with files \"text\": text outside code (scripts, docs, metadata). Larger files are skipped",
+      "suffixes": [".py", ".pyi", ".pth", ".js", ".mjs", ".cjs", ".ts", ".sh", ".ps1", ".bat", ".md", ".rst", ".txt", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini", ".html", ".xml"],
+      "names": ["readme", "metadata", "pkg-info", "description.rst"],
+      "max_bytes": 8000000
+    }
+  },
+  "languages": {
+    "about": "Which files are code in which language. A rule picks the languages it reads with lang in rules.json (default python). comment_prefixes: lines starting with these (comments) are ignored by code rules. message_commands: quoted text these commands print (echo \"install: curl … | sh\") is not run, so it is ignored. Python is left unchanged (PyPI verdicts stay the same)",
+    "python": {"suffixes": [".py"]},
+    "js": {"suffixes": [".js", ".mjs", ".cjs"], "comment_prefixes": ["//", "/*", "*"]},
+    "shell": {"suffixes": [".sh", ".bash"], "comment_prefixes": ["#"], "message_commands": ["echo", "printf"]}
+  },
+  "ecosystems": {
+    "about": "For each kind of scan target, the languages read as code and the folders skipped. pypi = PyPI packages (Python only), npm = npm packages (JavaScript and package.json install scripts), bundle = skills, plugins and hooks (all code inside; scripts/ runs, so it is not skipped). skip_test_and_dev: skip tests and top-level maintenance folders (paths.dev_toplevel, or dev_names)",
+    "pypi": {"code": ["python"], "skip_test_and_dev": true},
+    "npm": {"code": ["js", "shell"], "skip_test_and_dev": true, "dev_names": ["docs", "doc", "examples", "example", "benchmarks", "bench", "test", "tests", "__tests__", "spec", "coverage"]},
+    "bundle": {"code": ["python", "js", "shell"], "skip_test_and_dev": true, "dev_names": ["docs", "doc", "examples", "example", "benchmarks", "bench"]}
+  },
+  "commands": {
+    "about": "Common command names. If a package installs a command with one of these names (entry_points.txt, <dist>.data/scripts), it runs instead of the real command once the virtualenv is active (hijack). Commands that start with the package's own name are excluded (pip → pip3, uv → uvx)",
+    "common": ["ls", "cat", "cp", "mv", "rm", "ln", "mkdir", "sh", "bash", "zsh", "fish", "sudo", "su", "ssh", "scp", "sftp", "curl", "wget", "git", "python", "python3", "pip", "pip3", "node", "npm", "npx", "env", "which", "find", "grep", "sed", "awk", "tar", "gzip", "make", "cc", "gcc", "clang", "docker", "kubectl", "helm", "aws", "gcloud", "az", "ps", "kill", "chmod", "chown", "open", "xdg-open", "code", "claude", "codex", "uv", "uvx", "poetry", "pipx", "conda", "java", "javac", "go", "cargo", "rustc", "ruby", "gem", "perl", "php", "less", "more", "vi", "vim", "nano", "man"]
+  },
+  "aliases": {
+    "description": "Alias resolution: maps evasions like from os import system as _s back to the real name so keywords and chains show up. Keep the tracked set narrow",
+    "modules": ["os", "subprocess", "base64", "marshal", "pickle", "socket", "requests", "urllib.request"],
+    "call_targets": ["os.system", "os.popen", "base64.b64decode", "marshal.loads", "pickle.loads",
+                     "socket.socket", "requests.get", "requests.post", "requests.put",
+                     "urllib.request.urlopen", "urllib.request.urlretrieve"],
+    "all_functions_of": ["subprocess"],
+    "builtins": ["eval", "exec", "compile", "__import__"]
+  },
+  "string_literals": {
+    "description": "If one end of a chain appears only inside a string (descriptive text), it is not treated as a chain (a hol-guard false positive). But a single string with two or more of the signals below is treated as a payload and still counts",
+    "payload_signals": ["decode", "exec", "download", "execute"],
+    "max_scan_bytes": 1048576
+  }
+}

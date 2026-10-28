@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "about": "Examples for the scoring.json hard rules. features are scan result (ScanFeatures) values. mode: rules (default, no ML result) or ml. If verdict is given, the final verdict is checked too. Run: python3 guard/rule_check.py",
+  "examples": {
+    "critical_vuln": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "CRITICAL vulnerability in OSV",
+       "features": {"osv_max_severity": "CRITICAL", "osv_vulns": [{"id": "GHSA-x"}]}},
+      {"expect": "miss", "why": "HIGH is not a hard rule (counts only in the score)",
+       "features": {"osv_max_severity": "HIGH", "osv_vulns": [{"id": "GHSA-x"}]}}
+    ],
+    "decode_then_exec": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "Has a decode→exec chain", "features": {"has_decode_then_exec": true}},
+      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"has_decode_then_exec": true}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No chain", "features": {}}
+    ],
+    "pth_chain": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "decode→exec chain in .pth", "features": {"pth_chain": true, "pth_exec": true}},
+      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result",
+       "features": {"pth_chain": true, "pth_exec": true}},
+      {"expect": "miss", "why": "No chain", "features": {"pth_exec": true}}
+    ],
+    "download_then_execute": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "Has a download→exec chain", "features": {"has_download_then_execute": true}},
+      {"expect": "miss", "why": "No chain", "features": {"setup_network": false}}
+    ],
+    "install_hook_with_keywords": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Install hook + risky keywords in setup.py",
+       "features": {"has_install_hook": true, "setup_keyword_total": 2}},
+      {"expect": "hit", "why": "Install hook + risky keywords in a module setup.py imports",
+       "features": {"has_install_hook": true, "setup_import_keyword_total": 1}},
+      {"expect": "miss", "why": "Install hook only, no risky keywords", "features": {"has_install_hook": true}}
+    ],
+    "skipped_members": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Skipped an unsafe file name inside the archive",
+       "features": {"skipped_members": [["../../etc/passwd", "escapes to a parent folder"]]}},
+      {"expect": "miss", "why": "No skipped files", "features": {"skipped_members": []}},
+      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"skipped_members": [["../x", "escapes to a parent folder"]]}}
+    ],
+    "behavior_block": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "Behavior check found behavior to block (e.g. runs downloaded code on import)", "features": {"behavior_block": true}},
+      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"behavior_block": true}},
+      {"expect": "miss", "why": "Only behavior to review", "features": {"behavior_review": true}}
+    ],
+    "behavior_review": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Behavior check found behavior to review (e.g. exec called under a hidden name)", "features": {"behavior_review": true}},
+      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"behavior_review": true}},
+      {"expect": "miss", "why": "No behavior facts", "features": {}}
+    ],
+    "pth_exec": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Dangerous call in .pth", "features": {"pth_exec": true}},
+      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"pth_exec": true}},
+      {"expect": "miss", "why": "No dangerous call", "features": {}}
+    ],
+    "setup_network_or_shell": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Network call at install", "features": {"setup_network": true}},
+      {"expect": "hit", "why": "Hidden shell at install", "features": {"setup_hidden_shell": true}},
+      {"expect": "miss", "why": "Neither", "features": {}}
+    ],
+    "exfil_to_known_host": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "Read-and-send code + collector address", "features": {"evidence": [{"rule": "secret_then_send"}, {"rule": "exfil_endpoint"}]}},
+      {"expect": "hit", "verdict": "BLOCK", "why": "Read-and-send code + messenger bot", "features": {"evidence": [{"rule": "secret_then_send"}, {"rule": "messenger_endpoint"}]}},
+      {"expect": "miss", "why": "Messenger address only (normal notification integration)", "features": {"evidence": [{"rule": "messenger_endpoint"}]}}
+    ],
+    "exfil_signal": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Collector address only", "features": {"evidence": [{"rule": "exfil_endpoint"}]}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Read-and-send code only", "features": {"evidence": [{"rule": "secret_then_send"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "A messenger address alone does not affect the verdict", "features": {"evidence": [{"rule": "messenger_endpoint"}]}}
+    ],
+    "agent_prompt_injection": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Evidence of instructions aimed at AI", "features": {"evidence": [{"rule": "agent_prompt_injection"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "run_bundled_binary": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "run_bundled_binary"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "binary_as_py": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "binary_as_py"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "reverse_shell": [
+      {"expect": "hit", "verdict": "BLOCK", "why": "Has evidence", "features": {"evidence": [{"rule": "reverse_shell"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "shell_download_exec": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "shell_download_exec"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "js_download_then_execute": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "js_download_then_execute"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "command_shadowing": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "command_shadowing"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "sourceless_bytecode": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "sourceless_bytecode"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "environment_index": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "environment_index"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ]
+  }
+}

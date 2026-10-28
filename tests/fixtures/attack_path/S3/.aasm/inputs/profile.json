@@ -1,0 +1,31 @@
+{
+ "agent": "claude-code",
+ "settings_permissions": {
+  "allow": [
+   "Bash(pytest:*)",
+   "Bash(pip install:*)"
+  ],
+  "deny": [
+   "Read(./.env)",
+   "Read(~/.ssh/**)"
+  ]
+ },
+ "mcp_servers": {
+  "github": {
+   "command": "npx",
+   "args": [
+    "-y",
+    "@modelcontextprotocol/server-github"
+   ],
+   "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_FAKE_FOR_TEST_0000"
+   }
+  }
+ },
+ "files_present": [
+  "./.env  (variable names: OPENAI_API_KEY, DATABASE_URL; values are not collected)",
+  "~/.ssh/id_ed25519  (SSH private key, existence checked only)",
+  "./mcp_config.json  (copy of the agent's MCP server config)"
+ ],
+ "runs_as": "OS user ubuntu (the agent and pip install both run as this user)"
+}
