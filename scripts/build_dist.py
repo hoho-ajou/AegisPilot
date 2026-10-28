@@ -39,9 +39,11 @@ DEFAULT_OUT = {"stable": ROOT.parent / "agent-dependency-guard", "test": ROOT.pa
                "plugin": ROOT.parent / "agent-dependency-guard-plugin"}
 PLUGIN_JSON = ROOT / "guard" / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = ROOT / ".claude-plugin" / "marketplace.json"
-# left out of builds: the ML model (guard/r3; models are not in git and are heavy, installed separately), the development
-# server, the settings example, the machine-specific checksum list
-EXCLUDE_TOP = {"r3", "mcp_server.py", "SETTINGS_SNIPPET.json", "aasm_manifest.json"}
+# left out of builds: the machine-specific checksum list
+EXCLUDE_TOP = {"aasm_manifest.json"}
+# more top-level names to leave out, one per line (a development checkout keeps parts that are never installed)
+_EXTRA = ROOT / "packaging" / "build-exclude.txt"
+EXCLUDE_TOP |= set(_EXTRA.read_text().split()) if _EXTRA.exists() else set()
 EXCLUDE_NAMES = {"__pycache__", ".aasm"}
 
 
@@ -87,9 +89,9 @@ def plugin_info() -> dict:
 def release_problems(rel: dict) -> list[str]:
     """Why a release tag cannot be made from HEAD now (empty list: it can)."""
     out = []
-    if git("ls-files", "AGENTS.md", "docs/worklog"):   # pushing the tag pushes its parents: never the development history
-        out.append("not made on the development branch (pushing the tag would publish the development history with it): "
-                   "check out the public branch made by scripts/export_public.py and run it there")
+    if git("ls-files", "packaging/public"):   # a development checkout: pushing the tag would push its history with it
+        out.append("not made in a development checkout (pushing the tag would publish its history with it): "
+                   "run it on the published branch")
     if git("status", "--porcelain", "--untracked-files=no", "--", "guard", ".claude-plugin"):
         out.append("uncommitted changes in guard/ or .claude-plugin/")
     src, tag = rel["source_entry"], f"v{rel['version']}"

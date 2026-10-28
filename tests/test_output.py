@@ -1,4 +1,4 @@
-"""Output layer (r4/mvp_output.py) and the hook around it: untrusted text, honest ML line, and a block that survives
+"""Output layer (output/render.py) and the hook around it: untrusted text, honest ML line, and a block that survives
 a broken output layer."""
 import json
 import os
@@ -11,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent / "guard"
 sys.path.insert(0, str(HERE))
-from r4 import mvp_output as M
+from output import render as M
 import guard_paths
 import review_report as R
 
@@ -48,8 +48,8 @@ class Untrusted(unittest.TestCase):
 
 
 class MlLine(unittest.TestCase):
-    def test_number_only_when_r3_ran(self):
-        self.assertIn("0.003", M.ml_line({"ml_status": "ok", "ml_score": 0.003, "ml_threshold": 0.225, "ml_model": "r3_full"}))
+    def test_number_only_when_the_model_ran(self):
+        self.assertIn("0.003", M.ml_line({"ml_status": "ok", "ml_score": 0.003, "ml_threshold": 0.225, "ml_model": "model"}))
         self.assertIn("ALERT", M.ml_line({"ml_status": "ok", "ml_score": 0.5, "ml_alert": True}))
 
     def test_missing_number_says_why_and_never_claims_not_connected(self):
@@ -67,7 +67,7 @@ class Record(unittest.TestCase):
     def test_ml_fields(self):
         class F:  # features stand-in
             pass
-        f = F(); f.ml = {"ok": True, "ml_score": 0.01, "threshold": 0.225, "alert": False, "model": "r3_full", "code_analyzed": True}
+        f = F(); f.ml = {"ok": True, "ml_score": 0.01, "threshold": 0.225, "alert": False, "model": "model", "code_analyzed": True}
         self.assertEqual(R._ml_fields(f)["ml_status"], "ok")
         f.ml = {"ok": False, "disabled": True}; self.assertEqual(R._ml_fields(f), {"ml_status": "disabled"})
         f.ml = {"ok": False, "error": "x\x1b[2Jy"}; r = R._ml_fields(f)
@@ -388,7 +388,7 @@ class AutoReason(unittest.TestCase):
         rec = {"package": "200 of 205 scanned", "version": "", "verdict": "NEEDS_HUMAN_REVIEW", "advice": {},
                "evidence": [{"rule": "unscanned_source"}], "source": {"kind": "too_many_packages"}}
         self.assertIn("commands of 200 packages or fewer", M.auto_reason(rec))
-        import r4.text_format as T
+        import output.text_format as T
         self.assertIn("smaller batches", T.popup_line(rec))
         self.assertEqual(M.auto_summary_line(rec), "[AegisPilot] some packages held · too many to scan · split it up")
 
@@ -427,7 +427,7 @@ class ProtectedAasm(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("python3"), "python3 missing")
 class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
-    """Measured: with r4/ missing the hook exited 1 and `pip install pyyaml==5.3.1` ran. It must stay a deny."""
+    """Measured: with output/ missing the hook exited 1 and `pip install pyyaml==5.3.1` ran. It must stay a deny."""
 
     def decision(self, impl_dir, cwd):
         ev = {"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": "pip install pyyaml==5.3.1"}}
@@ -485,11 +485,11 @@ class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
                 self.skipTest(f"needs PyPI/OSV network to reach a BLOCK verdict (got {baseline})")
             ok_reason = json.loads(self.decision(copy, str(proj))[1].stdout)["hookSpecificOutput"]["permissionDecisionReason"]
             self.assertIn("```text", ok_reason)                      # the working path hands Claude the fenced report
-            shutil.rmtree(copy / "r4")
-            self.assertEqual(self.decision(copy, str(proj))[0], "deny", "r4 missing")
+            shutil.rmtree(copy / "output")
+            self.assertEqual(self.decision(copy, str(proj))[0], "deny", "output missing")
             self.assertIn("pyyaml", json.loads(self.decision(copy, str(proj))[1].stdout)["hookSpecificOutput"]["permissionDecisionReason"])   # fallback = full reason
-            (copy / "r4").mkdir(); (copy / "r4" / "__init__.py").write_text(""); (copy / "r4" / "mvp_output.py").write_text("raise RuntimeError('broken')\n")
-            self.assertEqual(self.decision(copy, str(proj))[0], "deny", "r4 raising at import")
+            (copy / "output").mkdir(); (copy / "output" / "__init__.py").write_text(""); (copy / "output" / "render.py").write_text("raise RuntimeError('broken')\n")
+            self.assertEqual(self.decision(copy, str(proj))[0], "deny", "output raising at import")
 
 
 

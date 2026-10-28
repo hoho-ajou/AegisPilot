@@ -94,7 +94,7 @@ class Build(unittest.TestCase):
         for rel in (".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/python_check.sh", "README.md", "LICENSE",
                     "BUILD_INFO.json"):
             self.assertIn(rel, files)
-        self.assertFalse(any(f.startswith(("r3/", "mcp_server.py", ".gitignore")) for f in files))
+        self.assertFalse(any(f.startswith(("mcp_server.py", ".gitignore")) for f in files))
         self.assertIn("AegisPilot", (self.out / "README.md").read_text())       # the plugin README, not the manual guide
         self.assertEqual(integrity.check_release(self.out), [])
 

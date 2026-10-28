@@ -119,13 +119,7 @@ def risk_score(pkg: dict) -> float | None:
 
 def ml_score(pkg: dict) -> float | None:
     # never invent a score: only a score the ML model really produced is used
-    candidates = [
-        pkg.get("ml_score"),
-        (pkg.get("r3") or {}).get("ml_score")
-        if isinstance(pkg.get("r3"), dict) else None,
-        (pkg.get("r3") or {}).get("anomaly_score")
-        if isinstance(pkg.get("r3"), dict) else None,
-    ]
+    candidates = [pkg.get("ml_score")]
 
     for value in candidates:
         if value is None:
@@ -408,7 +402,7 @@ def _advice_case(rec: dict) -> str:
 def auto_summary_line(rec: dict) -> str:
     """The one line the person sees in auto mode: text_format.summary_line (<= 66 columns), the earlier wording on failure."""
     try:
-        from r4 import text_format
+        from output import text_format
         return text_format.summary_line(rec)
     except Exception:
         return _legacy_summary_line(rec)
@@ -684,7 +678,7 @@ def terminal_report(report: dict, width: int | None = None, report_path=None) ->
     """The labelled report a developer reads: Reason/Impact/Evidence/Fix/Limits/Details. Falls back to the full
     fixed-format report if the formatter raises, so a bug here can never leave a block without text."""
     try:
-        from r4 import text_format
+        from output import text_format
         return text_format.report_text(report, width, str(report_path) if report_path else None)
     except Exception:
         text = full_terminal_report(report, width)

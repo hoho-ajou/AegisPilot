@@ -215,7 +215,7 @@
     }
   ],
   "ml": {
-    "about": "Path used when the ML model gives a verdict. The model and features live outside the rule files (guard/r3); this only sets the weight of the ML score. The ML path adds only the vuln and typosquat subscores and the ML score, and applies only hard rules whose modes include ml (all hard rules do).",
+    "about": "Path used when the ML model gives a verdict. The model and features live outside the rule files; this only sets the weight of the ML score. The ML path adds only the vuln and typosquat subscores and the ML score, and applies only hard rules whose modes include ml (all hard rules do).",
     "weight": 0.55,
     "subscores": ["vuln", "typosquat"]
   }

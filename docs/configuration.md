@@ -105,7 +105,6 @@ These do not weaken the checks, so they are always read from the environment.
 | `AASM_MODE` | not set (`user`, or the project's `.aasm/policy.json`) | `user`, `auto` |
 | `AASM_FAIL_CLOSED` | `0` | `1`: when the guard cannot finish (time limit, internal error), it refuses the command instead of asking |
 | `AASM_SCAN_PROCESSES` | `1` | `0`: scan several packages with threads only, no worker processes |
-| `AASM_ML` | on only when an ML model and its Python environment are found | `0` off, `1` on. The plugin does not include the model. |
 
 ### Switches that a built guard ignores in the environment
 
@@ -131,7 +130,6 @@ Format:
 | `AASM_HOOK_DEADLINE_SECONDS` | `570` | time limit of one check. When it is reached, the command is not checked and the guard asks (or refuses with `AASM_FAIL_CLOSED=1`). |
 | `AASM_ARTIFACT_POLICY` | `installed` | which release file of a PyPI package to read. `installed`: the file pip would install (a compatible wheel, else the sdist). `sdist_first`: the sdist when there is one. |
 | `AASM_CACHE` | `0` | `1`: turn on the verdict cache (below) |
-| `R3_DIR`, `R3_PYTHON` | the `r3/` folder next to the guard, and the python of `r3/venv` there | where the optional ML model and its Python environment are. The guard runs that Python, so a built guard takes these from a settings file only. |
 
 `guard_cli.py verify` lists switches that are set in the environment but ignored.
 

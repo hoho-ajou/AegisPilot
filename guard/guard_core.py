@@ -42,9 +42,9 @@ class Decision:
 
 
 def _text_or(fn_name: str, fallback: str, *args) -> str:
-    """The text from r4.text_format, or `fallback` if that module cannot be loaded or raises (it must never take the gate down)."""
+    """The text from output.text_format, or `fallback` if that module cannot be loaded or raises (it must never take the gate down)."""
     try:
-        from r4 import text_format
+        from output import text_format
         out = getattr(text_format, fn_name)(*args)
         return out if isinstance(out, str) and out.strip() else fallback
     except Exception:
@@ -104,7 +104,7 @@ def _with_decision_id(reason: str, report_data: dict) -> str:
 def _ask(project_dir: str, report: dict, popup: str, always_ask: bool = False) -> Decision:
     """A guard event a person should look at (not an install: MCP server / extension, protected path, package index).
     user mode: the approval window with `popup`. auto mode - nobody to ask: a refusal that gives the agent why it was
-    stopped, the evidence and the path to harm, so it decides what to do instead (r4.mvp_output.auto_event_reason).
+    stopped, the evidence and the path to harm, so it decides what to do instead (output.render.auto_event_reason).
     always_ask: an action on the guard itself (turning it off, changing its files or records). The approval window in
     both modes: once the guard is off nothing checks the agent's next steps, and an agent misled by text it read is
     exactly the case to stop, so the agent never decides this one (an unattended run is refused by the agent)."""
@@ -116,7 +116,7 @@ def _ask(project_dir: str, report: dict, popup: str, always_ask: bool = False) -
     try:
         from mode import get_mode
         if get_mode(project_dir) == "auto":
-            from r4.mvp_output import auto_event_reason
+            from output.render import auto_event_reason
             card = auto_event_reason(report)
             if card:
                 return Decision(REFUSE, _with_decision_id(card, report))
@@ -236,7 +236,7 @@ def _agent_decides(decision: Decision, fp: str) -> Decision:
         if acks.consume(fp):
             return Decision(ALLOW)
         ack_id = acks.issue(fp, decision.reason.splitlines()[0] if decision.reason else "")
-        from r4.mvp_output import ack_instruction
+        from output.render import ack_instruction
         cli = Path(__file__).resolve().parent / "guard_cli.py"
         return Decision(REFUSE, decision.reason + "\n" + ack_instruction(ack_id, f"python3 -I {cli} ack {ack_id}"),
                         decision.detail)
@@ -433,13 +433,13 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         _attack_paths(project_dir, report_data, profile_thread, profile_box)
 
     if blocked:
-        # The Markdown report and the fixed-format terminal view (r4.mvp_output) are extras. They are imported HERE and
+        # The Markdown report and the fixed-format terminal view (output.render) are extras. They are imported HERE and
         # wrapped on purpose: a module-level import error exits 1, and exit 1 does not block - the install would run
-        # (in testing, with r4/ missing, `pip install pyyaml==5.3.1` went through). Whatever fails in the
+        # (in testing, with output/ missing, `pip install pyyaml==5.3.1` went through). Whatever fails in the
         # extras, the refusal is still sent; if the short message cannot be built we send the full reason instead.
         reason, detail = deny_block(blocked), ""
         try:
-            from r4.mvp_output import auto_reason, claude_reason, terminal_report, write_md_report
+            from output.render import auto_reason, claude_reason, terminal_report, write_md_report
             try:
                 report_path = write_md_report(project_dir, report_data, force=False)
             except Exception:
@@ -458,7 +458,7 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
             else:
                 detail = report
                 try:
-                    from r4.mvp_output import fix_offers
+                    from output.render import fix_offers
                     offers = fix_offers(blocked + review)
                 except Exception:
                     offers = []
@@ -471,7 +471,7 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         if integrity_findings and mode == "auto":
             # auto mode: nobody to ask - the agent is told the guard cannot be trusted right now and installs nothing
             try:
-                from r4.mvp_output import auto_event_reason
+                from output.render import auto_event_reason
                 card = auto_event_reason({"kind": "integrity", "reason": "guard files differ from the installed version",
                                           "integrity_findings": integrity_findings,
                                           "commands": _repair_commands()})
@@ -490,7 +490,7 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
             # auto mode = no person in the loop: nothing is asked. The REVIEW is handed to the agent as a card with the
             # steps to resolve it (same channel and instruction as a BLOCK); the agent's next install is checked again.
             try:
-                from r4.mvp_output import auto_reason
+                from output.render import auto_reason
                 card = auto_reason(review[0], review[1:])
             except Exception:
                 card = None

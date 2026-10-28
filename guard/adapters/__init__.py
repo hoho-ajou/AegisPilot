@@ -2,8 +2,8 @@
 AegisPilot - agent adapters: everything that depends on WHICH coding agent runs the guard.
 
 The guard is split in two:
-  tool-independent   install_parse, scan_engine (+ remote_wheel, safe_extract, artifact_select, collect, ml_bridge),
-                     review_report, r4/, mode, integrity, mcp_guard, guard_paths, guard_core
+  tool-independent   install_parse, scan_engine (+ remote_wheel, safe_extract, artifact_select, collect),
+                     review_report, output/, mode, integrity, mcp_guard, guard_paths, guard_core
                      -> takes a command / a file path + text and returns a Decision(action, reason, detail)
   tool-dependent     this package + hooks/  -> reads the agent's hook event, answers in the agent's format,
                      names the agent's own config files and how its session surface is detected

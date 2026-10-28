@@ -1,7 +1,7 @@
 """
 AegisPilot - rule modules layered on the base rules.
 
-The base rules (guard/rules/*.json) are the team's and change with the guard. A person or an administrator adds their own
+The base rules (guard/rules/*.json) ship with the guard and change with it. A person or an administrator adds their own
 on top without touching them, one JSON file per module:
   ~/.aasm/rules/*.json      the user's modules (a protected path: an agent that writes one is stopped like one that
                             edits the guard). Not read by a system install (a guard the user cannot write), like

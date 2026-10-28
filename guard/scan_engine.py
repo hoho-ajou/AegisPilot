@@ -1,5 +1,5 @@
 """
-AegisPilot - core scan engine (MVP)
+AegisPilot - core scan engine
 
 Implements pipeline stages 2~4 (+ rule-based stage 6):
   2. Fetch  - download wheel/sdist WITHOUT running install scripts
@@ -233,8 +233,11 @@ REVIEW_THRESHOLD = RULESET.review_threshold
 ML_WEIGHT = RULESET.ml_weight
 
 
-# [ML] load ml_bridge from this folder and call the ML model. Never raises, whatever fails
-def _r3_ml_predict(name, version, handoff=None):
+# [ML] load ml_bridge from this folder and call the ML model. Never raises, whatever fails. The ML model is optional
+# and not part of every install: without ml_bridge.py the verdict is rule-based only.
+def _ml_predict(name, version, handoff=None):
+    if not Path(__file__).with_name("ml_bridge.py").exists():
+        return {"ok": False, "error": "no ML model installed"}
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("ml_bridge", Path(__file__).with_name("ml_bridge.py"))
@@ -279,7 +282,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
 
     import threading
 
-    ml_artifact_policy = os.environ.get("AASM_ML_ARTIFACT", "r3")      # "installed": hand the ML model the file we analyze; "r3": it picks its own (sdist first)
+    ml_artifact_policy = os.environ.get("AASM_ML_ARTIFACT", "model")   # "installed": hand the ML model the file we analyze; "model": it picks its own (sdist first)
     art: dict = {"archive_ready": threading.Event()}
     tmp = tempfile.TemporaryDirectory()          # outlives the pool: the ML process may still be reading the archive
 
@@ -306,7 +309,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
             art["archive_ready"].wait(60)
             if art.get("archive_path"):
                 handoff["artifact"] = {"path": art["archive_path"], "filename": art.get("artifact"), "kind": art.get("artifact_kind")}
-        return _r3_ml_predict(name, resolved or version, handoff)
+        return _ml_predict(name, resolved or version, handoff)
 
     try:
         with ThreadPoolExecutor(5) as pool:

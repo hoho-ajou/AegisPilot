@@ -13,7 +13,7 @@ it is written as a literal, and WHEN it runs:
   command            a script in another language that runs when it is run (an npm bin, a hook script)
 
 One extractor per language (not only Python):
-  python   the Profile MVP analyzer (guard/profile/analyzer.py: AST only, nothing is imported or run)
+  python   the Profile analyzer (guard/profile/analyzer.py: AST only, nothing is imported or run)
   others   the patterns of rules/capabilities.json "code_patterns" (js, shell today): line by line on the code view
            (comments and printed strings blanked, rule_engine.code_view). A new language = patterns there.
 For JavaScript / shell the phase is "install" for npm install scripts and the files they run (install_files), else

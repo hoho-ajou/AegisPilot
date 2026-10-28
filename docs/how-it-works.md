@@ -8,7 +8,7 @@ AegisPilot is a set of `PreToolUse` hooks. Claude Code calls them before the age
 command or file edit
   -> parse          what would be installed or connected
   -> fetch          download the files, unpack without running anything
-  -> analyze        static rules + behavior check + OSV + optional ML score
+  -> analyze        static rules + behavior check + OSV
   -> score          weights, thresholds and hard rules
   -> post rules     adjustments that need the package's history
   -> lists          allow and deny lists
@@ -39,7 +39,6 @@ Dependencies pulled in by the package are resolved from registry metadata alone:
 - **Static rules** look for patterns in the files: decode then execute, download then execute, install-time hooks in `setup.py`, code in `.pth` files that runs at every interpreter start, obfuscated blobs, text that tries to steer an AI agent, commands that shadow common command names, and more. The rules are JSON files in `guard/rules/`; see [guard/rules/README.md](../guard/rules/README.md).
 - **Behavior check** (below) decides what the code does and when.
 - **OSV** (`api.osv.dev`) is asked for known vulnerabilities and malicious-package reports for the exact version.
-- **ML score**: an optional anomaly score. It is used only when a model is installed separately; the plugin does not include one.
 
 ### 4. Score
 

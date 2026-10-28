@@ -2,9 +2,8 @@
 """Run tests/test_*.py and guard/*/tests and print a summary. Exit code 1 if any fails.
 
   python3 scripts/run_tests.py            # all
-  python3 scripts/run_tests.py -k r3      # only tests with r3 in the name
+  python3 scripts/run_tests.py -k npm     # only tests with npm in the name
 
-ML tests (guard/r3) are skipped when the model's python and models are missing (ML_AVAILABLE in guard/ml_bridge.py).
 """
 import argparse
 import os

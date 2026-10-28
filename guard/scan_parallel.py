@@ -41,6 +41,9 @@ def _use_processes(items) -> bool:
         return False
     try:
         from ml_bridge import ml_enabled
+    except ImportError:
+        return True                                   # no ML model installed: nothing to keep in one process
+    try:
         return not ml_enabled()
     except Exception:
         return False

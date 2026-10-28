@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 
 import review_report as _rr
-from r4 import mvp_output as _m
+from output import render as _m
 
 _plain = _m._plain
 display_width = _m.display_width

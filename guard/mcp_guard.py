@@ -25,7 +25,7 @@ SNAPSHOT_PATH = Path.home() / ".aasm" / "mcp_snapshot.json"
 # starting allowlist: well-known, officially-published MCP servers. Empty-ish
 # on purpose for V1 - the point isn't to pre-approve everything plausible,
 # it's to flag anything NOT on this short, deliberately curated list so a
-# human looks at it once. Grows over time as the team reviews real servers.
+# human looks at it once. Grows as more real servers are reviewed.
 KNOWN_SOURCE_PREFIXES = [
     "@modelcontextprotocol/server-",
     "@anthropic-ai/",

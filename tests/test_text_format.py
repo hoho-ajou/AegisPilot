@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "guard"))
 import hook_runtime
 import review_report as R
 import scan_engine as E
-from r4 import mvp_output as M
-from r4 import text_format as T
+from output import render as M
+from output import text_format as T
 
 CVSS = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
 PATH = ".aasm/reports/2026-10-07T09-37-10_pyyaml-5.3.1_BLOCK.md"

@@ -39,10 +39,10 @@ _finished = False
 
 
 def text_or(fn_name: str, fallback: str, *args) -> str:
-    """The new text from r4.text_format, or `fallback` (the previous wording) if that module cannot be loaded or raises.
+    """The new text from output.text_format, or `fallback` (the previous wording) if that module cannot be loaded or raises.
     The confirmation text must never be able to take the gate down: a failed import in a hook exits 1, which does not block."""
     try:
-        from r4 import text_format
+        from output import text_format
         out = getattr(text_format, fn_name)(*args)
         return out if isinstance(out, str) and out.strip() else fallback
     except Exception:

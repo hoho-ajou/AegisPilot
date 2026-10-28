@@ -61,7 +61,7 @@ Example: ask for review when a package contains an internal secret marker, and i
 
 Limits: evidence added by a module has no meaning in the attack path capability table (`capabilities.json`), so it does not appear in the attack path diagram. It does appear in the verdict and the evidence card.
 
-The ML model and its features are not here. Changing features requires new data collection and retraining, so they live in `guard/r3`. `scoring.json` only sets how much the ML score counts.
+An optional ML model can add a score to the verdict. The model and its features are not part of this repository; `scoring.json` only sets how much the ML score counts when one is installed.
 
 ## Detectors the engine knows
 

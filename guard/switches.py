@@ -28,8 +28,7 @@ GUARD_DIR = Path(__file__).resolve().parent
 SYSTEM_CONFIG = Path("/etc/aasm/config.json")
 USER_CONFIG = Path.home() / ".aasm" / "config.json"
 WEAKENING = ("AASM_RULES_DIR", "AASM_MCP_SCAN", "AASM_SYSTEM_POLICY", "AASM_HOOK_DEADLINE_SECONDS",
-             "AASM_ARTIFACT_POLICY", "AASM_CACHE", "AASM_RULE_MODULES",
-             "R3_DIR", "R3_PYTHON")         # the ML model's folder and python: the guard would run that program
+             "AASM_ARTIFACT_POLICY", "AASM_CACHE", "AASM_RULE_MODULES")
 
 
 def released() -> bool:

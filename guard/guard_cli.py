@@ -323,7 +323,7 @@ if __name__ == "__main__":
     elif cmd == "selftest":
         sys.exit(selftest())
     elif cmd == "report":
-        from r4.mvp_output import load_last_review, terminal_report, write_md_report
+        from output.render import load_last_review, terminal_report, write_md_report
         project_dir = Path.cwd()
         report = load_last_review(project_dir)
 
@@ -338,7 +338,7 @@ if __name__ == "__main__":
                 fmt = sys.argv[i + 1]
 
         if fmt == "tree":
-            from r4.mvp_output import full_terminal_report
+            from output.render import full_terminal_report
             width = (report.get("surface") or {}).get("width")
             print(full_terminal_report(report, width) if "--full" in sys.argv else terminal_report(report, width))
         elif fmt == "md":
