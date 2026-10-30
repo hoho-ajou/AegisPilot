@@ -433,7 +433,10 @@ def placed_outside(path: Path) -> bool:
 
 
 def is_test_path(rs: Ruleset, path: Path) -> bool:
-    return bool(rs.test_path.search(str(path)))
+    """A test file of the package. Judged on the path inside the package: the folders above it (the archive's own top
+    folder, a plugin's name) are the attacker's to pick, and a top folder named tests/ used to switch every rule off."""
+    rel = package_relative(path) if archive_depth(path) else str(path)
+    return bool(rs.test_path.search(rel))
 
 
 def is_dev_path(rs: Ruleset, path: Path, names: set | None = None) -> bool:

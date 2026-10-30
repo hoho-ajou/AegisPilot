@@ -23,7 +23,7 @@ from pathlib import Path
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 TIMEOUT = 60
 _ARCHIVE = re.compile(r"\.(whl|tar\.gz|tgz|zip)$", re.I)
-_REF = re.compile(r"^[\w./-]{1,200}$")
+_REF = re.compile(r"^\w[\w./-]{0,199}$")          # never starts with "-": git would read it as an option
 
 
 def _git(url: str, name: str | None) -> dict | None:
@@ -100,9 +100,42 @@ def shown(src: dict) -> str:
     return src["url"] + (f"@{src['ref']}" if src.get("ref") else "") + (f"#{src['subdir']}" if src.get("subdir") else "")
 
 
+def check_host(url: str) -> None:
+    """Raise ValueError for an address that is not a package host: this machine (loopback), link-local (169.254.x.x,
+    the cloud metadata service) or unspecified. The URL comes from the command, which the guard fetches before anyone
+    approves it, so it must not reach services that only answer locally. Company (private-range) hosts stay allowed."""
+    import ipaddress
+    import socket
+    u = urllib.parse.urlparse(url)
+    if u.scheme != "https" or not u.hostname:
+        raise ValueError("only https addresses are fetched")
+    try:
+        infos = socket.getaddrinfo(u.hostname, u.port or 443, proto=socket.IPPROTO_TCP)
+    except OSError as e:
+        raise ValueError(f"could not resolve {u.hostname}") from e
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast:
+            raise ValueError(f"{u.hostname} is a local address, not fetched")
+
+
+class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
+    """Every redirect target goes through check_host too (https only, no local address)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_host(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def open_checked(url: str, timeout: int = TIMEOUT):
+    check_host(url)
+    return urllib.request.build_opener(_CheckedRedirects).open(url, timeout=timeout)
+
+
 def download(src: dict, dest: Path) -> Path:
     """The archive of an "archive" source saved as dest/<file name>."""
-    with urllib.request.urlopen(src["url"], timeout=TIMEOUT) as resp:
+    with open_checked(src["url"]) as resp:
         raw = resp.read(MAX_ARCHIVE_BYTES + 1)
     if len(raw) > MAX_ARCHIVE_BYTES:
         raise ValueError(f"package file too large, code not scanned (>{MAX_ARCHIVE_BYTES >> 20}MB limit)")

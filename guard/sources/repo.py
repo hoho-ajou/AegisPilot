@@ -23,7 +23,7 @@ MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
 KEEP_SUFFIXES = (".py", ".pth", ".js", ".mjs", ".cjs", ".ts", ".sh", ".bash", ".ps1", ".bat", ".cmd", ".json", ".md",
                  ".yaml", ".yml", ".toml", ".txt")
 _GITHUB = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
-_REF = re.compile(r"^[\w./-]{1,200}$")
+_REF = re.compile(r"^\w[\w./-]{0,199}$")          # never starts with "-": git would read it as an option
 
 
 def github_repo(url: str) -> str | None:
@@ -59,6 +59,8 @@ def fetch_git(url: str, ref: str | None, dest: Path) -> Path:
         raise ValueError("only https addresses are accepted")
     if ref and not _REF.match(ref):
         raise ValueError(f"could not parse the ref: {ref}")
+    from sources import direct
+    direct.check_host(url)                               # not this machine / the metadata service (see check_host)
     work = dest / "repo"
     work.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "GIT_CONFIG_NOSYSTEM": "1"}
@@ -69,7 +71,7 @@ def fetch_git(url: str, ref: str | None, dest: Path) -> Path:
         subprocess.run(["git", *safe, *args], cwd=work, env=env, check=True, timeout=TIMEOUT,
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     git("init", "-q")
-    git("fetch", "-q", "--depth", "1", "--no-tags", url, ref or "HEAD")
+    git("fetch", "-q", "--depth", "1", "--no-tags", "--", url, ref or "HEAD")
     git("checkout", "-q", "FETCH_HEAD")
     return work
 

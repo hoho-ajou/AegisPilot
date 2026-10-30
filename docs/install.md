@@ -113,6 +113,16 @@ python3 /opt/aegis-pilot/guard_cli.py verify
 
 On WSL, `/etc/claude-code` is writable by the user, so a system install there is not out of the agent's reach. Codex has no system-wide hook location that the guard uses; Codex hooks stay per user or per project.
 
+## Optional: the ML model
+
+The ML model adds a learned score for PyPI packages. It needs about 200 MB (scikit-learn and shap in their own environment), so it is not part of any install method above. Add it to any of them, in your own terminal:
+
+```bash
+python3 <guard>/guard_cli.py ml-install
+```
+
+Details, and what it changes in the verdicts: [ml.md](ml.md).
+
 ## Using more than one install
 
 If the guard is registered twice (for example the plugin and a hook block in `~/.claude/settings.json`), every check runs twice. AegisPilot looks for this in three places:
@@ -170,5 +180,7 @@ sudo python3 /opt/aegis-pilot/guard_cli.py system-uninstall
 ```
 
 This removes the managed-settings drop-in and the installed folder. It does not remove `/etc/aegis/`.
+
+ML model: `python3 <guard>/guard_cli.py ml-uninstall` deletes `~/.aegis/ml/`.
 
 Files the guard wrote stay until you delete them: `.aegis/` in each project and `~/.aegis/` in your home folder. See [privacy.md](privacy.md#files-written).

@@ -22,7 +22,6 @@ writes pip.conf) land in "trusted" - the same limit as every other bypass of the
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -58,10 +57,8 @@ def _load() -> dict:
 def _save(doc: dict) -> None:
     path = state_file()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1))
-        os.replace(tmp, path)
+        import safe_write
+        safe_write.write_text(path.parent, path.name, json.dumps(doc, ensure_ascii=False, indent=1))
     except OSError:
         pass
 

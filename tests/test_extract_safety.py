@@ -18,7 +18,7 @@ class _Resp(io.BytesIO):
 
 
 def fetch(filename, data, dest):
-    meta = {"info": {"version": "1.0"}, "releases": {"1.0": [{"filename": filename, "packagetype": "sdist", "size": len(data), "url": "http://x/" + filename}]}}
+    meta = {"info": {"version": "1.0"}, "releases": {"1.0": [{"filename": filename, "packagetype": "sdist", "size": len(data), "url": "https://files.pythonhosted.org/x/" + filename}]}}
     with mock.patch.object(pypi, "metadata", lambda n: meta), mock.patch.object(pypi.urllib.request, "urlopen", lambda *a, **k: _Resp(data)):
         return pypi.fetch("x", "1.0", dest)
 

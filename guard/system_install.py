@@ -67,12 +67,32 @@ def plan(prefix: Path = DEFAULT_PREFIX, root: Path | None = None, managed_hooks_
             "config": str(_under(root, Path("/etc/aegis/config.json")))}
 
 
+def _check_copy(new: Path) -> None:
+    import integrity
+    for d, dirs, files in os.walk(new):
+        for name in dirs + files:
+            f = Path(d) / name
+            if f.is_symlink() or not (f.is_dir() or f.is_file()):
+                raise InstallError(f"not installing: {f.relative_to(new)} is a link or a special file")
+    findings = integrity.check_release(new)
+    if findings:
+        raise InstallError(f"this guard differs from its build, not installing: {findings[0]}")
+
+
 def install(p: dict, root_owned: bool = True) -> None:
     prefix, dropin, config = Path(p["prefix"]), Path(p["dropin"]), Path(p["config"])
     new = prefix.with_name(prefix.name + ".installing")
     shutil.rmtree(new, ignore_errors=True)
-    shutil.copytree(GUARD_DIR, new, ignore=shutil.ignore_patterns(*SKIP))
-    subprocess.run([sys.executable, "-m", "compileall", "-q", str(new)], check=True)
+    # links are copied as links and then refused (followed, a link to /etc/shadow would become a world-readable copy),
+    # and the copy is what gets checked: the source folder is user-writable and could change after a check
+    shutil.copytree(GUARD_DIR, new, ignore=shutil.ignore_patterns(*SKIP), symlinks=True)
+    try:
+        _check_copy(new)
+    except InstallError:
+        shutil.rmtree(new, ignore_errors=True)
+        raise
+    # -I and cwd "/": with -m, Python would first look for compileall.py in the current folder, as root
+    subprocess.run([sys.executable, "-I", "-m", "compileall", "-q", str(new)], check=True, cwd="/")
     for d, dirs, files in os.walk(new):
         os.chmod(d, 0o755)
         for f in files:

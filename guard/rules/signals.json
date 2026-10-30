@@ -123,17 +123,17 @@
     },
     "shell_download_exec": {
       "description": "Shell runs downloaded content right away: curl|sh, sh -c \"$(curl …)\", download then chmod +x then run, PowerShell iex(iwr …)",
-      "regex": ["\\b(curl|wget)\\b[^|;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(ba|z|da)?sh\\s+(-\\w+\\s+)*-c\\s+[\"']?\\$\\(\\s*(curl|wget)\\b", "\\b(ba|z)?sh\\s+<\\(\\s*(curl|wget)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(curl|wget)\\b", "(^|[;&|]\\s*|\\s)(source|\\.)\\s+<\\(\\s*(curl|wget)\\b", "\\b(curl|wget)\\b[^\\n]*(&&|;)\\s*chmod\\s+([+\\w]*x\\b|[0-7]?[1357][0-7]{2}\\b)[^\\n]*(&&|;)\\s*\\S", "\\b(curl|wget)\\b[^\\n|]*\\s(-o|-O|--output)\\s+\\S+[^\\n]*(&&|;)\\s*(sudo\\s+)?(ba|z)?sh\\s+\\S", {"pattern": "\\b(iex|invoke-expression)\\b[^\\n]*\\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring)\\b|\\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring)\\b[^\\n]*\\|\\s*(iex|invoke-expression)\\b", "ignorecase": true}],
+      "regex": ["\\b(curl|wget)\\b[^|;&\\n]{0,1000}\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(ba|z|da)?sh\\s+(-\\w+\\s+)*-c\\s+[\"']?\\$\\(\\s*(curl|wget)\\b", "\\b(ba|z)?sh\\s+<\\(\\s*(curl|wget)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(curl|wget)\\b", "(^|[;&|]\\s*|\\s)(source|\\.)\\s+<\\(\\s*(curl|wget)\\b", "\\b(curl|wget)\\b[^\\n]{0,1000}(&&|;)\\s*chmod\\s+([+\\w]*x\\b|[0-7]?[1357][0-7]{2}\\b)[^\\n]{0,1000}(&&|;)\\s*\\S", "\\b(curl|wget)\\b[^\\n|]{0,1000}\\s(-o|-O|--output)\\s+\\S+[^\\n]{0,1000}(&&|;)\\s*(sudo\\s+)?(ba|z)?sh\\s+\\S", {"pattern": "\\b(iex|invoke-expression)\\b[^\\n]*\\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring)\\b|\\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring)\\b[^\\n]*\\|\\s*(iex|invoke-expression)\\b", "ignorecase": true}],
       "quick": ["curl", "wget", "iex", "invoke-expression"]
     },
     "shell_decode_exec": {
       "description": "Shell decodes an encoded blob embedded in the code (or downloaded) and runs it right away: echo <blob> | base64 -d | sh, eval \"$(echo <blob> | base64 -d)\", curl … | base64 -d | sh, PowerShell -EncodedCommand. Decoding a variable (transport encoding for remote execution) is not included",
-      "regex": ["\\b(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\bbase64\\s+(-d|--decode|-D)\\s*<<<\\s*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(curl|wget)\\b[^\\n]*\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b", {"pattern": "\\s-e(nc|ncodedcommand)?\\s+[A-Za-z0-9+/=]{40,}", "ignorecase": true}],
+      "regex": ["\\b(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\bbase64\\s+(-d|--decode|-D)\\s*<<<\\s*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(curl|wget)\\b[^\\n]{0,1000}\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]{0,1000}\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b", {"pattern": "\\s-e(nc|ncodedcommand)?\\s+[A-Za-z0-9+/=]{40,}", "ignorecase": true}],
       "quick": ["base64", "-e"]
     },
     "reverse_shell": {
       "description": "Reverse shell: attaches the shell's input and output to a remote address (/dev/tcp, nc -e, bash -i >&, socat exec)",
-      "regex": ["/dev/(tcp|udp)/[\\w.-]+/\\d+", "\\bnc(at)?\\b[^\\n;|&]*\\s-[a-z]*[ec]\\s+/bin/(ba)?sh\\b", "\\b(ba)?sh\\s+-i\\s*[<>]&", "\\bsocat\\b[^\\n]*\\bexec:", "\\bmkfifo\\s+/\\S+[^\\n]*\\|\\s*nc(at)?\\s+[\\w.-]+\\s+\\d{2,5}\\b"],
+      "regex": ["/dev/(tcp|udp)/[\\w.-]+/\\d+", "\\bnc(at)?\\b[^\\n;|&]{0,1000}\\s-[a-z]*[ec]\\s+/bin/(ba)?sh\\b", "\\b(ba)?sh\\s+-i\\s*[<>]&", "\\bsocat\\b[^\\n]{0,1000}\\bexec:", "\\bmkfifo\\s+/\\S+[^\\n]*\\|\\s*nc(at)?\\s+[\\w.-]+\\s+\\d{2,5}\\b"],
       "quick": ["/dev/tcp", "/dev/udp", "nc", "sh -i", "socat", "mkfifo"]
     },
     "shell_secret_source": {
@@ -143,7 +143,7 @@
     },
     "shell_send_out": {
       "description": "Shell sends data out: curl data or file upload, wget POST, nc connecting to an address",
-      "regex": ["\\bcurl\\b[^\\n]*\\s(-d|--data(-binary|-raw|-urlencode)?|-F|--form|-T|--upload-file)(\\s|=|@)", "\\bwget\\b[^\\n]*--post-(data|file)", "\\bnc(at)?\\s+(-\\w+\\s+)*[\\w.-]+\\s+\\d{2,5}\\b"],
+      "regex": ["\\bcurl\\b[^\\n]{0,1000}\\s(-d|--data(-binary|-raw|-urlencode)?|-F|--form|-T|--upload-file)(\\s|=|@)", "\\bwget\\b[^\\n]{0,1000}--post-(data|file)", "\\bnc(at)?\\s+(-\\w+\\s+)*[\\w.-]+\\s+\\d{2,5}\\b"],
       "quick": ["curl", "wget", "nc"]
     },
     "setup_local_import": {

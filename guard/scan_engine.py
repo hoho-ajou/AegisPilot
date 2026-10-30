@@ -234,7 +234,7 @@ ML_WEIGHT = RULESET.ml_weight
 
 
 # [ML] load ml_bridge from this folder and call the ML model. Never raises, whatever fails. The ML model is optional
-# and not part of every install: without ml_bridge.py the verdict is rule-based only.
+# (guard_cli.py ml-install): without it, or without ml_bridge.py, the verdict is rule-based only.
 def _ml_predict(name, version, handoff=None):
     if not Path(__file__).with_name("ml_bridge.py").exists():
         return {"ok": False, "error": "no ML model installed"}
@@ -470,10 +470,10 @@ def scan_direct(src: dict) -> Verdict:
                 features.install_time_files = npm.install_time_files(
                     files, npm.LIFECYCLE + (("prepare",) if src["kind"] == "git" else ()))
                 files += npm.write_lifecycle(files, Path(tmp), "direct")
-                pkg = [f for f in files if f.name == "package.json"]
+                pkg = npm.root_package_jsons(files)
                 if src["kind"] == "git" and pkg:
                     try:
-                        doc = json.loads(min(pkg, key=lambda f: len(f.parts)).read_text(errors="replace"))
+                        doc = json.loads(pkg[0].read_text(errors="replace"))
                         prepare = (doc.get("scripts") or {}).get("prepare")
                     except (OSError, ValueError, AttributeError):
                         prepare = None

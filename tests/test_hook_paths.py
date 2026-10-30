@@ -49,9 +49,25 @@ with tempfile.TemporaryDirectory() as t:
     # nothing flagged: no paths are built
     out, rec4, _ = hook(proj, "pip install good==2.0")
     assert out is None and not (proj / f".aegis/attack_paths/{rec4['decision_id']}.json").exists()
-    # slow Profile: cut off after PROFILE_WAIT_SECONDS, verdict unchanged
-    out, rec5, secs = hook(proj, "pip install bad==1.0", "import env_profile, time\nenv_profile.collect_cached = lambda *a, **k: time.sleep(10)")
-    assert out == "deny" and secs < 9 and not (proj / f".aegis/attack_paths/{rec5['decision_id']}.json").exists(), secs
+    # slow Profile: cut off after PROFILE_WAIT_SECONDS, verdict unchanged. What is timed is the wait itself (from the
+    # end of the checks), not the whole hook: the checks can take long (network), which is not what this case is about.
+    # The Profile never finishes within the test, so waiting for it would show as a wait far past the limit.
+    sys.path.insert(0, str(IMPL))
+    import guard_core  # noqa: E402
+    wait_file = proj / "waited.txt"
+    slow = ("import env_profile, time, guard_core\nenv_profile.collect_cached = lambda *a, **k: time.sleep(120)\n"
+            "_ap = guard_core._attack_paths\n"
+            "def _timed(*a, **k):\n    t = time.monotonic(); _ap(*a, **k)\n"
+            f"    open({str(wait_file)!r}, 'w').write(str(time.monotonic() - t))\n"
+            "guard_core._attack_paths = _timed\n")
+    slow_checks = "_f = scan_engine.scan_packages\nscan_engine.scan_packages = lambda p, *a, **k: (time.sleep(6), _f(p))[1]\n"
+    for extra in (slow, slow + slow_checks):                  # quick checks, then checks that take 6 seconds
+        wait_file.unlink(missing_ok=True)
+        out, rec5, secs = hook(proj, "pip install bad==1.0", extra)
+        waited = float(wait_file.read_text())
+        assert out == "deny" and rec5["verdict"] == "BLOCK", (out, rec5["verdict"])
+        assert waited <= guard_core.PROFILE_WAIT_SECONDS + 1.5, waited
+        assert not (proj / f".aegis/attack_paths/{rec5['decision_id']}.json").exists()
     # failing Profile: verdict unchanged
     out, rec6, _ = hook(proj, "pip install bad==1.0", "import env_profile\nenv_profile.collect_cached = lambda *a, **k: 1/0")
     assert out == "deny" and rec6["verdict"] == "BLOCK" and not (proj / f".aegis/attack_paths/{rec6['decision_id']}.json").exists()

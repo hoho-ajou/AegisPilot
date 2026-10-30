@@ -520,12 +520,12 @@ def _attack_paths(project_dir, record: dict, thread, box: dict) -> None:
         import attack_path
         result = attack_path.run(project_dir, profile=box["doc"], record=record)
         result["profile_cache"] = box["doc"].get("cache")
-        d = Path(project_dir) / ".aegis" / "attack_paths"
-        d.mkdir(parents=True, exist_ok=True)
+        import safe_write
+        base = Path(project_dir) / ".aegis"
         text = _json.dumps(result, ensure_ascii=False)
-        if record.get("decision_id"):
-            (d / f"{record['decision_id']}.json").write_text(text)
-        (Path(project_dir) / ".aegis" / "attack_paths.json").write_text(text)
+        if re.fullmatch(r"D[0-9a-f]{4,8}", str(record.get("decision_id") or "")):
+            safe_write.write_text(base, f"attack_paths/{record['decision_id']}.json", text)
+        safe_write.write_text(base, "attack_paths.json", text)
     except Exception:
         pass
 

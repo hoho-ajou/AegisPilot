@@ -116,4 +116,19 @@ with tempfile.TemporaryDirectory() as d:
     r = guard_core.check_command("pip install git+https://github.com/o/gone@v1", d)
     rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())["packages"][0]
     assert r.action == "refuse" and rec["evidence"][0]["rule"] == "unscanned_source" and "does not exist on" not in r.reason, (r, rec)
+
+# a ref that git would read as an option is not a source; this machine and the metadata service are never fetched
+from sources import direct as D, repo as R  # noqa: E402
+assert D.parse_python("git+https://github.com/o/r@-oProxy") is None and D.parse_npm("github:o/r#-j9") is None
+for bad in ("https://127.0.0.1/x.whl", "https://169.254.169.254/latest/x.whl", "https://localhost/x.whl", "http://h.example/x.whl"):
+    try:
+        D.check_host(bad)
+        raise AssertionError(bad)
+    except ValueError:
+        pass
+try:
+    R.fetch_git("https://127.0.0.1/o/r", None, Path(tempfile.mkdtemp()))
+    raise AssertionError("fetched a local address")
+except ValueError:
+    pass
 print("direct_sources: all cases passed")

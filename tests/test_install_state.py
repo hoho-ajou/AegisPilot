@@ -70,4 +70,20 @@ assert st.find(proj) == []
 out = subprocess.run([sys.executable, "-I", str(GUARD / "install_state.py"), "--session"], env=env, capture_output=True,
                      text=True).stdout
 assert out == "", out
+
+# a settings file that is a link (the agent pointed it at a shell start file) or not JSON is never written, nor its .bak
+victim = home / "bashrc"; victim.write_text("echo hi\n")
+linked = home / "linked" / ".claude"; linked.mkdir(parents=True)
+(linked / "settings.json").symlink_to(victim)
+msg = st.turn_off({"kind": "plugin", "where": "aegis-pilot@x", "file": str(linked / "settings.json")})
+assert msg.startswith("not changed") and victim.read_text() == "echo hi\n", msg
+plain = home / "plain" / ".claude"; plain.mkdir(parents=True)
+(plain / "settings.json").write_text("echo hi\n")
+msg = st.turn_off({"kind": "settings", "where": str(plain / "settings.json")})
+assert msg.startswith("not changed") and (plain / "settings.json").read_text() == "echo hi\n", msg
+ok = home / "ok" / ".claude"; ok.mkdir(parents=True)
+(ok / "settings.json").write_text("{}")
+(ok / "settings.json.bak").symlink_to(victim)
+st.turn_off({"kind": "plugin", "where": "aegis-pilot@x", "file": str(ok / "settings.json")})
+assert victim.read_text() == "echo hi\n" and not (ok / "settings.json.bak").is_symlink()
 print("install_state: all cases passed")

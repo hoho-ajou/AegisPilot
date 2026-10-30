@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -105,33 +104,65 @@ def describe(item: dict) -> str:
             "system": f"system install ({item['where']})"}[item["kind"]]
 
 
+def _refuse(path: Path) -> str | None:
+    """Why this settings file is not changed here (None = it can be). The folders are the agent's to write, and under
+    sudo this runs as root: a file that is a link (~/.claude/settings.json -> /etc/bash.bashrc), sits in a linked folder,
+    is not a JSON object or belongs to someone else would make root overwrite the wrong file."""
+    for p in (path, path.parent):
+        if p.is_symlink():
+            return f"{p} is a link"
+    if path.exists():
+        if not isinstance(_load(path), dict):
+            return f"{path} is not a JSON settings file"
+        uid = os.environ.get("SUDO_UID")
+        if os.geteuid() == 0 and uid and uid.isdigit() and path.stat().st_uid != int(uid):
+            return f"{path} does not belong to the user who ran sudo"
+    return None
+
+
+def _replace(path: Path, text: str, owner: os.stat_result | None) -> None:
+    """Write via a new file renamed over the name: a link planted at the name is replaced, never followed."""
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix="." + path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        if owner is not None:
+            os.chmod(tmp, owner.st_mode & 0o777)
+            if os.geteuid() == 0:                           # under sudo: the person keeps owning their files
+                os.chown(tmp, owner.st_uid, owner.st_gid)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _write_with_backup(path: Path, doc: dict) -> None:
-    backup = path.with_name(path.name + ".bak")
-    shutil.copy2(path, backup)
     st = path.stat()
-    path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    if os.geteuid() == 0:                                   # under sudo: the person keeps owning their files
-        for p in (path, backup):
-            try:
-                os.chown(p, st.st_uid, st.st_gid)
-            except OSError:
-                pass
+    _replace(path.with_name(path.name + ".bak"), path.read_text(encoding="utf-8"), st)
+    _replace(path, json.dumps(doc, indent=2, ensure_ascii=False) + "\n", st)
 
 
 def turn_off(item: dict) -> str:
     """Turn one install off. Returns what was done (or what the person has to do)."""
+    if item["kind"] in ("plugin", "settings"):
+        path = Path(item["file"] if item["kind"] == "plugin" else item["where"])
+        why = _refuse(path)
+        if why:
+            return f"not changed: {why}; turn the AegisPilot install there off yourself"
     if item["kind"] == "plugin":
-        path = Path(item["file"])
         doc = _load(path) or {}
         doc.setdefault("enabledPlugins", {})[item["where"]] = False
         if path.exists():
             _write_with_backup(path, doc)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+            _replace(path, json.dumps(doc, indent=2) + "\n", None)
         return f"disabled the plugin {item['where']} in {path}"
     if item["kind"] == "settings":
-        path = Path(item["where"])
         doc = _load(path)
         if not isinstance(doc, dict):
             return f"could not read {path}; remove the AegisPilot hooks there yourself"

@@ -43,8 +43,9 @@ class _Locked:
 
     def __enter__(self):
         path = state_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = os.open(path.with_suffix(".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+        import safe_write
+        safe_write.real_dir(path.parent)
+        self.fd = os.open(path.with_suffix(".lock"), os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
         try:
             import fcntl
             fcntl.flock(self.fd, fcntl.LOCK_EX)
@@ -64,9 +65,8 @@ class _Locked:
         path = state_file()
         try:
             if json.dumps(doc, sort_keys=True) != self.before:
-                tmp = path.with_suffix(f".{os.getpid()}.tmp")
-                tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1))
-                os.replace(tmp, path)
+                import safe_write
+                safe_write.write_text(path.parent, path.name, json.dumps(doc, ensure_ascii=False, indent=1))
         finally:
             os.close(self.fd)
         return False

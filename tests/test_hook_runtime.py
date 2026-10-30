@@ -50,6 +50,14 @@ code, out, secs = run_hook("pretooluse_check.py", INSTALL, HANG, {"AEGIS_HOOK_DE
 assert code == 0 and out and out["permissionDecision"] == "ask" and "did not finish within" in out["permissionDecisionReason"], (code, out)
 assert secs < 10, secs
 
+# 3b) the same when the scan is stuck inside one long regular-expression search, which holds the interpreter lock (a
+# timer thread could not fire until the search ended, and Claude Code's own hook timeout then let the command through)
+REGEX = ("import scan_engine, re; scan_engine.scan_packages = lambda *a, **k: "
+         "re.search(r'\\bnc(at)?\\b[^\\n;|&]*\\s-[a-z]*[ec]\\s+/bin/sh', 'nc ' * 200000)")
+code, out, secs = run_hook("pretooluse_check.py", INSTALL, REGEX, {"AEGIS_HOOK_DEADLINE_SECONDS": "1"})
+assert code == 0 and out and out["permissionDecision"] == "ask" and "did not finish within" in out["permissionDecisionReason"], (code, out)
+assert secs < 10, secs
+
 # 4) Edit|Write hook: same net for the files it watches, silent for others
 EDIT = {"tool_name": "Edit", "cwd": "/tmp", "tool_input": {"file_path": "/p/.claude/settings.json", "old_string": "a", "new_string": "b"}}
 BREAK = "import review_report; review_report.write_report = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('bug'))"

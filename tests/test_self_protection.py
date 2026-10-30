@@ -59,4 +59,16 @@ for mode in ("auto", "user"):
         assert cmd("python3 -I /opt/aegis/guard_cli.py ack 0123abcd").action == "allow"       # the ack itself still runs
         assert cmd("cat .claude/settings.json").action == "allow"                             # reading is not changing
         assert cmd("rm -rf .aegisx").action == "allow"                                          # another name
+
+# other ways to write the guard's files from a shell are changes too (each one went unflagged in an audit, 2026-10-30);
+# reading stays allowed
+import guard_paths  # noqa: E402
+for c in ["python3 -c \"open('.aegis/policy.json','w').write('{}')\"", "ln -sf /tmp/x .aegis/policy.json",
+          "install -D x .aegis/policy.json", "rsync x .aegis/policy.json", "perl -pi -e s/user/auto/ .aegis/policy.json",
+          "touch .aegis/policy.json", "git checkout -- .claude/settings.json", "rm -rf .ae*", "cp x .ae?is/policy.json",
+          "node -e \"require('fs').writeFileSync('.aegis/x','')\""]:
+    assert guard_paths.command_touches_protected_path(c), c
+for c in ["python3 -c \"import json;print(json.load(open('.aegis/last_review.json')))\"", "rm *.log", "ls .aegis",
+          "grep auto .aegis/policy.json", "rm -rf build/*"]:
+    assert not guard_paths.command_touches_protected_path(c), c
 print("self_protection: all cases passed")

@@ -77,12 +77,12 @@ def command_disables_guard(command: str) -> bool:
     return False
 
 
-_GUARD_CLI_CHANGES = re.compile(r"guard_cli\.py\W+(installs|repair|system-install|system-uninstall)\b")
+_GUARD_CLI_CHANGES = re.compile(r"guard_cli\.py\W+(installs|repair|system-install|system-uninstall|ml-install|ml-uninstall)\b")
 
 
 def command_changes_guard_install(command: str) -> bool:
-    """`guard_cli.py installs|repair|system-install|system-uninstall` run by the agent: each can turn a guard off or
-    replace its files, so it is the person's call even though the guard's own CLI does the work."""
+    """`guard_cli.py installs|repair|system-install|system-uninstall|ml-install|ml-uninstall` run by the agent: each can
+    turn a guard off or replace what it runs, so it is the person's call even though the guard's own CLI does the work."""
     return bool(_GUARD_CLI_CHANGES.search(command))
 
 
@@ -158,9 +158,25 @@ def shell_protected_fragments(agent=None) -> list[str]:
 # anywhere in the command is enough to flag, since under-flagging here is the
 # expensive mistake (the whole point is "catch it before the safety net is
 # gone").
+# a word in command position (the start, after ; & | ( or `, or after sudo / xargs / env ...), not an argument:
+# `pip install x` and `pip install patch` are not the `install` / `patch` tools
+_CMD = r"(?:^|[;&|(`]\s*|\b(?:sudo|xargs|env|exec|command|nohup|time|busybox)\s+(?:-\S+\s+)*)"
 _WRITE_INDICATOR = re.compile(
     r"\bsed\s+-i\b|\bmv\b|\brm\b|\bcp\b|\btruncate\b|\btee\b|\bchmod\b|>>?|\bdd\b"
+    # more tools that write, link or delete (an audit wrote the policy file with each of these unflagged, 2026-10-30)
+    + r"|" + _CMD + r"(?:ln|install|rsync|touch|unlink|rmdir|shred|chown|patch|zip|unzip|tar)\b"
+    + r"|" + _CMD + r"(?:perl\b[^|;&\n]*\s-[a-zA-Z]*i|awk\b[^|;&\n]*-i\s*inplace"
+    + r"|git\s+(?:checkout|restore|reset|clean|apply|am|mv|rm|stash|switch|merge|pull|cherry-pick|revert)\b"
+    + r"|(?:curl|wget)\b[^|;&\n]*\s-[a-zA-Z]*[oO]\b)"
+    + r"|-delete\b",
+    re.M,
 )
+# a one-line program (python3 -c, node -e, ...) naming a protected path, with anything in it that writes, links or deletes
+_INLINE_PROGRAM = re.compile(r"\b(?:python[\d.]*|node|nodejs|deno|bun|ruby|perl|php)\b[^|;&\n]*\s-[a-zA-Z]*[ceE]\b")
+_INLINE_WRITES = re.compile(r"""['"][wax]b?\+?['"]|\bwrite|\bunlink|\bremove|\brename|\breplace|rmtree|symlink|\bcopy|"""
+                            r"""\bmove|chmod|truncate|\bsystem\b|subprocess|child_process|\bexec|\bspawn""")
+# a shell pattern standing for a protected dot-folder (`.ae*`, `.cl?ude`): the name never appears, the shell expands it
+_GLOB_TOKEN = re.compile(r"""[^\s'"=;&|<>()]*[*?\[][^\s'"=;&|<>()]*""")
 
 
 # `2>&1`, `>&2` and `> /dev/null` only route output streams; they write no file, yet the `>` in them used to make every
@@ -173,9 +189,26 @@ def command_touches_protected_path(command: str, agent=None) -> bool:
     """True if a shell command both names a protected path and looks like it writes, or switches the guard plugin off."""
     if command_disables_guard(command):
         return True
-    if not any(_fragment_in(frag, command) for frag in shell_protected_fragments(agent)):
+    frags = shell_protected_fragments(agent)
+    if not any(_fragment_in(frag, command) for frag in frags) and not _glob_names_protected(command, frags):
         return False
+    if _INLINE_PROGRAM.search(command) and _INLINE_WRITES.search(command):
+        return True
     return bool(_WRITE_INDICATOR.search(_HARMLESS_REDIRECT.sub(" ", command)))
+
+
+def _glob_names_protected(command: str, frags: list[str]) -> bool:
+    """A shell pattern in the command that matches a protected folder whose name starts with a dot (.aegis, .claude,
+    .codex): only those, since a pattern matches a dot name only when it starts with a dot itself, so `rm *.log` does
+    not count."""
+    import fnmatch
+    dot_names = {part for f in frags for part in Path(f).parts if part.startswith(".") and len(part) > 2}
+    for tok in _GLOB_TOKEN.findall(command):
+        for part in tok.split("/"):
+            if part.startswith(".") and any(c in part for c in "*?[") and \
+                    any(fnmatch.fnmatchcase(n, part) for n in dot_names):
+                return True
+    return False
 
 
 def file_path_is_protected(file_path: str, agent=None) -> bool:
