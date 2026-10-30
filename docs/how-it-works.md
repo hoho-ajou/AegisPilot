@@ -25,7 +25,7 @@ Anything the parser recognizes but cannot scan (an unknown index, an `ssh://` UR
 
 ### 2. Fetch
 
-- PyPI: the release file pip would install (a compatible wheel, else the sdist). For wheels of 16 MB or more, only the `.py` and `.pth` members are fetched with HTTP range requests. Downloads over 250 MB are not read and are reported as not checked.
+- PyPI: the release file pip would install (a compatible wheel, else the sdist). For wheels of 16 MB or more, only the members the analysis reads are fetched, with HTTP range requests. Downloads over 250 MB are not read and are reported as not checked.
 - npm: the package tarball from the registry. Its install scripts (`preinstall`, `install`, `postinstall`) are followed the way npm and the shell would run them: `npm run <script>` / `yarn <script>` to that script, `node X` to `X`, `X.js` or `X/index.js` (`node .` to `main`), `node -r` / `--import` to the preloaded file, `sh X` / `python X` / `./X` to that file whatever its extension, `make` to the Makefile, and `node-gyp` (also npm's implicit `node-gyp rebuild` when `binding.gyp` exists and there is no install script) to the `<!(command)` expansions of the `.gyp` / `.gypi` files. All of that is read as install-time code, also when it sits in a `test/` folder. A bare `npm install` (or `yarn`, `pnpm install`, `bun install`) in a project reads the project's own install scripts the same way.
 - Git: GitHub's archive of the requested ref, or for other https hosts a shallow `git fetch` with hooks, LFS and submodules turned off.
 - URL archives: https URLs of `.whl`, `.tar.gz`, `.tgz` and `.zip`, up to 100 MB.

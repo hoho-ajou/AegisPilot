@@ -12,6 +12,11 @@
                                        attack paths from the last guard decision and the environment Profile;
                                        --judge prints the CVE-judgement request for the agent when some are pending
   python3 guard/guard_cli.py selftest   feed sample Bash events to the hook and show what it decides
+                                       (network needed: PyPI, npm, OSV; changes no Claude Code setting)
+  python3 guard/guard_cli.py scan <package> [version]
+                                       scan one PyPI package now and print the verdict as JSON (nothing installed)
+  python3 guard/guard_cli.py report [--full] [--format md]
+                                       the latest decision of this project as a report
   python3 guard/guard_cli.py verify     is this guard what was built? (read-only; exit 1 when files changed)
   python3 guard/guard_cli.py repair [--from DIR] [--target DIR] [--dry-run] [--yes]
                                         put the guard back to its official build (--yes: no typed confirmation)
@@ -22,7 +27,6 @@
   sudo python3 guard/guard_cli.py system-install [--prefix DIR] [--managed-hooks-only] [--dry-run]
                                         root-owned install + Claude Code hooks pinned in managed settings
   sudo python3 guard/guard_cli.py system-uninstall [--prefix DIR]
-                                       (network needed: PyPI + OSV; changes no Claude Code setting)
 """
 import os
 import sys
@@ -73,7 +77,7 @@ SAMPLES = [
     ("pip install requests==2.31.0", "ask", "old pinned version with CVEs -> REVIEW popup"),
     ("pip install requests==2.31.0", "deny", "auto mode: the same REVIEW is handed to the agent as a card, nobody is asked", "auto"),
     ("pip install requests>=2", "pass", "latest requests is clean -> ALLOW (silent)"),
-    ("pip install git+https://github.com/x/y.git", "ask", "VCS source cannot be scanned -> REVIEW"),
+    ("pip install git+https://github.com/x/y.git", "ask", "GitHub repository that does not exist -> REVIEW"),
     ("pip install --index-url https://private.example/simple requests", "ask", "custom index -> REVIEW"),
     ("uv sync", "ask", "project install with no project files to read -> REVIEW (never a silent pass)"),
     ("npm install left-pad", "pass", "npm package scanned (2026-10-23), nothing found"),
@@ -372,6 +376,14 @@ if __name__ == "__main__":
         ok, msg = acks.grant(sys.argv[2])
         print(msg)
         sys.exit(0 if ok else 1)
+    elif cmd == "scan":
+        if len(sys.argv) not in (3, 4) or sys.argv[2].startswith("-"):
+            print("usage: guard_cli.py scan <package> [version]")
+            sys.exit(2)
+        import scan_engine
+        v = scan_engine.scan_package(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
+        print(json.dumps({"package": sys.argv[2], "verdict": v.verdict, "score": v.score, "reasons": v.reasons},
+                         ensure_ascii=False, indent=2))
     elif cmd in ("ml-install", "ml-uninstall"):
         sys.exit(ml_cmd(cmd, sys.argv[2:]))
     elif cmd in ("system-install", "system-uninstall"):

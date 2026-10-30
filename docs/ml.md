@@ -2,7 +2,7 @@
 
 AegisPilot works without it. The optional ML model adds a learned score for PyPI packages, next to the rules: it looks at how a release was published and at what its code does when it is installed or imported, and it scores how much the release looks like known malicious packages.
 
-It is not installed by default, because it needs scikit-learn and shap (about 200 MB), which the guard itself does not use.
+It is not installed by default, because it needs scikit-learn and shap (about 200 MB), which the guard itself does not use. It runs on Linux, macOS and WSL, and `ml-install` needs Python's `venv` module (on Debian and Ubuntu: `sudo apt install python3-venv`).
 
 ## Install
 

@@ -20,7 +20,7 @@ The files in this folder are the **base rules**. They are maintained by the proj
 | `/etc/aegis/rules/*.json` | Administrator | When the folder and files are owned by root and not writable by other users. Applied after user modules, so they take precedence |
 
 - Within one location, modules are applied in file name order.
-- **Protection:** `~/.aegis/` is a protected path. When an agent writes a module, the guard asks for confirmation, the same as when it edits guard files. In auto mode it returns an evidence card and an ack id.
+- **Protection:** `~/.aegis/` is a protected path. When an agent writes a module, the guard asks for confirmation, the same as when it edits guard files. This holds in both modes: the agent never gets an ack id for it.
 - **Failure handling:** a broken module is skipped as a whole, for example on a JSON error, an unknown key, a missing id, or a rule the engine cannot read. The guard keeps running with the rest.
 - **Checking:** `python3 guard/guard_cli.py verify` shows which modules were applied and which were skipped. `python3 guard/rule_check.py --modules` shows the status of each module and runs the examples inside it.
 - **Cache:** the verdict cache is not reused when the rule fingerprint differs. Changing a module triggers a rescan.
@@ -61,7 +61,7 @@ Example: ask for review when a package contains an internal secret marker, and i
 
 Limits: evidence added by a module has no meaning in the attack path capability table (`capabilities.json`), so it does not appear in the attack path diagram. It does appear in the verdict and the evidence card.
 
-An optional ML model can add a score to the verdict. The model and its features are not part of this repository; `scoring.json` only sets how much the ML score counts when one is installed.
+An optional ML model can add a score to the verdict. Its code is in `guard/ml/`; the trained files are downloaded by `guard_cli.py ml-install` (see docs/ml.md). `scoring.json` only sets how much the ML score counts when it is installed.
 
 ## Detectors the engine knows
 
@@ -95,11 +95,11 @@ Hard rule conditions in `scoring.json` are written as `{"field": name}` (value i
 | `npm` | js, shell (package.json install scripts are read as `package.json#<event>.sh`, `node -e` code as `.js`) | tests, `dev_names` (`scripts/` is not skipped for npm, because it runs at install time) |
 | `bundle` | python, js, shell (skills, plugins, hooks) | none |
 
-PyPI package scans read only .py files, exactly as before languages were added (checked against a fixed sample set).
+PyPI package scans read `.py` files as code; files installed outside the package and files that install code runs are read in their own language (below).
 
 Files with no extension get their language from the first line (`#!`). In a wheel, **files installed outside the package** (commands in bin, files at the environment root) are read as code in any language, because they can run without being imported. `.pth` and sitecustomize files count as files run at startup not only at the wheel top level but also at the top level of `<dist>.data/purelib` and `platlib`.
 
-Lines starting with the `comment_prefixes` in `languages` (js: `//`, `/*`, `*`; shell: `#`) and quoted text printed by `message_commands` (shell: echo, printf) are not seen by code rules, because they do not run. If the output is piped onward it is not a message, so it is seen. Evidence snippets show the original line. Python handling is unchanged.
+Lines starting with the `comment_prefixes` in `languages` (js: `//`, `/*`, `*`; shell: `#`) and quoted text printed by `message_commands` (shell: echo, printf) are not seen by code rules, because they do not run. If the output is piped onward it is not a message, so it is seen. Evidence snippets show the original line.
 
 ## Verdict adjustments after the scan (post.json)
 
@@ -127,6 +127,6 @@ Each rule has examples that must match (hit) and examples that must pass (miss) 
 
 1. `python3 scripts/run_tests.py`: `test_rule_engine.py` reports format errors in the files, and `test_rule_examples.py` reports failing examples or a stale `RULES.md`.
 2. If the change can affect verdicts, compare before and after on a fixed sample set of benign and malicious packages, and confirm that every difference is intended.
-3. After committing, rebuild the stable build (`python3 scripts/build_dist.py stable`). The hook uses the rule files of the stable build.
+3. A guard you run from a build (`python3 scripts/build_dist.py stable`, or the plugin) uses the rule files of that build: rebuild or reinstall it to try the change there.
 
-If a rule file is broken, the guard does not let the install through; it asks for review with "rule file error: …". The four rule files are covered by the guard's self-protection (checksums). To test with rules from another folder, use `AEGIS_RULES_DIR`.
+If a rule file is broken, the guard does not let the install through; it asks for review with "rule file error: …". The rule files are covered by the guard's self-protection (checksums). To test with rules from another folder, use `AEGIS_RULES_DIR`.

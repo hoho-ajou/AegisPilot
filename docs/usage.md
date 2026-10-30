@@ -33,9 +33,9 @@ Some sources cannot be read: private indexes the guard does not know, `ssh://` a
 | --- | --- |
 | ALLOW | No known risk signal was found. The command runs and nothing is shown. ALLOW means no red flags were found, not that the package is verified safe. |
 | REVIEW | A suspicious signal was found, or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
-| BLOCK | A critical vulnerability, a release OSV lists as malicious, a deny-list entry, or code that runs downloaded, decoded or hidden code. The command is stopped. |
+| BLOCK | A critical vulnerability, a release OSV lists as malicious, a deny-list entry, or install-time code that runs downloaded, decoded or hidden code, sends credentials out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped. |
 
-Each message starts with `[AegisPilot ...]` and ends with `Details: /aegis`.
+Each message starts with `[AegisPilot ...]` and ends with its decision id (for example `decision id: D7f3a`), which `/aegis` uses to explain it.
 
 ## Modes: user and auto
 
@@ -150,11 +150,11 @@ These actions are:
 - `claude plugin disable` or `claude plugin uninstall` of `aegis-pilot`, or removing its marketplace;
 - editing an agent settings file so that a guard hook disappears, the plugin is disabled (`"enabledPlugins"` set to `false`), or `"disableAllHooks"` is turned on;
 - shell commands that write agent settings files, including `claude config set` of `hooks`, `disableAllHooks` or `enabledPlugins`, and starting the agent with `CLAUDE_CONFIG_DIR` or `CODEX_HOME` set;
-- running `guard_cli.py installs`, `repair`, `system-install` or `system-uninstall` through the agent.
+- running `guard_cli.py installs`, `repair`, `system-install`, `system-uninstall`, `ml-install` or `ml-uninstall` through the agent.
 
 Reading these files is not affected.
 
-Other settings changes, such as a new MCP server, a different hook or a permissions change, are scanned as described above. In auto mode they go to the agent's decision as usual.
+Other settings changes, such as a new MCP server, a different hook or a permissions change, are scanned as described above. In auto mode they go to the agent's decision as usual. A shell command that writes an MCP config file directly (`echo ... >> .mcp.json`) is not scanned that way; it always asks, like a write to any protected file.
 
 In a non-interactive run (`claude -p`, SDK runs) nobody can answer the dialog, so an action on the guard itself is refused. If you need to change the guard in such a setup, do it yourself outside the agent.
 

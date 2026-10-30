@@ -25,7 +25,7 @@ Format:
     {"package": "leftpad", "versions": "*", "reason": "not approved", "approver": "security team"}
   ],
   "allow": [
-    {"package": "corp-utils", "version": "1.4.2", "reason": "internal service", "approver": "j.kim", "expires": "2026-12-31"}
+    {"package": "corp-utils", "version": "1.4.2", "reason": "internal service", "approver": "platform team", "expires": "2026-12-31"}
   ]
 }
 ```
@@ -98,7 +98,7 @@ Switches are environment variables named `AEGIS_*`.
 
 ### Switches read from the environment
 
-These do not weaken the checks, so they are always read from the environment.
+These cannot turn a REVIEW or BLOCK of the rules into an ALLOW, so they are always read from the environment.
 
 | Switch | Default | Values |
 | --- | --- | --- |

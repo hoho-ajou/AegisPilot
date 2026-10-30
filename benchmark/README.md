@@ -54,8 +54,8 @@ Built with `build_datasets.py mal|benign --suffix eval --seed 20261024 --exclude
 - `report.py`: detection rate, false positive rate, per-year results, scan time.
   - Guard: "strict" = BLOCK, "broad" = REVIEW or higher.
   - GuardDog: "strict" = risk level high/critical, "broad" = one or more threat rules.
-- `vuln_eval.py 60`: criterion 3. Picks 60 each of CRITICAL and HIGH OSV advisories and runs the real install decision (PyPI + OSV).
-- `names_latency_eval.py names|latency`: criterion 4 (name problems) and criterion 7 (install latency). Runs the real `check_command` in auto mode.
+- `vuln_eval.py 60`: vulnerable versions. Picks 60 each of CRITICAL and HIGH OSV advisories and runs the real install decision (PyPI + OSV).
+- `names_latency_eval.py names|latency`: name problems and install latency. Runs the real `check_command` in auto mode.
 
 ## Results: evaluation set (final numbers)
 
@@ -191,7 +191,7 @@ Real `pip install` decision (PyPI + OSV + download, 40 packages per set):
 | new | 2.3 s | 24.0 s | 25.4 s | 40 / 40 |
 
 - All refusals come from the "newly registered package" rule (first registered on PyPI within 30 days). This is a REVIEW by design; in auto mode the evidence card and ack id go to the agent, which decides.
-- So the code-only false positive rate (criterion 2) differs from the refusal rate of real installs. A new package gets one more confirmation even when its code is clean.
+- So the code-only false positive rate differs from the refusal rate of real installs. A new package gets one more confirmation even when its code is clean.
 - p95 over 20 s is because, for packages with many dependencies, the dependencies are also downloaded and scanned (not verified; no per-package breakdown was done).
 
 ## Criteria not measured
