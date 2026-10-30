@@ -12,8 +12,7 @@ import scan_parallel as SP  # noqa: E402
 items = [("six", "1.16.0"), ("idna", "2.8"), ("certifi", "2020.6.20"), ("pyyaml", "5.3.1")]
 assert SP._use_processes(items) and not SP._use_processes(items[:2])
 os.environ["AEGIS_SCAN_PROCESSES"] = "0"; assert not SP._use_processes(items); del os.environ["AEGIS_SCAN_PROCESSES"]
-if (Path(__file__).resolve().parents[1] / "guard" / "ml_bridge.py").exists():      # the optional ML model is installed
-    os.environ["AEGIS_ML"] = "1"; assert not SP._use_processes(items); os.environ["AEGIS_ML"] = "0"     # ML on: threads
+os.environ["AEGIS_ML"] = "1"; assert not SP._use_processes(items); os.environ["AEGIS_ML"] = "0"     # ML on: threads
 
 by_threads = [v.verdict for v in scan_engine.scan_packages(items)]
 by_procs = [v.verdict for v in SP.scan_packages(items)]

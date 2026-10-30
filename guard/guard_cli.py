@@ -16,6 +16,9 @@
   python3 guard/guard_cli.py repair [--from DIR] [--target DIR] [--dry-run] [--yes]
                                         put the guard back to its official build (--yes: no typed confirmation)
   python3 guard/guard_cli.py ack <id>   auto mode: go on with the action the guard stopped (the same action passes once)
+  python3 guard/guard_cli.py ml-install [--from DIR] [--yes]
+                                        add the optional ML model (~/.aegis/ml: an environment + model files)
+  python3 guard/guard_cli.py ml-uninstall [--yes]
   sudo python3 guard/guard_cli.py system-install [--prefix DIR] [--managed-hooks-only] [--dry-run]
                                         root-owned install + Claude Code hooks pinned in managed settings
   sudo python3 guard/guard_cli.py system-uninstall [--prefix DIR]
@@ -94,6 +97,12 @@ def verify() -> int:
         print(f"  Env var {name} ignored: settings that weaken checks are read only from the config file (~/.aegis/config.json, admins: /etc/aegis/config.json)")
     for line in rule_module_lines():
         print(line)
+    try:
+        import ml_bridge
+        import ml_install
+        print(f"ML: {ml_install.status(ml_bridge.ml_dir())}")
+    except Exception as e:                                      # the ML line must never break verify
+        print(f"ML: status unknown ({type(e).__name__})")
     findings = integrity.check_integrity()
     for f in findings:
         print(f"  - {f}")
@@ -167,6 +176,43 @@ def repair_cmd(argv: list[str]) -> int:
     print(f"Changed files were moved to {q}.")
     print("Check after repair: OK" if not left else f"{len(left)} file(s) still differ after repair: {left[:3]}")
     return 0 if not left else 1
+
+
+def ml_cmd(cmd: str, argv: list[str]) -> int:
+    """ml-install / ml-uninstall (ml_install.py): the optional ML model, in ~/.aegis/ml (or AEGIS_ML_DIR)."""
+    import argparse
+    import ml_bridge
+    import ml_install
+    ap = argparse.ArgumentParser(prog=f"guard_cli.py {cmd}")
+    if cmd == "ml-install":
+        ap.add_argument("--from", dest="src", type=Path, help="a folder with the model files (default: download them)")
+    ap.add_argument("--yes", action="store_true", help="no typed confirmation")
+    a = ap.parse_args(argv)
+    folder = ml_bridge.ml_dir()
+    if not a.yes and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("Outside a terminal, run with --yes.")
+        return 2
+    if cmd == "ml-uninstall":
+        if not a.yes and input(f"Type remove to delete {folder}: ").strip() != "remove":
+            print("Cancelled.")
+            return 1
+        print(f"Removed {folder}." if ml_install.uninstall(folder) else "Nothing to remove.")
+        return 0
+    s = ml_install.spec()
+    print(f"AegisPilot ML into {folder}:\n  an environment with scikit-learn and shap ({folder / 'venv'})\n"
+          f"  model files from {a.src or s['release_url']} ({folder / 'models'}), checked against models.json")
+    if not a.yes and input("Type install to go on: ").strip() != "install":
+        print("Cancelled.")
+        return 1
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        ml_install.install_models(folder / "models", a.src)
+        ml_install.install_venv(folder / "venv")
+    except (OSError, ValueError, subprocess.CalledProcessError) as e:
+        print(f"Not installed: {e}")
+        return 1
+    print(f"ML: {ml_install.status(folder)}. It is used for PyPI packages from the next check on (AEGIS_ML=0 turns it off).")
+    return 0
 
 
 def installs_cmd() -> int:
@@ -318,6 +364,8 @@ if __name__ == "__main__":
         ok, msg = acks.grant(sys.argv[2])
         print(msg)
         sys.exit(0 if ok else 1)
+    elif cmd in ("ml-install", "ml-uninstall"):
+        sys.exit(ml_cmd(cmd, sys.argv[2:]))
     elif cmd in ("system-install", "system-uninstall"):
         sys.exit(system_cmd(cmd, sys.argv[2:]))
     elif cmd == "selftest":

@@ -77,12 +77,12 @@ def command_disables_guard(command: str) -> bool:
     return False
 
 
-_GUARD_CLI_CHANGES = re.compile(r"guard_cli\.py\W+(installs|repair|system-install|system-uninstall)\b")
+_GUARD_CLI_CHANGES = re.compile(r"guard_cli\.py\W+(installs|repair|system-install|system-uninstall|ml-install|ml-uninstall)\b")
 
 
 def command_changes_guard_install(command: str) -> bool:
-    """`guard_cli.py installs|repair|system-install|system-uninstall` run by the agent: each can turn a guard off or
-    replace its files, so it is the person's call even though the guard's own CLI does the work."""
+    """`guard_cli.py installs|repair|system-install|system-uninstall|ml-install|ml-uninstall` run by the agent: each can
+    turn a guard off or replace what it runs, so it is the person's call even though the guard's own CLI does the work."""
     return bool(_GUARD_CLI_CHANGES.search(command))
 
 

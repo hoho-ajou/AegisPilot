@@ -13,6 +13,7 @@ AegisPilot sends package names, versions and source URLs taken from the command.
 | `registry.npmjs.org` | an npm package is checked | the package name to fetch its metadata and tarball |
 | `api.osv.dev` | every package check; `guard_cli.py paths --judge` | package names, versions and ecosystem; advisory ids |
 | `codeload.github.com` | a `git+https://github.com/...` install, a plugin from GitHub; `repair` of a plugin | the repository and ref to download |
+| `github.com`, `pypi.org`, `files.pythonhosted.org` | only `guard_cli.py ml-install` | the [ML model](ml.md) files from this repository's release, and its Python packages |
 | the git host or URL in your command | a `git+https://` install from another host, or an https archive URL | an https request, or a shallow `git fetch`, for that source |
 
 Notes:
@@ -53,6 +54,7 @@ AegisPilot writes `.aegis/.gitignore` (ignore everything) the first time it crea
 | `~/.aegis/quarantine/<time>/` | `guard_cli.py repair` | the files repair replaced or removed, and `REPAIR.json` |
 | `~/.aegis/config.json` | only when you create it | switches (see [configuration.md](configuration.md#environment-switches)) |
 | `~/.aegis/rules/` | only when you create it | your rule modules |
+| `~/.aegis/ml/` | only when you run `guard_cli.py ml-install` | the optional [ML model](ml.md): its Python environment and model files |
 
 ### Elsewhere
 

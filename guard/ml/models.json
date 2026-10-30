@@ -1,0 +1,17 @@
+{
+  "about": "The trained models of AegisPilot ML. They are not in the repository: `guard_cli.py ml-install` downloads them from the GitHub release below and refuses a file whose SHA-256 differs. The guard checks the hashes again before each run.",
+  "version": 1,
+  "release_url": "https://github.com/hoho-ajou/AegisPilot/releases/download/ml-models-v1/",
+  "models": {
+    "full": {"file": "aegis-ml-full-1.joblib", "size": 975317, "sha256": "01a0ca9a37f28c8ff172d786567f56416b19bd587a88b5847c3463a4b58e4c37"},
+    "meta": {"file": "aegis-ml-meta-1.joblib", "size": 9286216, "sha256": "2e67d20f3aa2d4a5f538a95a55168dcc93e84554434e6ef319d1f972881b7bc5"}
+  },
+  "trained": {
+    "algorithm": "random forest (scikit-learn 1.9.1)",
+    "full": {"features": 33, "train_malicious": 1351, "train_benign": 1833, "threshold": 0.225},
+    "meta": {"features": 13, "train_malicious": 11666, "train_benign": 5996, "threshold": 0.587},
+    "threshold_rule": "5-fold out-of-fold scores: the alert threshold is the top 5% of benign scores (5% false alarms on benign packages)",
+    "data_snapshot": "2026-09-25",
+    "trained_at": "2026-10-01"
+  }
+}

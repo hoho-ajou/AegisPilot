@@ -11,6 +11,9 @@ venv/
 !tests/fixtures/**/.aegis/
 guard/aegis_manifest.json
 
+# model files of the optional ML model: downloaded by guard_cli.py ml-install, never committed
+*.joblib
+
 # builds made by scripts/build_dist.py next to a checkout
 *.building/
 
