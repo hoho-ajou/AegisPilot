@@ -1,7 +1,7 @@
 {
   "name": "aegis-pilot",
   "displayName": "AegisPilot",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Checks every package your coding agent installs (pip, npm, git/URL, MCP servers, plugins, hooks) before it runs: reads the code without executing it, explains what it would do, and blocks or asks.",
   "author": {
     "name": "hoho-ajou",

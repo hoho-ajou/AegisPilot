@@ -42,7 +42,7 @@ Use this when you cannot use plugins, or for Codex CLI.
 1. Clone a release tag. A release tag contains the checksum list the integrity check uses; the default branch does not.
 
    ```bash
-   git clone --branch v0.2.0 https://github.com/hoho-ajou/AegisPilot.git ~/AegisPilot
+   git clone --branch v0.1.0 https://github.com/hoho-ajou/AegisPilot.git ~/AegisPilot
    ```
 
 2. Optional: check that the guard decides as expected. This changes no settings and needs network access to PyPI and OSV.
