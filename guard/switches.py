@@ -28,7 +28,7 @@ GUARD_DIR = Path(__file__).resolve().parent
 SYSTEM_CONFIG = Path("/etc/aegis/config.json")
 USER_CONFIG = Path.home() / ".aegis" / "config.json"
 WEAKENING = ("AEGIS_RULES_DIR", "AEGIS_MCP_SCAN", "AEGIS_SYSTEM_POLICY", "AEGIS_HOOK_DEADLINE_SECONDS",
-             "AEGIS_ARTIFACT_POLICY", "AEGIS_CACHE", "AEGIS_RULE_MODULES")
+             "AEGIS_ARTIFACT_POLICY", "AEGIS_CACHE", "AEGIS_RULE_MODULES", "AEGIS_ML_DIR")
 
 
 def released() -> bool:

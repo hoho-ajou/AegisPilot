@@ -52,7 +52,7 @@ def git(*args: str) -> str:
 
 
 def keep(rel: Path) -> bool:
-    return rel.parts[0] not in EXCLUDE_TOP and not (set(rel.parts) & EXCLUDE_NAMES) and rel.suffix != ".pyc"
+    return rel.parts[0] not in EXCLUDE_TOP and not (set(rel.parts) & EXCLUDE_NAMES) and rel.suffix not in (".pyc", ".joblib")
 
 
 def copy_worktree(dst: Path) -> None:

@@ -11,6 +11,8 @@ claude plugin install aegis-pilot@hoho-ajou
 
 Requires Python 3.11 or later as `python3`. Nothing else is installed: AegisPilot uses the Python standard library and bundles one small library ([packaging](guard/_vendor/README.md)). Other install methods (manual, Codex, system-wide) are in [docs/install.md](docs/install.md).
 
+Optional: an ML model that adds a learned score for PyPI packages, installed with one command into `~/.aegis/ml`. See [docs/ml.md](docs/ml.md).
+
 ## What you see
 
 When the agent runs `pip install pyyaml==5.3.1`, the command is stopped and you see:
@@ -46,6 +48,7 @@ AegisPilot runs in **user mode** by default: every REVIEW and BLOCK is decided b
 - [docs/usage.md](docs/usage.md): what is checked, verdicts, modes, `/aegis`, attack paths, self-protection
 - [docs/configuration.md](docs/configuration.md): allow and deny lists, rule modules, private indexes, switches, cache
 - [docs/how-it-works.md](docs/how-it-works.md): the pipeline, the behavior check, integrity checks, limits
+- [docs/ml.md](docs/ml.md): the optional ML model: install, what it changes, the model and its training data
 - [docs/privacy.md](docs/privacy.md): what is sent over the network and what is written to disk
 - [guard/rules/README.md](guard/rules/README.md): rule files and how to write rule modules
 - [benchmark/README.md](benchmark/README.md): detection, false-positive and latency measurements
