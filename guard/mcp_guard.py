@@ -123,7 +123,7 @@ def check_new_mcp_servers(file_path: str, proposed_text: str | None = None) -> l
         })
 
     snapshot[file_path] = baseline
-    SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SNAPSHOT_PATH.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False))
+    import safe_write
+    safe_write.write_text(SNAPSHOT_PATH.parent, SNAPSHOT_PATH.name, json.dumps(snapshot, indent=2, ensure_ascii=False))
 
     return new_entries

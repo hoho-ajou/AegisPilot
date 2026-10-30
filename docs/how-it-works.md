@@ -63,7 +63,7 @@ The allow and deny lists are applied ([configuration.md](configuration.md#allow-
 
 ### Time limits
 
-All checks of one command share a 540-second budget. The hook stops itself at 570 seconds and the hook timeout in Claude Code is 600 seconds. A hook that reaches Claude Code's timeout, or crashes, lets the command through, so the guard always answers before that. When it cannot finish, it asks instead of passing (or refuses, with `AEGIS_FAIL_CLOSED=1`).
+All checks of one command share a 540-second budget. The hook stops itself at 570 seconds and the hook timeout in Claude Code is 600 seconds. A hook that reaches Claude Code's timeout, or crashes, lets the command through, so the guard always answers before that. When it cannot finish, it asks instead of passing (or refuses, with `AEGIS_FAIL_CLOSED=1`). On Linux and macOS the check runs in a child process and the time limit is kept by the parent, so a check stuck in one long computation cannot hold it up.
 
 ## The behavior check
 
@@ -82,7 +82,9 @@ A file edit or a shell command is checked against these paths:
 - agent settings: `.claude/settings.json`, `.claude/settings.local.json`, `.claude/hooks/`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/hooks/`;
 - for shell commands also MCP config files: `.mcp.json`, `.claude.json`.
 
-A folder counts with or without a trailing `/` (`rm -rf .aegis` is caught like `rm -rf .aegis/`). A shell command counts as writing when it names a protected path and contains a write operation (`sed -i`, `mv`, `rm`, `cp`, `truncate`, `tee`, `chmod`, `dd`, or a `>` / `>>` redirect to a file). Redirects such as `2>&1` and `> /dev/null` do not count. Reading a protected file is not affected.
+A folder counts with or without a trailing `/` (`rm -rf .aegis` is caught like `rm -rf .aegis/`). A shell command counts as writing when it names a protected path and contains a write operation (`sed -i`, `mv`, `rm`, `cp`, `truncate`, `tee`, `chmod`, `dd`, `ln`, `install`, `rsync`, `touch`, `perl -i`, `git checkout` and similar, an archive tool, a download to a file, or a `>` / `>>` redirect to a file), or runs a one-line program (`python3 -c`, `node -e`, ...) that writes, links or deletes. A shell pattern for a protected dot-folder (`.ae*`) counts like its name. Redirects such as `2>&1` and `> /dev/null` do not count. Reading a protected file is not affected.
+
+The check reads the command text. A command that builds the path or the program at run time (from variables, `eval`, a decoded string) is not recognized; see [Limits](#limits).
 
 For edits of agent settings files, the guard compares the old and new content. The approval dialog is always used, in both modes, when a guard hook command disappears, the plugin is set to `false` in `"enabledPlugins"`, `"disableAllHooks"` is turned on, or a JSON settings file would no longer parse. Other settings edits go through the normal scan. The list of actions that always ask is in [usage.md](usage.md#self-protection).
 
@@ -143,6 +145,7 @@ A guard in the user's folders can be changed by anything that runs as that user.
 - **Sources.** Unknown private indexes, `ssh://` and `git://` sources, conda and other ecosystems are not scanned. They get a REVIEW, not an ALLOW.
 - **Known vulnerabilities** come from OSV and are only as complete as OSV. When OSV cannot be reached, the decision is a REVIEW.
 - **Dependencies** are followed within the limits above. Older dependencies are checked against OSV, not fully scanned.
-- **Only what passes through the hooks.** A command the parser cannot read at all (for example unbalanced quotes) passes. A script that runs an install or writes a config file without the agent naming it in a command is not seen. The same holds for anything done outside the agent.
+- **Only what passes through the hooks.** A command the parser cannot read at all (for example unbalanced quotes) passes, and so does a command that builds the install at run time (`P=pip; $P install x`, `eval "$(...)"`, `echo "pip install x" | sh`). A script that runs an install or writes a config file without the agent naming it in a command is not seen. The same holds for anything done outside the agent.
+- **Self-protection reads command text.** It catches the common ways to write the guard's files, not every program that could. A system install (above) keeps the guard's own files out of the agent's reach; the settings in `.aegis/` stay agent-writable.
 - **Codex** hooks cannot ask a person, so every "ask" becomes a refusal there.
 - **A guard in the user's folders** can be changed by a process that does not go through the agent's tools. Use the system install where that matters. On WSL, `/etc/claude-code` is user-writable, so even the system install is not out of reach.

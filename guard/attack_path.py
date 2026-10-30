@@ -634,8 +634,8 @@ def save_osv(project: Path, vuln_ids: list[str], fetch=None) -> dict:
             if not p.is_file():
                 raw = fetch(vid)
                 doc = json.loads(raw)
-                d.mkdir(parents=True, exist_ok=True)
-                p.write_text(json.dumps({"id": doc.get("id"), "summary": doc.get("summary"), "details": doc.get("details"),
+                import safe_write
+                safe_write.write_text(project / ".aegis", f"osv/{vid}.json", json.dumps({"id": doc.get("id"), "summary": doc.get("summary"), "details": doc.get("details"),
                                          "affected_ranges": [r for a in doc.get("affected", []) for r in a.get("ranges", [])][:5]},
                                         ensure_ascii=False, indent=1))
             out[vid] = str(p.relative_to(project))

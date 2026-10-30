@@ -14,8 +14,9 @@ def run(honour_range, size_field, min_bytes, cap=None):
     blob = make_wheel(binary_mb=4)
     srv, url, log = serve(blob, honour_range=honour_range)
     meta = {"info": {"version": "1.0"}, "releases": {"1.0": [{"packagetype": "bdist_wheel", "filename": "pkg-1.0-py3-none-any.whl", "url": url, "size": size_field}]}}
-    real = (pypi.metadata, pypi.RANGE_MIN_BYTES, pypi.MAX_DOWNLOAD_BYTES)
+    real = (pypi.metadata, pypi.RANGE_MIN_BYTES, pypi.MAX_DOWNLOAD_BYTES, pypi.FILES_HOST)
     pypi.metadata = lambda n: meta
+    pypi.FILES_HOST = url.rsplit("/", 1)[0]                 # the local test server stands in for files.pythonhosted.org
     pypi.RANGE_MIN_BYTES = min_bytes
     if cap:
         pypi.MAX_DOWNLOAD_BYTES = cap
@@ -25,7 +26,7 @@ def run(honour_range, size_field, min_bytes, cap=None):
             names = sorted(str(p.relative_to(Path(d) / "pkg-1.0-py3-none-any.whl.unpacked")) for p in files if p.is_file())
             return resolved, names, len(log)
     finally:
-        pypi.metadata, pypi.RANGE_MIN_BYTES, pypi.MAX_DOWNLOAD_BYTES = real
+        pypi.metadata, pypi.RANGE_MIN_BYTES, pypi.MAX_DOWNLOAD_BYTES, pypi.FILES_HOST = real
         srv.shutdown()
 
 

@@ -43,6 +43,17 @@ with tempfile.TemporaryDirectory() as t:
     (root / "etc" / "aegis" / "config.json").write_text('{"env": {"AEGIS_CACHE": "1"}}')
     assert cli("system-install", "--root", str(root)).returncode == 0
     assert "AEGIS_CACHE" in (root / "etc" / "aegis" / "config.json").read_text()
+    # a link in the build (to a file only root may read) is not installed; a compileall.py in the current folder never runs
+    secret = t / "secret"; secret.write_text("root only\n")
+    (dist / "notes.txt").symlink_to(secret)
+    p = cli("system-install", "--root", str(t / "root3"))
+    assert p.returncode == 1 and "link" in p.stdout and not (t / "root3" / "opt" / "aegis-pilot").exists(), p.stdout
+    (dist / "notes.txt").unlink()
+    planted = t / "cwd"; planted.mkdir()
+    (planted / "compileall.py").write_text(f"open({str(t / 'ran')!r}, 'w').write('x')\n")
+    p = subprocess.run([sys.executable, "-I", str(dist / "guard_cli.py"), "system-install", "--root", str(t / "root4")],
+                       capture_output=True, text=True, cwd=planted)
+    assert p.returncode == 0 and not (t / "ran").exists(), p.stdout + p.stderr
     # a changed build is not installed
     (dist / "mode.py").write_text((dist / "mode.py").read_text() + "# changed\n")
     p = cli("system-install", "--root", str(t / "root2"))

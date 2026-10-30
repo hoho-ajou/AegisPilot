@@ -679,11 +679,20 @@ def _new_decision_id(d: Path) -> str:
     return "D" + secrets.token_hex(4)
 
 
+# user:password@ (or token@) in a URL, e.g. a company index in `pip install -i https://me:TOKEN@pypi.corp/simple`
+_URL_LOGIN = re.compile(r"(?i)\b((?:https?|git\+https?|ssh)://)[^/\s@\"']+@")
+
+
+def redact(text: str) -> str:
+    """Logins in URLs replaced by ***: records stay on disk, and the login is never needed to explain a decision."""
+    return _URL_LOGIN.sub(r"\1***@", text)
+
+
 def _atomic_json(path: Path, payload: dict) -> None:
     fd, tmp_name = tempfile.mkstemp(prefix="." + path.stem + ".", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write(redact(json.dumps(payload, ensure_ascii=False, indent=2)))
         os.replace(tmp_name, path)
     except Exception:
         try:
@@ -700,11 +709,12 @@ def write_report(cwd: str | os.PathLike, doc: dict) -> bool:
     shared file, so "why?" could explain a different decision. Both writes are atomic.
     Never raises (the hook must not fail because a report could not be written)."""
     try:
+        import safe_write                            # no write may follow a link the agent planted in .aegis
         d = Path(cwd) / REPORT_DIR
-        (d / REVIEWS_DIR).mkdir(parents=True, exist_ok=True)
-        ignore = d / ".gitignore"                    # the records (and profile.json, which lists which credential files
-        if not ignore.exists():                      # exist) stay out of the project's commits unless the person says so
-            ignore.write_text("# written by AegisPilot: keep its records out of git\n*\n", encoding="utf-8")
+        safe_write.real_dir(d, Path(REVIEWS_DIR))
+        # the records (and profile.json, which lists which credential files exist) stay out of the project's commits
+        # unless the person says so
+        safe_write.create_once(d, ".gitignore", "# written by AegisPilot: keep its records out of git\n*\n")
         doc.setdefault("decision_id", _new_decision_id(d))
         for i, rec in enumerate(doc.get("packages") or [], 1):
             if isinstance(rec, dict):

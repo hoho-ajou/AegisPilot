@@ -104,6 +104,71 @@ def _finish() -> None:
         _finished = True
 
 
+def relevant_safe(relevant, event) -> bool:
+    try:
+        return bool(relevant(event))
+    except Exception:
+        return False
+
+
+SUPERVISOR_GRACE_SECONDS = 3.0
+
+
+def _supervise(on_deadline: Callable[[], None]) -> bool:
+    """Run the rest of the hook in a forked child and keep the deadline from out here. False = no fork (Windows): the
+    caller runs everything itself, with only the timer thread.
+
+    The timer thread alone is not enough: it needs the interpreter lock, and one long regular-expression search on a
+    crafted file holds that lock for its whole run, so the timer could not fire before Claude Code's own hook timeout
+    let the command through unchecked. This process has no other threads; it waits for the child, passes its answer
+    on, and past the deadline (plus a grace for the child's own timer) stops it and answers that the scan did not
+    finish. The child's answer goes through a pipe so that a child stopped mid-way never leaves half an answer."""
+    if not hasattr(os, "fork"):
+        return False
+    import select
+    import signal
+    import time
+    sys.stdout.flush()
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(r)
+        os.dup2(w, 1)
+        os.close(w)
+        return False                                      # the child goes on with the hook
+    os.close(w)
+    end = time.monotonic() + deadline_seconds() + SUPERVISOR_GRACE_SECONDS
+    out, done = b"", False
+    while time.monotonic() < end:
+        ready, _, _ = select.select([r], [], [], 0.1)
+        if ready:
+            chunk = os.read(r, 65536)
+            out += chunk
+            if not chunk and done:
+                break
+        if not done and os.waitpid(pid, os.WNOHANG)[0]:
+            done = True                                   # read what is left; scan workers may still hold the pipe
+            os.set_blocking(r, False)
+            try:
+                while chunk := os.read(r, 65536):
+                    out += chunk
+            except BlockingIOError:
+                pass
+            break
+    if not done:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+    if done or out.endswith(b"\n"):                      # an answer the child finished writing is kept
+        sys.stdout.buffer.write(out)
+        sys.stdout.flush()
+    else:
+        on_deadline()
+    os._exit(0)
+
+
 def run(main: Callable[[dict], None], relevant: Callable[[dict], bool], label: str, adapter=None) -> None:
     """Read the hook event from stdin and run main(event) under the watchdog and the error net.
 
@@ -138,6 +203,8 @@ def run(main: Callable[[dict], None], relevant: Callable[[dict], bool], label: s
         _finish()
         os._exit(0)
 
+    if relevant_safe(relevant, event) and _supervise(on_deadline):
+        return                                            # (the parent: the child below has answered, or the deadline)
     timer = threading.Timer(deadline_seconds(), on_deadline)
     timer.daemon = True
     timer.start()

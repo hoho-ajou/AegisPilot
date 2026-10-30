@@ -985,19 +985,10 @@ def write_md_report(
 
     suffix = f"-{version}" if version else ""
 
-    report_dir = project / ".aegis" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    import safe_write
 
     # the verdict comes from a file that may be agent-written: only plain name characters may reach the file name
     verdict_part = re.sub(r"[^A-Za-z0-9._-]+", "-", verdict).strip("-.") or "UNKNOWN"
 
-    path = report_dir / (
-        f"{stamp}_{package}{suffix}_{verdict_part}.md"
-    )
-
-    path.write_text(
-        markdown_report(report),
-        encoding="utf-8",
-    )
-
-    return path
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{stamp}_{package}{suffix}_{verdict_part}.md").lstrip(".")
+    return safe_write.write_text(project / ".aegis", f"reports/{name}", markdown_report(report))

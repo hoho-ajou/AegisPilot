@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
 import re
-import tempfile
 import time
 from pathlib import Path
 
@@ -43,6 +41,11 @@ def _rules() -> str:
 
 def _path(project_dir) -> Path:
     return Path(project_dir) / ".aegis" / "cache" / "verdicts.json"
+
+
+def _save(project_dir, doc: dict) -> None:
+    import safe_write                               # .aegis is agent-writable: never follow a planted link
+    safe_write.write_text(Path(project_dir) / ".aegis", "cache/verdicts.json", json.dumps(doc, ensure_ascii=False))
 
 
 def _load(project_dir) -> dict:
@@ -80,12 +83,7 @@ def store(project_dir, items, verdicts) -> None:
             if k and not fetch_error:              # failures (network, timeout) are never cached
                 doc[k] = {"t": now, "r": _rules(), "v": dataclasses.asdict(v)}
         doc = dict(sorted(doc.items(), key=lambda kv: -kv[1].get("t", 0))[:MAX_ENTRIES])
-        p = _path(project_dir)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".verdicts.", suffix=".tmp")
-        with os.fdopen(fd, "w") as fh:
-            json.dump(doc, fh, ensure_ascii=False)
-        os.replace(tmp, p)
+        _save(project_dir, doc)
     except Exception:
         pass
 
@@ -99,11 +97,7 @@ def forget(project_dir, items) -> None:
             return
         for k in keys:
             doc.pop(k, None)
-        p = _path(project_dir)
-        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".verdicts.", suffix=".tmp")
-        with os.fdopen(fd, "w") as fh:
-            json.dump(doc, fh, ensure_ascii=False)
-        os.replace(tmp, p)
+        _save(project_dir, doc)
     except Exception:
         pass
 

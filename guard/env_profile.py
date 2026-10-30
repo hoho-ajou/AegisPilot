@@ -319,10 +319,8 @@ def collect_cached(project_dir, agent=None, home=None, env=None) -> dict:
     doc = collect(project, agent, home=home, env=env)
     doc["fingerprint"] = fp
     try:
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cache.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(doc, ensure_ascii=False))
-        os.replace(tmp, cache)
+        import safe_write
+        safe_write.write_text(cache.parent, cache.name, json.dumps(doc, ensure_ascii=False))
     except OSError:
         pass
     doc["cache"] = "miss"

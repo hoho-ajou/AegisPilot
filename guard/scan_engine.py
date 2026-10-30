@@ -470,10 +470,10 @@ def scan_direct(src: dict) -> Verdict:
                 features.install_time_files = npm.install_time_files(
                     files, npm.LIFECYCLE + (("prepare",) if src["kind"] == "git" else ()))
                 files += npm.write_lifecycle(files, Path(tmp), "direct")
-                pkg = [f for f in files if f.name == "package.json"]
+                pkg = npm.root_package_jsons(files)
                 if src["kind"] == "git" and pkg:
                     try:
-                        doc = json.loads(min(pkg, key=lambda f: len(f.parts)).read_text(errors="replace"))
+                        doc = json.loads(pkg[0].read_text(errors="replace"))
                         prepare = (doc.get("scripts") or {}).get("prepare")
                     except (OSError, ValueError, AttributeError):
                         prepare = None

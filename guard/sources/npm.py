@@ -183,26 +183,41 @@ def lifecycle_scripts(package_json: Path) -> dict[str, str]:
     return {e: str(scripts[e]) for e in LIFECYCLE if isinstance(scripts.get(e), str) and scripts[e].strip()}
 
 
-def write_lifecycle(files: list[Path], dest: Path, base_name: str) -> list[Path]:
-    """The lifecycle commands of the package root's package.json as `package.json#<event>.sh` files (read by the shell
-    rules; the evidence then points at the event). Returns the files written."""
+def root_package_jsons(files: list[Path]) -> list[Path]:
+    """The package.json files npm may read as the package's own. npm unpacks a tarball without its first path component
+    (package/package.json -> package.json), so in an unpacked tarball every package.json exactly one folder below the
+    archive root counts (several top folders land in the same place). A shallower decoy beside it used to be taken as
+    the root and hid the real install scripts; the shallowest ones are still read too, so nothing is dropped."""
     pkgs = [f for f in files if f.name == "package.json" and f.is_file()]
     if not pkgs:
         return []
-    root_json = min(pkgs, key=lambda f: len(f.parts))
-    scripts = lifecycle_scripts(root_json)
-    if not scripts:
+
+    def depth(f):
+        idx = [k for k, p in enumerate(f.parts) if p.endswith(".unpacked")]
+        return len(f.parts) - 1 - idx[-1] if idx else None
+
+    low = min(len(f.parts) for f in pkgs)
+    return [f for f in pkgs if len(f.parts) == low or depth(f) == 2]
+
+
+def write_lifecycle(files: list[Path], dest: Path, base_name: str) -> list[Path]:
+    """The lifecycle commands of the package root's package.json as `package.json#<event>.sh` files (read by the shell
+    rules; the evidence then points at the event). Returns the files written."""
+    found = [(i, lifecycle_scripts(f)) for i, f in enumerate(root_package_jsons(files))]
+    found = [(i, s) for i, s in found if s]
+    if not found:
         return []
     out_dir = dest / f"{base_name}.scripts.unpacked"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = []
-    for event, cmd in scripts.items():
-        f = out_dir / f"package.json#{event}.sh"
+    for i, event, cmd in [(i, e, c) for i, sc in found for e, c in sc.items()]:
+        tag = f"{event}.{i}" if len(found) > 1 else event
+        f = out_dir / f"package.json#{tag}.sh"
         f.write_text(cmd + "\n")
         out.append(f)
         code = inline_node_code(cmd)
         if code:                            # `node -e "<code>"`: the JavaScript rules read the code itself
-            js = out_dir / f"package.json#{event}.js"
+            js = out_dir / f"package.json#{tag}.js"
             js.write_text(code + "\n")
             out.append(js)
     return out
@@ -211,15 +226,18 @@ def write_lifecycle(files: list[Path], dest: Path, base_name: str) -> list[Path]
 def install_time_files(files: list[Path], events: tuple = LIFECYCLE) -> list[str]:
     """Package files the install scripts run (`node install.js`, `sh ./scripts/postinstall.sh`), relative to the package
     root: code in them runs at install, not when the package is used (attack_path.context_of)."""
+    out = []
+    for root_json in root_package_jsons(files):
+        try:
+            scripts = (json.loads(root_json.read_text(errors="replace")).get("scripts") or {})
+        except (OSError, ValueError, AttributeError):
+            continue
+        out += _script_files(scripts, events)
+    return list(dict.fromkeys(out))
+
+
+def _script_files(scripts, events: tuple) -> list[str]:
     import shlex
-    pkgs = [f for f in files if f.name == "package.json" and f.is_file()]
-    if not pkgs:
-        return []
-    root_json = min(pkgs, key=lambda f: len(f.parts))
-    try:
-        scripts = (json.loads(root_json.read_text(errors="replace")).get("scripts") or {})
-    except (OSError, ValueError, AttributeError):
-        return []
     out = []
     for event in events:
         cmd = scripts.get(event) if isinstance(scripts, dict) else None

@@ -24,6 +24,7 @@ MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
 # `.py`/`.pth` members with HTTP Range. Measured on real wheels (tensorflow 223 MB, torch 124 MB, ...): 5 large
 # wheels 430 MB -> 44 MB transferred, 19 s -> 9 s, peak memory 323 MB -> 50 MB, identical scan results (7/7).
 # Below this size the extra requests cost more than they save (pandas 7 MB: 1.2 s -> 1.6 s).
+FILES_HOST = "https://files.pythonhosted.org/"         # release files are only fetched from PyPI's file host
 RANGE_MIN_BYTES = 16 * 1024 * 1024
 # which release file to read: "installed" = what pip installs (compatible wheel, else sdist), "sdist_first" = old behaviour
 ARTIFACT_POLICY = switches.get("AEGIS_ARTIFACT_POLICY", "installed") or "installed"   # built guard: system config only
@@ -57,6 +58,8 @@ def fetch(name: str, version: str | None, dest_dir: Path,
     # the file name comes from registry JSON and is joined onto dest_dir: "../x" or "/abs/x" would write outside it
     # (seen in testing), so keep only the last path component
     chosen = dict(chosen, filename=os.path.basename(chosen["filename"].replace("\\", "/")) or "artifact")
+    if not str(chosen.get("url") or "").startswith(FILES_HOST):
+        raise ValueError("file address in the PyPI metadata is not files.pythonhosted.org")    # as npm.py does
     if info is not None:
         info.update(artifact=chosen["filename"], artifact_kind=kind, artifact_reason=reason)
     if chosen["filename"].endswith(".whl") and (chosen.get("size") or 0) >= RANGE_MIN_BYTES:
@@ -96,6 +99,8 @@ def fetch(name: str, version: str | None, dest_dir: Path,
             safe_extract.extract_zip(raw, root, skipped)
         elif filename.endswith((".tar.gz", ".tgz")):
             safe_extract.extract_targz(raw, root, skipped)
+        else:                       # .tar.bz2, .egg, ...: nothing would be read, which must not look like clean code
+            raise ValueError(f"release file format not read ({filename}), code not scanned")
         extracted.extend(root.rglob("*"))
         if info is not None:
             info["skipped"] = skipped

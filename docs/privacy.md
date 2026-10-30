@@ -19,6 +19,7 @@ AegisPilot sends package names, versions and source URLs taken from the command.
 Notes:
 
 - Only https sources are fetched. `ssh://`, `git://` and other schemes are not contacted; the install gets a REVIEW instead.
+- A git host or URL in the command is fetched while the command is checked, before you approve it. Addresses on this machine (`localhost`, `127.0.0.1`) and link-local addresses (such as the cloud metadata service at `169.254.169.254`) are never fetched, also not through a redirect; the install gets a REVIEW instead. Hosts in private ranges (a company server) are fetched.
 - Indexes other than PyPI and the npm registry are not contacted. Packages from them are reported as not checked.
 - MCP servers, hooks and plugins added to settings are fetched from the same hosts, depending on where their code comes from.
 - `repair` downloads the guard's own release from the repository recorded in its build (`https://github.com/hoho-ajou/AegisPilot`).
