@@ -23,6 +23,8 @@ This creates `~/.aegis/ml/`:
 
 Each model file is checked against the SHA-256 in `models.json` when it is installed and again before every check. A file that differs is not used: model files are loaded with joblib (Python pickle), which can run code, so only the published files are loaded.
 
+The environment is installed from PyPI only: pip runs isolated from `pip.conf` and `PIP_*` variables, and with binary wheels only. Its files are not checked again later. `~/.aegis/` is a protected path, so the agent cannot change it without asking you, but other programs running as you can.
+
 Options:
 
 - `--from DIR` copies the model files from a folder instead of downloading them (offline machines). The hashes are checked the same way.
@@ -36,9 +38,11 @@ When the agent runs `ml-install` or `ml-uninstall`, AegisPilot asks you first, i
 
 Only PyPI packages are scored. npm, git/URL installs, MCP servers, plugins and hooks are checked by the rules alone.
 
-With the ML model installed, the score of a PyPI package is made of the vulnerability score (OSV), the typosquat score and the ML score. The rule-based code signals that the ML score replaces (entropy, keywords, install hook, reputation) are not added. Everything that blocks on its own stays: hard rules for critical vulnerabilities and known malicious releases, the behavior check, the allow and deny lists.
+With the ML model installed, a PyPI package gets a second score next to the rules: the vulnerability score (OSV), the typosquat score and the ML score. The verdict is the stricter of the two, so installing the ML model never lowers a verdict. Everything that blocks on its own stays: hard rules for critical vulnerabilities and known malicious releases, the behavior check, the allow and deny lists.
 
 The ML score is scaled so that its alert threshold lands on the REVIEW threshold. On its own it can raise a package to REVIEW, never to BLOCK.
+
+The model reads the release file it was trained on (the sdist when there is one), which is not always the file pip installs (often a wheel). The rules always read the file pip installs.
 
 When the model finds behavior that runs at install time in a package it does not alert on, the decision lists it as an `[ML note]` without changing the verdict.
 

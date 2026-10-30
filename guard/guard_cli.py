@@ -196,7 +196,11 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
         if not a.yes and input(f"Type remove to delete {folder}: ").strip() != "remove":
             print("Cancelled.")
             return 1
-        print(f"Removed {folder}." if ml_install.uninstall(folder) else "Nothing to remove.")
+        try:
+            print(f"Removed {folder}." if ml_install.uninstall(folder) else "Nothing to remove.")
+        except ValueError as e:
+            print(f"Not removed: {e}")
+            return 1
         return 0
     s = ml_install.spec()
     print(f"AegisPilot ML into {folder}:\n  an environment with scikit-learn and shap ({folder / 'venv'})\n"

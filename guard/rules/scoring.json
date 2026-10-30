@@ -91,7 +91,7 @@
       "action": "block",
       "score": "at_least_block",
       "reason": "[hard rule] behavior check: {what} → always BLOCK (policy table rules/behavior.json)",
-      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"]], "action": "block", "sep": " / "}},
+      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["wipe", "Deletes the user's or the system's files"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"], ["install_runs_unread", "Install runs a file that was not read"], ["not_analyzed", "Code that runs by itself was not analyzed"], ["encoded_source", "Code hidden behind its source encoding"]], "action": "block", "sep": " / "}},
       "modes": ["rules", "ml"]
     },
     {
@@ -210,7 +210,7 @@
       "when": {"field": "behavior_review"},
       "action": "review",
       "reason": "[hard rule] behavior check: {what} → needs at least review (policy table rules/behavior.json)",
-      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"]], "action": "review", "sep": " / "}},
+      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["wipe", "Deletes the user's or the system's files"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"], ["install_runs_unread", "Install runs a file that was not read"], ["not_analyzed", "Code that runs by itself was not analyzed"], ["encoded_source", "Code hidden behind its source encoding"]], "action": "review", "sep": " / "}},
       "modes": ["rules", "ml"]
     }
   ],

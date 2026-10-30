@@ -12,6 +12,7 @@ An adapter is a module with these names (claude_code.py is the reference):
   NAME                  short id, e.g. "claude-code"
   SUPPORTS_CONFIRM      can the agent's hook ask a person (Claude Code "ask")? If not, CONFIRM is answered as a refusal
   CONFIG_FRAGMENTS      path fragments of the agent's own settings/hooks; writing them could switch the guard off
+  CONFIG_ENV_VARS       environment variables that move the agent's config folder (optional)
   MCP_CONFIG_NAMES      file names of the agent's MCP server configs (the formats of every known agent's MCP servers,
                         hooks and plugins are data in agent_formats.json, read by agent_config.py - not per adapter)
   detect_surface(env)   {"surface": terminal|app|api|unknown, "width": columns, ...}

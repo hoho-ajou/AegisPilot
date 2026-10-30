@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -688,18 +687,9 @@ def redact(text: str) -> str:
     return _URL_LOGIN.sub(r"\1***@", text)
 
 
-def _atomic_json(path: Path, payload: dict) -> None:
-    fd, tmp_name = tempfile.mkstemp(prefix="." + path.stem + ".", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(redact(json.dumps(payload, ensure_ascii=False, indent=2)))
-        os.replace(tmp_name, path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+def _write_json(d: Path, rel: str, payload: dict) -> None:
+    import safe_write
+    safe_write.write_text(d, rel, redact(json.dumps(payload, ensure_ascii=False, indent=2)))
 
 
 def write_report(cwd: str | os.PathLike, doc: dict) -> bool:
@@ -721,8 +711,8 @@ def write_report(cwd: str | os.PathLike, doc: dict) -> bool:
                 rec.setdefault("pid", f"P{i:02d}")
         payload = dict(doc)
         payload["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        _atomic_json(d / REVIEWS_DIR / f"{doc['decision_id']}.json", payload)
-        _atomic_json(d / REPORT_NAME, payload)
+        _write_json(d, f"{REVIEWS_DIR}/{doc['decision_id']}.json", payload)
+        _write_json(d, REPORT_NAME, payload)
         _trim_reviews(d / REVIEWS_DIR)
         return True
     except Exception:

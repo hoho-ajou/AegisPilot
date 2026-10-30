@@ -95,10 +95,12 @@ def fetch(name: str, version: str | None, dest_dir: Path,
         root = dest_dir / (filename + ".unpacked")
         root.mkdir(parents=True, exist_ok=True)
         skipped: list = []
+        # an sdist's build can run files that are not Python (Makefile, configure, a data file setup.py exec()s)
+        aside = None if filename.endswith(".whl") else safe_extract.aside_dir(root)
         if filename.endswith(".whl") or filename.endswith(".zip"):
-            safe_extract.extract_zip(raw, root, skipped)
+            safe_extract.extract_zip(raw, root, skipped, aside=aside)
         elif filename.endswith((".tar.gz", ".tgz")):
-            safe_extract.extract_targz(raw, root, skipped)
+            safe_extract.extract_targz(raw, root, skipped, aside=aside)
         else:                       # .tar.bz2, .egg, ...: nothing would be read, which must not look like clean code
             raise ValueError(f"release file format not read ({filename}), code not scanned")
         extracted.extend(root.rglob("*"))

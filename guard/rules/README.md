@@ -91,7 +91,7 @@ Hard rule conditions in `scoring.json` are written as `{"field": name}` (value i
 
 | Target | Languages read as code | Skipped folders |
 |---|---|---|
-| `pypi` | python | tests, top-level maintenance folders (`paths.dev_toplevel`) |
+| `pypi` | python | tests, top-level maintenance folders (`paths.dev_toplevel`); the behavior check still reads one that install, import or a `.pth` line reaches |
 | `npm` | js, shell (package.json install scripts are read as `package.json#<event>.sh`, `node -e` code as `.js`) | tests, `dev_names` (`scripts/` is not skipped for npm, because it runs at install time) |
 | `bundle` | python, js, shell (skills, plugins, hooks) | none |
 
