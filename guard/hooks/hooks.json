@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}\"/hooks/python_check.sh",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/python_check.sh\"",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse_check.py",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse_check.py\"",
             "timeout": 600
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse_editwrite_check.py",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse_editwrite_check.py\"",
             "timeout": 600
           }
         ]

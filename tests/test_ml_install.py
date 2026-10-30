@@ -70,4 +70,38 @@ with tempfile.TemporaryDirectory() as t:
     r = subprocess.run([sys.executable, "-I", str(GUARD / "guard_cli.py"), "ml-uninstall"], capture_output=True,
                        text=True, stdin=subprocess.DEVNULL, env={**os.environ})
     assert r.returncode == 2 and "--yes" in r.stdout, r.stdout
+
+# the environment is made without the current folder on the path and with pip isolated from local config
+with tempfile.TemporaryDirectory() as t2:
+    calls = []
+    real_run = ml_install.subprocess.run
+    ml_install.subprocess.run = lambda args, **k: calls.append((args, k))
+    ml_install.install_venv(Path(t2) / "venv", log=lambda *_: None)
+    ml_install.subprocess.run = real_run
+    assert all("-I" in a and k.get("cwd") == "/" for a, k in calls), calls
+    assert "--isolated" in calls[-1][0] and "https://pypi.org/simple" in calls[-1][0]
+    # removing the ML folder never follows a link on the way (a planted ~/.aegis -> ~ would delete another folder)
+    other = Path(t2) / "other" / "ml"
+    other.mkdir(parents=True)
+    (Path(t2) / "home").mkdir()
+    (Path(t2) / "home" / ".aegis").symlink_to(Path(t2) / "other")
+    try:
+        ml_install.uninstall(Path(t2) / "home" / ".aegis" / "ml")
+        raise AssertionError("followed a linked folder")
+    except ValueError:
+        pass
+    assert other.is_dir()
+
+# installing the ML model never lowers a verdict: the stricter of the rules alone and the ML path is kept
+import rule_engine  # noqa: E402
+import scan_engine as se  # noqa: E402
+f = se.ScanFeatures(name="x", version="1")
+f.ml = {"ok": True, "ml_score": 0.0, "threshold": 0.2, "alert": False}
+real_rules, real_ml = se._compute_verdict_rules, rule_engine.score_ml
+se._compute_verdict_rules = lambda feat: se.Verdict("NEEDS_HUMAN_REVIEW", 0.3, ["rules"], feat)
+rule_engine.score_ml = lambda rs, feat: ("ALLOW", 0.05, ["ml"])
+assert se.compute_verdict(f).verdict == "NEEDS_HUMAN_REVIEW"
+rule_engine.score_ml = lambda rs, feat: ("BLOCK", 0.7, ["ml"])
+assert se.compute_verdict(f).verdict == "BLOCK"
+se._compute_verdict_rules, rule_engine.score_ml = real_rules, real_ml
 print("ml_install: all cases passed")

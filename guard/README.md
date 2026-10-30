@@ -16,12 +16,12 @@ Optional ML model: `python3 guard_cli.py ml-install` sets up `~/.aegis/ml` (a Py
 
 Documentation:
 
-- [Install](https://github.com/hoho-ajou/AegisPilot/blob/main/docs/install.md)
-- [Usage](https://github.com/hoho-ajou/AegisPilot/blob/main/docs/usage.md)
-- [Configuration](https://github.com/hoho-ajou/AegisPilot/blob/main/docs/configuration.md)
-- [How it works](https://github.com/hoho-ajou/AegisPilot/blob/main/docs/how-it-works.md)
-- [ML model](https://github.com/hoho-ajou/AegisPilot/blob/main/docs/ml.md)
-- [Privacy](https://github.com/hoho-ajou/AegisPilot/blob/main/docs/privacy.md)
-- [Rule files](https://github.com/hoho-ajou/AegisPilot/blob/main/guard/rules/README.md)
+- [Install](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/install.md)
+- [Usage](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/usage.md)
+- [Configuration](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/configuration.md)
+- [How it works](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/how-it-works.md)
+- [ML model](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/ml.md)
+- [Privacy](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/privacy.md)
+- [Rule files](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/guard/rules/README.md)
 
 License: Apache-2.0 (`LICENSE`).

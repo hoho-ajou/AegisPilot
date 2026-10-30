@@ -138,6 +138,28 @@ def path_class(p) -> str | None:
     return None
 
 
+_TEMP_DIR = re.compile(r"^(/tmp|/var/tmp|/dev/shm|/private/tmp|/private/var/folders|~/appdata/local/temp)(/|$)"
+                       r"|^(\$\{?tmpdir\}?|%te?mp%|\$env:te?mp)", re.I)
+
+
+def wipe_target(p) -> bool:
+    """A path whose removal destroys the user's or the system's files: the home folder or a folder right in it, the root
+    of a drive, or a system folder near the top (/etc, /usr/local, /home/x). Temporary folders and relative paths (a
+    package's own build folders) are not."""
+    if not isinstance(p, str) or not p.strip():
+        return False
+    n = norm_path(p).rstrip("/") or "/"
+    if _TEMP_DIR.search(n):
+        return False
+    if n == "~" or n.startswith("~/"):
+        return len([x for x in n[2:].split("/") if x and x != "*"]) <= 1    # ~, ~/projects; not ~/.cache/pkg/x
+    m = re.match(r"^(/|[a-z]:/)(.*)$", n) or (re.match(r"^()([a-z]:)$", n))
+    if not m:
+        return False
+    parts = [x for x in m.group(2).split("/") if x and x != "*"]
+    return len(parts) <= 2
+
+
 def host_of(url: str) -> str:
     u = url.strip()
     if "://" not in u:

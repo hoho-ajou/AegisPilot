@@ -30,6 +30,7 @@ NAME = "codex"
 SUPPORTS_CONFIRM = False
 CONFIG_FRAGMENTS = [".codex/config.toml", ".codex/hooks.json", ".codex/hooks/"]
 MCP_CONFIG_NAMES: tuple[str, ...] = ()
+CONFIG_ENV_VARS = ("CODEX_HOME",)                 # moves the config folder (hooks.json, config.toml)
 _PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.M)
 _PATCH_MOVE = re.compile(r"^\*\*\* Move to: (.+?)\s*$", re.M)
 

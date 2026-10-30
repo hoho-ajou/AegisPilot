@@ -84,16 +84,26 @@ def install_models(target: Path, source: Path | None = None, log=print) -> None:
 
 
 def install_venv(venv: Path, log=print, python: str = sys.executable) -> None:
-    """Make the environment and install ml/requirements.txt into it (binary wheels only)."""
+    """Make the environment and install ml/requirements.txt into it (binary wheels only).
+    `-I` and the folder "/": with -m, Python would first import venv.py / pip/ from the current folder (a project the
+    person happens to be in). `--isolated` and the index: pip ignores PIP_* variables and pip.conf, so the packages
+    the guard will later run come from PyPI, not from whatever index the shell or a project points at."""
     if not (venv / "bin" / "python").exists():
         log(f"  creating {venv}")
-        subprocess.run([python, "-m", "venv", str(venv)], check=True)
+        subprocess.run([python, "-I", "-m", "venv", str(venv)], check=True, cwd="/")
     log("  installing scikit-learn, shap and their dependencies (exact versions, about 200MB)")
-    subprocess.run([str(venv / "bin" / "python"), "-m", "pip", "install", "--disable-pip-version-check", "--quiet",
-                    "--only-binary", ":all:", "-r", str(ML_CODE / "requirements.txt")], check=True)
+    subprocess.run([str(venv / "bin" / "python"), "-I", "-m", "pip", "install", "--isolated", "--disable-pip-version-check",
+                    "--quiet", "--index-url", "https://pypi.org/simple", "--only-binary", ":all:",
+                    "-r", str(ML_CODE / "requirements.txt")], check=True, cwd="/")
 
 
 def uninstall(folder: Path) -> bool:
+    """Delete the ML folder. A link anywhere on the way (~/.aegis planted as a link to ~) would make this delete
+    another folder than the one named, so a linked folder is unlinked, never followed."""
+    folder = Path(os.path.abspath(folder))
+    for parent in reversed(folder.parents):
+        if parent.is_symlink():
+            raise ValueError(f"{parent} is a link: remove {folder} yourself")
     if folder.is_symlink():
         folder.unlink()
         return True

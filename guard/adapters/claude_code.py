@@ -27,7 +27,14 @@ from pathlib import Path
 
 NAME = "claude-code"
 SUPPORTS_CONFIRM = True
-CONFIG_FRAGMENTS = [".claude/settings.json", ".claude/settings.local.json", ".claude/hooks/"]
+CONFIG_FRAGMENTS = [".claude/settings.json", ".claude/settings.local.json", ".claude/hooks/",
+                    # managed settings (system_install.CLAUDE_MANAGED; managed-mcp.json beside them keeps the MCP check)
+                    "/etc/claude-code/managed-settings.json", "/etc/claude-code/managed-settings.d/",
+                    "/Library/Application Support/ClaudeCode/managed-settings.json",
+                    "/Library/Application Support/ClaudeCode/managed-settings.d/",
+                    # a config folder under XDG_CONFIG_HOME, which some Claude Code versions use (not measured here)
+                    ".config/claude/settings.json", ".config/claude/settings.local.json", ".config/claude/hooks/"]
+CONFIG_ENV_VARS = ("CLAUDE_CONFIG_DIR",)          # moves the settings folder: `CLAUDE_CONFIG_DIR=/tmp/x claude` runs without the guard
 MCP_CONFIG_NAMES = (".mcp.json", ".claude.json")
 PLUGIN_FRAGMENTS = (".claude/plugins/",)          # installed plugins, the guard among them (guard_paths.guard_own_fragments)
 SHELL_TOOLS = ("Bash",)

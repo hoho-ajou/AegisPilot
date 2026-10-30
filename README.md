@@ -9,13 +9,13 @@ claude plugin marketplace add hoho-ajou/AegisPilot
 claude plugin install aegis-pilot@hoho-ajou
 ```
 
-Requires Python 3.11 or later as `python3`. Nothing else is installed: AegisPilot uses the Python standard library and bundles one small library ([packaging](guard/_vendor/README.md)). Other install methods (manual, Codex, system-wide) are in [docs/install.md](docs/install.md).
+Start a new Claude Code session after installing. Requires Python 3.11 or later as `python3`. Nothing else is installed: AegisPilot uses the Python standard library and bundles one small library ([packaging](guard/_vendor/README.md)). Other install methods (manual, Codex, system-wide) are in [docs/install.md](docs/install.md).
 
 Optional: an ML model that adds a learned score for PyPI packages, installed with one command into `~/.aegis/ml`. See [docs/ml.md](docs/ml.md).
 
 ## What you see
 
-When the agent runs `pip install pyyaml==5.3.1`, the command is stopped and you see:
+When the agent runs `pip install pyyaml==5.3.1`, the command is stopped and you see (shortened):
 
 ```
 [AegisPilot BLOCK] pyyaml 5.3.1
@@ -36,7 +36,7 @@ The agent then asks you whether to switch to the fixed version. Type `/aegis` in
 
 - **ALLOW**: no known risk signal was found. The command runs and nothing is shown.
 - **REVIEW**: a suspicious signal was found, or part of the install could not be checked. Claude Code asks you before the command runs.
-- **BLOCK**: a critical vulnerability, a known malicious release, or code that runs downloaded or hidden code. The command is stopped.
+- **BLOCK**: a critical vulnerability, a known malicious release, or install-time code that runs downloaded or hidden code, sends credentials out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped.
 
 ## Modes
 

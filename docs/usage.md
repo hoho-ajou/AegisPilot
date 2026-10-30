@@ -8,10 +8,11 @@ Install commands:
 
 | Kind | Commands |
 | --- | --- |
-| Python | `pip`, `pip3`, `python -m pip`, `uv pip install`, `uv add`, `uv sync`, `poetry add` / `install`, `pdm`, `pipx`, `pipenv`, `pip-sync`, and `-r requirements.txt` files |
-| npm | `npm install` / `ci` / `update`, `npx`, `npm exec`, `npm init` / `create`, `yarn`, `pnpm`, `pnpx`, `bun`, `bunx` |
+| Python | `pip`, `pip3`, `python -m pip`, `py -m pip`, `uv pip install`, `uv add`, `uv sync`, `poetry add` / `install`, `pdm`, `pipx`, `pipenv`, `pip-sync`, and `-r requirements.txt` files |
+| npm | `npm install` / `ci` / `update`, `npx`, `npm exec`, `npm init` / `create`, `yarn`, `pnpm`, `pnpx`, `bun`, `bunx`, `corepack pnpm` / `yarn`, `deno install npm:<pkg>` |
 | Git and URL | `git+https://...` installs, `npm install github:owner/repo`, and https URLs of `.whl`, `.tar.gz`, `.tgz` and `.zip` files |
-| Project installs | installs that name no package (`uv sync`, `poetry install`, bare `npm install`) are read from the project files, with the lock file's versions when there is one |
+| Project installs | installs that name no package (`uv sync`, `poetry install`, bare `npm install`) are read from the project files, with the lock file's versions when there is one. A bare `npm install` / `npm ci` / `yarn` / `pnpm install` / `bun install` also runs the project's own install scripts (`preinstall`, `install`, `postinstall`, `prepare` ...): those and the files they run are scanned like a package's (not with `--ignore-scripts`) |
+| Other ecosystems | package installs of `cargo`, `gem` / `bundle`, `go install` / `go get`, `composer`, `dotnet add package`, `nuget` and `deno` (other than `npm:` packages) are not scanned: they get a REVIEW. Builds and queries (`cargo build`, `go build`, `gem list`) pass |
 
 Dependencies pulled in by the package are also checked: all of them against OSV for known malicious releases, and recently released ones with a full scan.
 
@@ -20,7 +21,7 @@ Settings changes:
 - a new MCP server in `.mcp.json` or `~/.claude.json`, or added with `claude mcp add`;
 - a new hook command or hook script in an agent settings file;
 - a plugin switched on in settings, or added with `claude plugin install` or `claude plugin marketplace add`;
-- a change to where packages come from (`pip config set ...`, `pip.conf`, `uv.toml`, `.npmrc`).
+- a change to where packages come from (`pip config set ...`, `pip.conf`, `uv.toml`, `.npmrc`, `.yarnrc.yml`, `bunfig.toml`). For npm, a registry given with `--registry`, `--@scope:registry`, `npm_config_registry` (any case, in the command or an earlier `export`), `YARN_NPM_REGISTRY_SERVER` or `BUN_CONFIG_REGISTRY` is handled like a private index: the packages are not scanned from npmjs.
 
 For MCP servers, hooks and plugins, the code they would run is fetched and scanned like a package.
 
@@ -32,9 +33,9 @@ Some sources cannot be read: private indexes the guard does not know, `ssh://` a
 | --- | --- |
 | ALLOW | No known risk signal was found. The command runs and nothing is shown. ALLOW means no red flags were found, not that the package is verified safe. |
 | REVIEW | A suspicious signal was found, or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
-| BLOCK | A critical vulnerability, a release OSV lists as malicious, a deny-list entry, or code that runs downloaded, decoded or hidden code. The command is stopped. |
+| BLOCK | A critical vulnerability, a release OSV lists as malicious, a deny-list entry, or install-time code that runs downloaded, decoded or hidden code, sends credentials out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped. |
 
-Each message starts with `[AegisPilot ...]` and ends with `Details: /aegis`.
+Each message starts with `[AegisPilot ...]` and ends with its decision id (for example `decision id: D7f3a`), which `/aegis` uses to explain it.
 
 ## Modes: user and auto
 
@@ -148,12 +149,12 @@ These actions are:
 - editing, moving or deleting guard files, the installed plugins folder, `.aegis/` in a project, or `~/.aegis/`;
 - `claude plugin disable` or `claude plugin uninstall` of `aegis-pilot`, or removing its marketplace;
 - editing an agent settings file so that a guard hook disappears, the plugin is disabled (`"enabledPlugins"` set to `false`), or `"disableAllHooks"` is turned on;
-- shell commands that write agent settings files;
-- running `guard_cli.py installs`, `repair`, `system-install` or `system-uninstall` through the agent.
+- shell commands that write agent settings files, including `claude config set` of `hooks`, `disableAllHooks` or `enabledPlugins`, and starting the agent with `CLAUDE_CONFIG_DIR` or `CODEX_HOME` set;
+- running `guard_cli.py installs`, `repair`, `system-install`, `system-uninstall`, `ml-install` or `ml-uninstall` through the agent.
 
 Reading these files is not affected.
 
-Other settings changes, such as a new MCP server, a different hook or a permissions change, are scanned as described above. In auto mode they go to the agent's decision as usual.
+Other settings changes, such as a new MCP server, a different hook or a permissions change, are scanned as described above. In auto mode they go to the agent's decision as usual. A shell command that writes an MCP config file directly (`echo ... >> .mcp.json`) is not scanned that way; it always asks, like a write to any protected file.
 
 In a non-interactive run (`claude -p`, SDK runs) nobody can answer the dialog, so an action on the guard itself is refused. If you need to change the guard in such a setup, do it yourself outside the agent.
 

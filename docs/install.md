@@ -2,6 +2,8 @@
 
 There are three ways to install AegisPilot. Use one of them.
 
+In the commands below, `<guard>` is the AegisPilot folder: for the plugin, `~/.claude/plugins/cache/hoho-ajou/aegis-pilot/<version>`; for a manual install, the `guard/` folder of the clone (for example `~/AegisPilot/guard`); for a system install, `/opt/aegis-pilot`.
+
 | Method | For | Who can turn it off |
 | --- | --- | --- |
 | [Plugin](#plugin-install-recommended) | Claude Code users | the user (`claude plugin disable`) |
@@ -15,7 +17,7 @@ There are three ways to install AegisPilot. Use one of them.
 | Python | 3.11 or later as `python3` | 3.11 or later as `python3` | 3.11 or later as `python3` |
 | Python packages | none (the one library it needs, packaging, is bundled) | none | none |
 | Agent | Claude Code with plugin support | Claude Code, or Codex CLI | Claude Code |
-| Operating system | any that runs Claude Code | any that runs the agent | Linux or macOS |
+| Operating system | Linux, macOS, WSL (`python3` and `sh` on the PATH; native Windows is not tested) | same | Linux or macOS |
 | Privileges | none | none | root (`sudo`) |
 | Network | PyPI, npm registry, OSV (see [privacy.md](privacy.md)) | same | same |
 
@@ -85,7 +87,7 @@ A system install puts the guard where the agent cannot change it. An agent runs 
 Run it from a release build: a clone of a release tag (see above) or the plugin's installed folder. The command refuses to install a guard whose files differ from its own checksums.
 
 ```bash
-sudo python3 guard/guard_cli.py system-install
+sudo python3 <guard>/guard_cli.py system-install
 ```
 
 It does the following:
@@ -115,7 +117,7 @@ On WSL, `/etc/claude-code` is writable by the user, so a system install there is
 
 ## Optional: the ML model
 
-The ML model adds a learned score for PyPI packages. It needs about 200 MB (scikit-learn and shap in their own environment), so it is not part of any install method above. Add it to any of them, in your own terminal:
+The ML model adds a learned score for PyPI packages. It needs about 200 MB (scikit-learn and shap in their own environment), so it is not part of any install method above. It runs on Linux, macOS and WSL and needs Python's `venv` module (on Debian and Ubuntu: `sudo apt install python3-venv`). Add it to any of the installs, in your own terminal:
 
 ```bash
 python3 <guard>/guard_cli.py ml-install
@@ -132,7 +134,7 @@ If the guard is registered twice (for example the plugin and a hook block in `~/
 - `guard_cli.py installs` lists every AegisPilot install it finds: the plugin, guard hooks in settings files, and the system install.
 
 ```bash
-python3 guard/guard_cli.py installs
+python3 <guard>/guard_cli.py installs
 ```
 
 In an interactive terminal, `installs` lets you choose the one to keep. The others are turned off:
@@ -143,7 +145,7 @@ In an interactive terminal, `installs` lets you choose the one to keep. The othe
 | Guard hooks in a settings file | removed from the file. The previous file is kept with a `.bak` suffix. |
 | System install | not changed. Remove it with `sudo python3 /opt/aegis-pilot/guard_cli.py system-uninstall`. |
 
-When these commands run without a terminal (for example, run by an agent), they change nothing and only print the warning. If the agent runs `installs`, `repair`, `system-install` or `system-uninstall`, AegisPilot asks you first. See [usage.md](usage.md#self-protection).
+When these commands run without a terminal (for example, run by an agent), they change nothing and only print the warning. If the agent runs `installs`, `repair`, `system-install`, `system-uninstall`, `ml-install` or `ml-uninstall`, AegisPilot asks you first. See [usage.md](usage.md#self-protection).
 
 ## Updating
 
@@ -156,7 +158,7 @@ claude plugin update aegis-pilot@hoho-ajou
 
 Manual install: check out the new release tag in the same folder (`git fetch --tags && git checkout v<version>`). The hook paths stay the same, so the settings need no change. If you moved the folder, run `guard_cli.py snippet` again and replace the old hook block.
 
-System install: run `sudo python3 guard/guard_cli.py system-install` again from the new release. It replaces the installed copy and the drop-in file, and keeps an existing `/etc/aegis/config.json`.
+System install: run `sudo python3 <guard>/guard_cli.py system-install` again from the new release. It replaces the installed copy and the drop-in file, and keeps an existing `/etc/aegis/config.json`.
 
 ## Uninstalling
 
