@@ -71,7 +71,7 @@ out = subprocess.run([sys.executable, "-I", str(GUARD / "install_state.py"), "--
                      text=True).stdout
 assert out == "", out
 
-# a settings file that is a link (the agent pointed it at a shell start file) or not JSON is never written, nor its .bak
+# a settings file that is not JSON (here a link to a shell start file) is never written, nor its .bak
 victim = home / "bashrc"; victim.write_text("echo hi\n")
 linked = home / "linked" / ".claude"; linked.mkdir(parents=True)
 (linked / "settings.json").symlink_to(victim)
@@ -86,4 +86,17 @@ ok = home / "ok" / ".claude"; ok.mkdir(parents=True)
 (ok / "settings.json.bak").symlink_to(victim)
 st.turn_off({"kind": "plugin", "where": "aegis-pilot@x", "file": str(ok / "settings.json")})
 assert victim.read_text() == "echo hi\n" and not (ok / "settings.json.bak").is_symlink()
+# settings kept in a dotfiles folder and linked: as the user the link is followed and kept; as root (sudo) a link is
+# refused, since root would write wherever the link points
+dot = home / "dotfiles"; dot.mkdir()
+(dot / "settings.json").write_text('{"model": "x"}')
+lk = home / "lk" / ".claude"; lk.mkdir(parents=True)
+(lk / "settings.json").symlink_to(dot / "settings.json")
+msg = st.turn_off({"kind": "plugin", "where": "aegis-pilot@x", "file": str(lk / "settings.json")})
+assert (lk / "settings.json").is_symlink(), msg
+assert json.loads((dot / "settings.json").read_text())["enabledPlugins"] == {"aegis-pilot@x": False}, msg
+from unittest import mock  # noqa: E402
+with mock.patch.object(st.os, "geteuid", return_value=0):
+    msg = st.turn_off({"kind": "plugin", "where": "aegis-pilot@y", "file": str(lk / "settings.json")})
+assert msg.startswith("not changed") and "aegis-pilot@y" not in (dot / "settings.json").read_text(), msg
 print("install_state: all cases passed")
