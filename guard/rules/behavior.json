@@ -35,7 +35,19 @@
                          "benign": "Plugin loaders that run code read from config"},
     "install_process":  {"auto": "review", "call": null,     "label": "Runs an external command during install",
                          "text": "The install script runs a program that is not a build tool",
-                         "benign": "setup.py calling a build tool missing from the build list", "phases": ["install", "interpreter_start"]}
+                         "benign": "setup.py calling a build tool missing from the build list", "phases": ["install", "interpreter_start"]},
+    "install_runs_unread": {"auto": "review", "call": null,  "label": "Install runs a file that was not read",
+                         "text": "The install script runs or exec()s a file (a build script, a data file) that is too large to read or that the package does not ship",
+                         "benign": "Builds that run a very large or generated build script", "phases": ["install", "interpreter_start"]},
+    "not_analyzed":     {"auto": "review", "call": null,     "label": "Code that runs by itself was not analyzed",
+                         "text": "A file that runs at install, interpreter start or import went over an analysis limit (size, steps, time, number of files) and was not (fully) read",
+                         "benign": "Very large packages: generated modules, vendored libraries"},
+    "wipe":             {"auto": "block",  "call": "review", "label": "Deletes the user's or the system's files",
+                         "text": "Removes or overwrites the home folder, something in it, a drive or a system folder (rm -rf ~/..., shutil.rmtree, mkfs, dd to a disk)",
+                         "benign": "Uninstall or cleanup helpers that remove their own folder in the home directory (inside a function the user calls)"},
+    "encoded_source":   {"auto": "review", "call": "review", "label": "Code hidden behind its source encoding",
+                         "text": "A Python file declares a source encoding (utf-7, unicode_escape ...) that turns plain-looking text into different code",
+                         "benign": "Almost none"}
   },
   "values": {
     "credential_path": [

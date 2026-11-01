@@ -48,7 +48,8 @@ def fetch_github(repo: str, ref: str | None, dest: Path, keep: tuple = KEEP_SUFF
     root = dest / f"{repo.replace('/', '__')}.tgz.unpacked"
     root.mkdir(parents=True, exist_ok=True)
     skipped: list = []
-    safe_extract.extract_targz(raw, root, skipped, keep)
+    # pip builds a repository like an sdist: the other small files are kept aside (see safe_extract.ASIDE_MAX_BYTES)
+    safe_extract.extract_targz(raw, root, skipped, keep, aside=None if keep == ALL_FILES else safe_extract.aside_dir(root))
     tops = [p for p in root.iterdir() if p.is_dir()]
     return tops[0] if len(tops) == 1 else root
 
@@ -65,7 +66,8 @@ def fetch_git(url: str, ref: str | None, dest: Path) -> Path:
     work.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "GIT_CONFIG_NOSYSTEM": "1"}
     safe = ["-c", f"core.hooksPath={os.devnull}", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
-            "-c", "submodule.recurse=false", "-c", "core.symlinks=false"]
+            "-c", "submodule.recurse=false", "-c", "core.symlinks=false",
+            "-c", "http.followRedirects=false"]           # a redirect would reach a host check_host never saw
 
     def git(*args):
         subprocess.run(["git", *safe, *args], cwd=work, env=env, check=True, timeout=TIMEOUT,

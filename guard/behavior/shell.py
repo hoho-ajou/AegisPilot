@@ -13,11 +13,14 @@ import base64
 import re
 import shlex
 
-from .values import DECODED, NET, SECRET, SYSINFO, endpoint_class, path_class, policy
+from .values import DECODED, NET, SECRET, SYSINFO, endpoint_class, path_class, policy, wipe_target
 
 FETCH = {"curl", "wget", "iwr", "invoke-webrequest", "irm", "invoke-restmethod", "certutil", "certutil.exe", "bitsadmin",
          "start-bitstransfer", "fetch", "aria2c", "tftp", "ftp", "lwp-download", "http", "httpie", "xh"}
 DNS = {"nslookup", "dig", "host", "ping", "resolve-dnsname", "drill"}
+# raw network senders: what they get on stdin (or a file they are given) goes out as is
+NET_SEND = {"nc", "ncat", "netcat", "socat", "telnet", "scp", "sftp", "openssl", "ssh"}
+WIPERS = {"rm", "shred", "remove-item", "rd", "rmdir", "del"}
 DECODERS = {"base64", "base32", "xxd", "openssl", "gunzip", "zcat", "rev", "uudecode"}
 SYSINFO_SUB = re.compile(r"\$\(\s*(whoami|hostname|id|uname|pwd|curl\s+[^)]*ip|ifconfig|ip\s+a)[^)]*\)|`\s*(whoami|hostname|id|uname|pwd)[^`]*`"
                          r"|\$\{?(USER|USERNAME|HOSTNAME|HOME|PWD|LOGNAME)\b\}?|%(USERNAME|COMPUTERNAME|USERDOMAIN|USERPROFILE)%"
@@ -160,6 +163,13 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) ->
                 if out:
                     ctx.add_downloaded(out.strip("'\""))
                 fetched = True
+            elif prog in NET_SEND:
+                info["network"] = True
+                reads = re.search(r"<\s*['\"]?([^\s'\";|&]+)", cmd)
+                sent = [a for a in argv[1:] if path_class(a) == "credential"] if prog in ("scp", "sftp") else []
+                if (k > 0 and secret_in) or sent or (reads and path_class(reads.group(1)) == "credential"):
+                    ctx.emit("secret_exfil", phase, file, line, " | ".join(pipeline))
+                fetched = True
             elif prog in DNS:
                 if SYSINFO_SUB.search(cmd):
                     ctx.emit("sysinfo_beacon", phase, file, line, cmd)
@@ -169,6 +179,13 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) ->
                 secret_in = True
             elif WHOLE_ENV.match(cmd.strip()):
                 secret_in = True
+            if prog in WIPERS and any(wipe_target(a) for a in argv[1:] if not a.startswith("-")):
+                ctx.emit("wipe", phase, file, line, cmd)
+            elif prog.startswith("mkfs") or prog in ("wipefs", "format") or \
+                    (prog == "dd" and re.search(r"\bof=/dev/(sd|hd|nvme|disk|xvd|vd|mmcblk)", cmd_low)):
+                ctx.emit("wipe", phase, file, line, cmd)
+            elif prog == "find" and "-delete" in argv and len(argv) > 1 and wipe_target(argv[1]):
+                ctx.emit("wipe", phase, file, line, cmd)
             if prog in PERSIST_CMD:
                 if prog.startswith("reg") and "currentversion\\run" not in cmd_low and "currentversion/run" not in cmd_low:
                     pass

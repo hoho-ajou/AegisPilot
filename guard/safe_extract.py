@@ -115,6 +115,42 @@ def member_policy(name: str, size: int, suffixes: tuple = WANTED_SUFFIXES) -> st
     return "marker" if _is_readme(name) else None
 
 
+# Files an sdist build can run without importing them - the Makefile or configure script `make` / `sh` runs, a data file
+# setup.py exec()s, the pyproject.toml naming an in-tree build backend - are not code the rules read. A caller that
+# passes `aside` gets them written there (`<archive>.aside/`, next to the root, so they stay out of the file list); the
+# behavior analysis reads one only when install-time code hands work to it. Members too large for it are listed in
+# `<archive>.aside.left`: a file the build runs but nobody read is a finding of its own.
+ASIDE_MAX_BYTES = 1024 * 1024
+ASIDE_TOTAL_BYTES = 64 * 1024 * 1024
+
+
+def aside_dir(root: Path) -> Path:
+    """Where extract_* puts the members it does not extract when asked to keep them aside (see ASIDE_MAX_BYTES)."""
+    name = root.name[:-len(".unpacked")] if root.name.endswith(".unpacked") else root.name
+    return root.with_name(name + ".aside")
+
+
+class _Aside:
+    def __init__(self, path: Path | None):
+        self.path, self.total, self.left = path, 0, []
+
+    def wants(self, rel: Path, size: int) -> bool:
+        if self.path is None:
+            return False
+        if size > ASIDE_MAX_BYTES or self.total + size > ASIDE_TOTAL_BYTES:
+            self.left.append(rel.as_posix())
+            return False
+        self.total += size
+        return True
+
+    def close(self) -> None:
+        if self.path is not None and self.left:
+            try:
+                self.path.with_name(self.path.name + ".left").write_text("\n".join(self.left[:10000]) + "\n")
+            except OSError:
+                pass
+
+
 def check_member(name: str, size: int, compressed: int | None) -> None:
     """Per-member limits (zip: both sizes are in the central directory)."""
     if size > MAX_MEMBER_BYTES:
@@ -123,23 +159,33 @@ def check_member(name: str, size: int, compressed: int | None) -> None:
         raise ArchiveLimitError(f"archive limit exceeded: {name[:80]} compression ratio {size / max(compressed, 1):.0f}x (limit {MAX_RATIO}x) - possible zip bomb")
 
 
-def extract_zip(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTED_SUFFIXES) -> list[Path]:
+def extract_zip(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTED_SUFFIXES,
+                aside: Path | None = None) -> list[Path]:
     """Extract the wanted members of a zip/wheel. skipped gets (name, reason) for unsafe members. suffixes: the file
-    types kept (default Python; another ecosystem passes its own, e.g. npm keeps JavaScript and package.json)."""
+    types kept (default Python; another ecosystem passes its own, e.g. npm keeps JavaScript and package.json).
+    aside: where the other small members go (an sdist: see ASIDE_MAX_BYTES), None = left in the archive."""
     zf = zipfile.ZipFile(io.BytesIO(raw))
     infos = zf.infolist()
     if len(infos) > MAX_MEMBERS:
         raise ArchiveLimitError(f"archive limit exceeded: {len(infos)} files (limit {MAX_MEMBERS})")
     plan, declared = [], 0
+    side = _Aside(aside)
     for i in infos:
         if i.is_dir():
             continue
         policy = member_policy(i.filename, i.file_size, suffixes)
-        if policy is None:
+        if policy is None and aside is None:
             continue
         rel, why = clean_member_name(i.filename)
         if rel is None:
-            skipped.append((i.filename[:120], why)); continue
+            if policy is not None:
+                skipped.append((i.filename[:120], why))
+            continue
+        if policy is None:
+            if not (i.flag_bits & 0x1) and side.wants(rel, i.file_size):
+                check_member(i.filename, i.file_size, i.compress_size)
+                plan.append((i, rel, None))
+            continue
         if policy == "marker":
             plan.append((i, rel, True)); continue
         if i.flag_bits & 0x1:
@@ -151,7 +197,7 @@ def extract_zip(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTED_
         plan.append((i, rel, False))
     out: list[Path] = []
     for i, rel, marker in plan:
-        target = _target(root, rel)
+        target = _target(root if marker is not None else aside, rel)
         if target is None:
             skipped.append((i.filename[:120], "resolves outside the extraction dir")); continue
         try:
@@ -168,11 +214,13 @@ def extract_zip(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTED_
                         if left < 0:
                             raise ArchiveLimitError(f"archive limit exceeded: {i.filename[:80]} inflates larger than declared")
                         dst.write(chunk)
-            out.append(target)
+            if marker is not None:
+                out.append(target)
         except ArchiveLimitError:
             raise
         except (OSError, zipfile.BadZipFile, zlib.error, RuntimeError) as e:
             skipped.append((i.filename[:120], f"unreadable: {type(e).__name__}"))
+    side.close()
     return out
 
 
@@ -218,10 +266,13 @@ class _BoundedGzip(io.RawIOBase):
         return n
 
 
-def extract_targz(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTED_SUFFIXES) -> list[Path]:
-    """Extract the wanted members of a .tar.gz, streaming, with the stream limits of _BoundedGzip (suffixes: see extract_zip)."""
+def extract_targz(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTED_SUFFIXES,
+                  aside: Path | None = None) -> list[Path]:
+    """Extract the wanted members of a .tar.gz, streaming, with the stream limits of _BoundedGzip (suffixes, aside: see
+    extract_zip)."""
     out: list[Path] = []
     total = count = 0
+    side = _Aside(aside)
     try:
         tf = tarfile.open(fileobj=io.BufferedReader(_BoundedGzip(raw), _CHUNK), mode="r|")
         for m in tf:
@@ -231,12 +282,19 @@ def extract_targz(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTE
             if not m.isreg():
                 continue                                   # dirs are created on demand; links/devices are never created
             policy = member_policy(m.name, m.size, suffixes)
-            if policy is None:
+            if policy is None and aside is None:
                 continue
             rel, why = clean_member_name(m.name)
             if rel is None:
-                skipped.append((m.name[:120], why)); continue
-            target = _target(root, rel)
+                if policy is not None:
+                    skipped.append((m.name[:120], why))
+                continue
+            if policy is None:
+                if side.wants(rel, m.size):
+                    policy = "aside"
+                else:
+                    continue
+            target = _target(aside if policy == "aside" else root, rel)
             if target is None:
                 skipped.append((m.name[:120], "resolves outside the extraction dir")); continue
             try:
@@ -254,9 +312,11 @@ def extract_targz(raw: bytes, root: Path, skipped: list, suffixes: tuple = WANTE
                             if not chunk:
                                 break
                             dst.write(chunk)
-                out.append(target)
+                if policy != "aside":
+                    out.append(target)
             except OSError as e:
                 skipped.append((m.name[:120], f"unwritable: {type(e).__name__}"))
     except tarfile.TarError as e:
         raise ValueError(f"could not read tar: {e}") from e
+    side.close()
     return out

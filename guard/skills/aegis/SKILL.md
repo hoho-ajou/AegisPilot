@@ -8,8 +8,8 @@ description: Explains why AegisPilot stopped or flagged an install or a settings
 AegisPilot's hooks check installs (pip, uv, poetry, npm and others), git/URL installs, MCP server registrations,
 plugins and hooks before they run. This skill explains those decisions and runs a scan when the user asks for one.
 
-In the commands below, `${CLAUDE_PLUGIN_ROOT}` is the AegisPilot folder. For a manual install, it is the `guard/`
-folder of the checkout.
+In the commands below, `${CLAUDE_PLUGIN_ROOT}` is the AegisPilot folder. When it is not set (a manual install), use the
+folder two levels above this skill's own folder: the skill lives in `<AegisPilot folder>/skills/aegis`.
 
 ## Explaining a decision (/aegis, "why?")
 
@@ -59,7 +59,7 @@ Paths explain a decision; they never change it.
 When the user asks whether a PyPI package is safe, or before you install a package you chose yourself:
 
 ```bash
-python3 -I "${CLAUDE_PLUGIN_ROOT}/scan_engine.py" <package_name> [version]
+python3 -I "${CLAUDE_PLUGIN_ROOT}/guard_cli.py" scan <package_name> [version]
 ```
 
 It prints JSON with `verdict`, `score` and `reasons`.

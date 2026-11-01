@@ -54,11 +54,14 @@ _VALUE_FLAGS = {
     "--report", "--cache-dir", "--log", "--keyring-provider", "--index", "--default-index",
 }
 _OPERATORS = {"&&", "||", ";", "|", "&", ";;", "(", ")", "\n"}
+# words that open a command list without being the command: `{ pip install x; }`, `if pip install x; then ...`, `! cmd`
+_RESERVED = {"{", "}", "!", "if", "then", "elif", "else", "do", "while", "until"}
 _REDIRECTS = {">", ">>", "<", "<<", ">&", "<&", "&>", "&>>"}
 
 # python -m pip, pip, pip3, pip3.12, uv pip install, uv add, poetry add, pipx install, pipenv install
-_PIP_NAME = re.compile(r"^(pip|pip3(\.\d+)?|pip\d(\.\d+)?)$")
-_PY_NAME = re.compile(r"^python[\d.]*$")
+_PIP_NAME = re.compile(r"^(pip|pip3(\.\d+)?|pip\d(\.\d+)?)(\.exe)?$")
+_PY_NAME = re.compile(r"^(python[\d.]*|py)(\.exe)?$")        # py: the Windows launcher (`py -3.12 -m pip install x`)
+_PY_VERSION_OPT = re.compile(r"^-[23](\.\d+)?(-(32|64))?$")
 
 _REQ = re.compile(
     r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<extras>\[[^\]]*\])?\s*(?P<spec>[^;@]*)?(?:;.*)?$"
@@ -151,6 +154,8 @@ def _segments(command: str, written: list | None = None) -> list[list[str]]:
             skip_next = True
             if ">" in tok and written is not None:
                 written.append(("redirect", tok))
+        elif tok in _RESERVED and not segs[-1]:
+            continue
         else:
             segs[-1].append(tok)
     return [s for s in segs if s]
@@ -163,6 +168,7 @@ _WRAPPERS = {
     "nohup": set(), "exec": {"-a"}, "env": {"-u", "-C", "-S", "--unset", "--chdir"}, "nice": {"-n", "--adjustment"},
     "ionice": {"-c", "-n", "-p", "-P", "-u"}, "stdbuf": {"-i", "-o", "-e"}, "chrt": set(), "taskset": set(),
     "timeout": {"-s", "--signal", "-k", "--kill-after"}, "xargs": {"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s"},
+    "corepack": set(),                   # `corepack pnpm add x` runs pnpm (`corepack enable` leaves no command)
 }
 _NEEDS_OPERAND = {"timeout": 1, "chrt": 1, "taskset": 1}     # `timeout 60 cmd`: the duration comes before the command
 # `uv run pip install x`, `poetry run pip install x`: the tool's environment runs pip
@@ -265,6 +271,8 @@ def _install_args(seg: list[str]) -> list[str] | None:
         return None
     first = Path(toks[0]).name
     rest = toks[1:]
+    if _PY_NAME.match(first) and rest and _PY_VERSION_OPT.match(rest[0]):       # py -3.12 -m pip ...
+        rest = rest[1:]
     if _PY_NAME.match(first) and rest[:2] == ["-m", "uv"]:          # python -m uv pip install ...
         first, rest = "uv", rest[2:]
     # `pip download` / `pip wheel` fetch the same files and build their metadata, which runs setup.py of a source
@@ -310,7 +318,8 @@ _SETUP_PY_INSTALLS = {"install", "develop", "bdist_wheel", "bdist_egg", "build",
 
 def _other_installs(toks: list[str], parsed: Parsed, cwd: Path | None) -> bool:
     """Install shapes beyond pip/uv/poetry (found by testing 50 command variants): `python setup.py
-    install` (runs the project's setup.py), `easy_install pkg`, conda/mamba/micromamba/pixi installs. True if handled."""
+    install` (runs the project's setup.py), `easy_install pkg`, conda/mamba/micromamba/pixi installs, and package installs
+    of other ecosystems (cargo, gem, bundle, go, composer, dotnet, nuget, deno). True if handled."""
     if not toks:
         return False
     first, rest = Path(toks[0]).name, toks[1:]
@@ -329,7 +338,52 @@ def _other_installs(toks: list[str], parsed: Parsed, cwd: Path | None) -> bool:
         parsed.add_unscanned("other_ecosystem", " ".join(toks)[:120],
                              "the guard cannot check packages from conda/pixi channels (only PyPI packages are checked)")
         return True
-    return False
+    what = _other_ecosystem(first, rest, parsed, cwd)
+    if what:
+        parsed.installs = True
+        parsed.add_unscanned("other_ecosystem", " ".join(toks)[:120],
+                             f"the guard cannot check {what} (only PyPI and npm packages are checked)")
+        return True
+    return what is not None
+
+
+# package installs of other ecosystems: not checked, so a REVIEW that says so (never a silent ALLOW). Builds and queries
+# (`cargo build`, `go build`, `gem list`) are not installs and pass.
+_OTHER_SUBS = {"cargo": ({"install", "add", "binstall"}, "Rust crates"), "gem": ({"install", "update"}, "Ruby gems"),
+               "bundle": ({"install", "add", "update"}, "Ruby gems"), "bundler": ({"install", "add", "update"}, "Ruby gems"),
+               "composer": ({"require", "install", "update", "create-project", "global"}, "PHP (Composer) packages"),
+               "nuget": ({"install"}, "NuGet packages")}
+
+
+def _other_ecosystem(first: str, rest: list[str], parsed: Parsed, cwd: Path | None) -> str | None:
+    """What kind of package a command of another ecosystem installs ("" = handled here, not a REVIEW; None = not one)."""
+    sub = rest[0] if rest else ""
+    operands = [t for t in rest[1:] if not t.startswith("-")]
+    if first in _OTHER_SUBS and sub in _OTHER_SUBS[first][0]:
+        if first == "cargo" and sub == "install" and ("--path" in rest or any(t.startswith("--path=") for t in rest)):
+            return None                                      # builds a local crate
+        return _OTHER_SUBS[first][1]
+    if first == "go" and sub in ("install", "get") and operands:
+        # `go install ./cmd/x` builds local code; a module path (`example.com/x@v1`) is downloaded
+        if any("@" in t or re.match(r"^[\w-]+\.[\w.-]+/", t) for t in operands):
+            return "Go modules"
+        return None
+    if first == "go" and sub == "run" and any("@" in t for t in operands[:1]):
+        return "Go modules"
+    if first == "dotnet" and ((sub == "add" and "package" in rest[1:3]) or rest[:2] == ["tool", "install"]):
+        return "NuGet packages"
+    if first == "deno" and sub in ("install", "i", "add", "run", "x"):
+        npm_specs = [t for t in operands if t.startswith("npm:")]
+        for spec in npm_specs:                              # `deno install npm:x`: an npm package, scanned like one
+            npm_parse._add(parsed, spec[4:], {}, "deno " + " ".join(rest))
+            parsed.installs = True
+        others = [t for t in operands if not t.startswith("npm:")]
+        if sub in ("run", "x"):
+            return "JSR / URL modules" if others[:1] and re.match(r"^(jsr:|https?://)", others[0]) and not npm_specs else ("" if npm_specs else None)
+        if others or not operands:
+            return "Deno modules (jsr:, URLs, the project's dependencies)"
+        return ""
+    return None
 
 
 _PY_INSTALL_HINT = re.compile(r"\b(pip3?|uv|poetry|pdm|pipx|pipenv|easy_install|conda|mamba)\b")
@@ -805,7 +859,9 @@ def _parse_install_args(args: list[str], parsed: Parsed, cwd: Path | None) -> No
                 value = args[i + 1] if i + 1 < len(args) else ""
                 i += 2
             if flag in ("-r", "--requirement"):
-                if cwd is not None:
+                if value == "-" or value.startswith(("/dev/", "/proc/")):
+                    parsed.add_unscanned("requirements_unreadable", value, "requirements read from standard input or a pipe - what gets installed is unknown")
+                elif cwd is not None:
                     if Path(value).name in ("pyproject.toml", "setup.cfg", "setup.py"):      # `uv pip install -r pyproject.toml`
                         _project((cwd / value).parent, parsed, cwd, use_lock=False, shown=value)
                     else:
@@ -864,7 +920,7 @@ def _tool_families(seg: list[str]) -> set[str]:
     return out
 
 
-_CONFIG_FILES = {"pip.conf", "pip.ini", "uv.toml", ".npmrc"}
+_CONFIG_FILES = {"pip.conf", "pip.ini", "uv.toml", ".npmrc", ".yarnrc", ".yarnrc.yml", "bunfig.toml"}
 
 
 def _expand_head(seg: list[str], aliases: dict, variables: dict, parsed: Parsed) -> list[str] | None:
@@ -964,7 +1020,9 @@ def parse_install_command(command: str, cwd: str | Path | None = None, env: dict
             continue
         if _other_installs(_strip_wrappers(seg), parsed, base):
             continue
-        if npm_parse.handle(_strip_wrappers(seg), parsed, base, Path((env or {}).get("HOME") or Path.home())):
+        cmd_env: dict = dict(exported)
+        if npm_parse.handle(_strip_wrappers(seg, cmd_env), parsed, base, Path((env or {}).get("HOME") or Path.home()),
+                            env=cmd_env, session_env=env):
             continue
         script = _python_script(_strip_wrappers(seg))
         if script is not None:

@@ -114,7 +114,7 @@ def relevant_safe(relevant, event) -> bool:
 SUPERVISOR_GRACE_SECONDS = 3.0
 
 
-def _supervise(on_deadline: Callable[[], None]) -> bool:
+def _supervise(on_deadline: Callable[[], None], on_crash: Callable[[], None]) -> bool:
     """Run the rest of the hook in a forked child and keep the deadline from out here. False = no fork (Windows): the
     caller runs everything itself, with only the timer thread.
 
@@ -122,7 +122,10 @@ def _supervise(on_deadline: Callable[[], None]) -> bool:
     crafted file holds that lock for its whole run, so the timer could not fire before Claude Code's own hook timeout
     let the command through unchecked. This process has no other threads; it waits for the child, passes its answer
     on, and past the deadline (plus a grace for the child's own timer) stops it and answers that the scan did not
-    finish. The child's answer goes through a pipe so that a child stopped mid-way never leaves half an answer."""
+    finish. A child that dies (killed for memory, a crash in C code) without a complete answer is answered for the
+    same way: a silent exit would let the command through. The child's answer goes through a pipe so that a child
+    stopped mid-way never leaves half an answer, and the child leads its own process group so that scan workers it
+    started are stopped with it."""
     if not hasattr(os, "fork"):
         return False
     import select
@@ -135,37 +138,48 @@ def _supervise(on_deadline: Callable[[], None]) -> bool:
         os.close(r)
         os.dup2(w, 1)
         os.close(w)
+        try:
+            os.setpgid(0, 0)
+        except OSError:
+            pass
         return False                                      # the child goes on with the hook
     os.close(w)
     end = time.monotonic() + deadline_seconds() + SUPERVISOR_GRACE_SECONDS
-    out, done = b"", False
+    out, status, eof = b"", None, False
     while time.monotonic() < end:
-        ready, _, _ = select.select([r], [], [], 0.1)
-        if ready:
+        if eof:
+            time.sleep(0.1)
+        elif select.select([r], [], [], 0.1)[0]:
             chunk = os.read(r, 65536)
             out += chunk
-            if not chunk and done:
-                break
-        if not done and os.waitpid(pid, os.WNOHANG)[0]:
-            done = True                                   # read what is left; scan workers may still hold the pipe
+            eof = not chunk
+        done, st = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = st                                   # read what is left; scan workers may still hold the pipe
             os.set_blocking(r, False)
             try:
                 while chunk := os.read(r, 65536):
                     out += chunk
-            except BlockingIOError:
+            except (BlockingIOError, OSError):
                 pass
             break
-    if not done:
+    try:
+        os.killpg(pid, signal.SIGKILL)                    # the child if still running, and what it left behind
+    except OSError:
+        pass
+    if status is None:
         try:
-            os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
         except OSError:
             pass
-    if done or out.endswith(b"\n"):                      # an answer the child finished writing is kept
+    clean_exit = status is not None and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
+    if clean_exit or out.endswith(b"\n"):               # a finished child, or an answer the child finished writing
         sys.stdout.buffer.write(out)
         sys.stdout.flush()
-    else:
+    elif status is None:
         on_deadline()
+    else:
+        on_crash()
     os._exit(0)
 
 
@@ -203,7 +217,13 @@ def run(main: Callable[[dict], None], relevant: Callable[[dict], bool], label: s
         _finish()
         os._exit(0)
 
-    if relevant_safe(relevant, event) and _supervise(on_deadline):
+    def on_crash() -> None:
+        surface(f"[AegisPilot] The check stopped unexpectedly, so this command was not checked ({label}). "
+                "Check it yourself before allowing. Details: /aegis")
+        _finish()
+        os._exit(0)
+
+    if relevant_safe(relevant, event) and _supervise(on_deadline, on_crash):
         return                                            # (the parent: the child below has answered, or the deadline)
     timer = threading.Timer(deadline_seconds(), on_deadline)
     timer.daemon = True

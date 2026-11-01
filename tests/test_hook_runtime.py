@@ -58,6 +58,12 @@ code, out, secs = run_hook("pretooluse_check.py", INSTALL, REGEX, {"AEGIS_HOOK_D
 assert code == 0 and out and out["permissionDecision"] == "ask" and "did not finish within" in out["permissionDecisionReason"], (code, out)
 assert secs < 10, secs
 
+# 3c) the check process dies (killed for memory, a crash in C code) before answering: an explicit ask, not a silent pass
+DIE = "import scan_engine, os, signal; scan_engine.scan_packages = lambda *a, **k: os.kill(os.getpid(), signal.SIGKILL)"
+code, out, secs = run_hook("pretooluse_check.py", INSTALL, DIE)
+assert code == 0 and out and out["permissionDecision"] == "ask" and "stopped unexpectedly" in out["permissionDecisionReason"], (code, out)
+assert secs < 10, secs
+
 # 4) Edit|Write hook: same net for the files it watches, silent for others
 EDIT = {"tool_name": "Edit", "cwd": "/tmp", "tool_input": {"file_path": "/p/.claude/settings.json", "old_string": "a", "new_string": "b"}}
 BREAK = "import review_report; review_report.write_report = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('bug'))"

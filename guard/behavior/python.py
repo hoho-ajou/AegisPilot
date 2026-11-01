@@ -31,7 +31,7 @@ import zlib
 
 from . import LimitExceeded
 from .values import (DECODED, LOCAL, NET, NOVAL, SECRET, SECRET_ENV, SYSINFO, Val, endpoint_class, is_secret_env,
-                     path_class)
+                     path_class, wipe_target)
 
 CRED_PATH, AUTOSTART_PATH, SOCK, NET_FILE, FILE = "CRED_PATH", "AUTOSTART_PATH", "SOCK", "NET_FILE", "FILE"
 # unreadable_exec is judged on these (js.py has the same): OPAQUE = computed from constants by code the analysis could
@@ -692,24 +692,29 @@ class Interp:
 
     def load_module(self, name: str, ph: str) -> Val:
         """A package module imported by this code: its top level runs (once per phase) and its names are reachable."""
+        parts = name.split(".")
+        for i in range(1, len(parts)):                   # importing a.b.c runs a/__init__.py and a/b/__init__.py first
+            parent = ".".join(parts[:i])
+            if parent in self.ctx.modules:
+                self.load_module(parent, ph)
         path, rel = self.ctx.modules[name]
         mph = ph if ph in ("install", "interpreter_start") else "import"
+        if rel in self.ctx.held and ph not in AUTO:
+            mph = "call"                     # a test module a function imports runs when that function is called
         key = (rel, mph)
         interp = self.ctx.py_scopes.get(key)
         if interp is None and key not in self.ctx.module_phases and self.sh.load_depth < 8:
-            text_ = None
-            try:
-                if path.stat().st_size <= self.lim["max_file_bytes"]:
-                    text_ = path.read_text(errors="replace")
-            except OSError:
-                text_ = None
-            if text_ is not None:
+            text_ = self.ctx.read_python(path, rel, mph)
+            if text_ is None:
+                self.ctx.module_phases.add(key)
+                self.ctx.unread(rel, mph, "size limit")
+            else:
                 self.ctx.module_phases.add(key)
                 self.sh.load_depth += 1
                 try:
                     analyze_source(self.ctx, text_, rel, mph, loaded=True)
                 except LimitExceeded as e:
-                    self.ctx.not_analyzed.append((rel, str(e)))
+                    self.ctx.unread(rel, mph, str(e))
                 except (SyntaxError, ValueError, RecursionError, MemoryError):
                     pass
                 finally:
@@ -925,6 +930,8 @@ class Interp:
             return V(ref="#meth", self=base, name=a)
         if ref and ref[0] != "#":
             full = canon(f"{ref}.{a}")
+            if re.fullmatch(r"ctypes\.(cdll|pydll|windll|oledll)\.\w+", full) and a != "LoadLibrary":
+                return V(ref="#dll")                 # ctypes.cdll.msvcrt: a loaded C library
             if full == "os.environ":
                 return V(NOVAL, {SECRET}, "os.environ")
             if full == "sys.executable":
@@ -935,8 +942,10 @@ class Interp:
                 return Val("\n")
             if full == "os.curdir":
                 return Val(".")
-            if full in ("os.name", "sys.platform", "sys.version", "sys.argv", "sys.path", "sys.prefix"):
+            if full in ("os.name", "sys.platform", "sys.version", "sys.argv", "sys.prefix"):
                 return Val()
+            if full == "sys.path":
+                return V(ref=full)                   # unknown, but sys.path.insert / append still reach their handler
             return V(ref=full, hidden=True) if hidden else V(ref=full)
         if ref == "#path":
             p = base.s() or M(base, "partial") or ""
@@ -949,6 +958,10 @@ class Interp:
                 if a == "suffix":
                     last = "." + last.rsplit(".", 1)[1] if "." in last else ""
                 return Val(last, base.tags) if base.known else V(NOVAL, base.tags)
+        if ref == "#loader" and a == "loader":
+            return base
+        if ref == "#dll":
+            return V(ref=LIBC[a]) if a in LIBC else V(ref="#dll")
         if ref == "#file" and a == "name":
             pv = M(base, "path") or Val()
             extra = {NET_FILE} if NET in M(base, "written", frozenset()) else set()
@@ -1358,6 +1371,13 @@ class Interp:
             return Val()
         if obj.ref == "#file":
             return self.file_method(obj, name, args, kw, ph, node)
+        if obj.ref == "#loader":
+            pv = M(obj, "path") or Val()
+            code = V(NOVAL, self.open_file(pv, "r", ph, node).tags, fromfile=pv)
+            if name in ("load_module", "exec_module"):
+                self.exec_code(code, ph, node, sc)
+                return Val()
+            return code if name in ("get_code", "get_source", "get_data") else Val()
         if obj.ref == "#sock":
             return self.sock_method(obj, name, args, kw, ph, node)
         if obj.ref == "#http":
@@ -1647,7 +1667,8 @@ class Interp:
             self.write_file(M(obj, "path") or Val(), args[0], ph, node, obj)
             return Val()
         if name in ("read", "readline", "readlines", "__iter__", "__next__", "__enter__"):
-            return obj if name == "__enter__" else V(NOVAL, obj.tags)
+            # the text keeps the path it was read from: exec() of it runs that file (Interp.exec_code)
+            return obj if name == "__enter__" else V(NOVAL, obj.tags, fromfile=M(obj, "path"))
         return V(NOVAL, obj.tags) if name in ("fileno",) else Val()
 
     def path_method(self, obj, name, args, kw, sc, ph, node) -> Val:
@@ -1664,7 +1685,7 @@ class Interp:
                 return self.mkpath(p.rsplit(".", 1)[0] + conc(args[0]), obj)
             return obj
         if name in ("read_text", "read_bytes"):
-            return V(NOVAL, self.open_file(obj, "r", ph, node).tags)
+            return V(NOVAL, self.open_file(obj, "r", ph, node).tags, fromfile=obj)
         if name in ("write_text", "write_bytes") and args:
             self.write_file(obj, args[0], ph, node)
             return Val()
@@ -1759,6 +1780,9 @@ class Interp:
         """Code run as Python: rebuilt -> analyzed again; else judged by where it came from."""
         if M(code, "codeobj") is not None:
             code = M(code, "codeobj")
+        if not code.known and M(code, "fromfile") is not None and \
+                self.run_package_file(M(code, "fromfile"), ph, node, "python"):
+            return V(NOVAL, code.tags)                   # the text of a package file: that file was read at this phase
         known = [c for c in cands(code) if isinstance(c.s(), str)]
         for c in known[:4]:
             src = c.s()
@@ -1856,6 +1880,8 @@ class Interp:
             if v.known and isinstance(v.c, (list, tuple)):
                 pv = Val(NOVAL, pv.tags - {OPAQUE, ENV})   # a program with an argument list is not code text
             self.judge_unknown_exec(pv, ph, node)
+        if ph in ("install", "interpreter_start") and cmd is not None:
+            self.runs_package_files(v, cmd, ph, node, kw)
         tags = set()
         if info.get("sysinfo"):
             tags.add(SYSINFO)
@@ -1865,6 +1891,105 @@ class Interp:
             if any(path_class(tok) == "credential" for tok in re.split(r"[\s'\"]+", t or "") if tok):
                 tags.add(SECRET)
         return V(NOVAL, tags, "#proc")
+
+    # ----------------------------------------------------------------- package files the code hands work to
+    def find_package_file(self, t: str, cwd: str = "") -> tuple[str, str | None, object]:
+        """(status, rel, path) of a path the code names: "file" / "aside" (shipped, readable), "left" (shipped, too large
+        to keep), "absent" (relative, not shipped), "outside" (absolute), "unknown" (leading folders unknown, no match).
+        Relative paths are taken from the working directory (the package root while pip builds it) or this file's folder."""
+        t = t.replace("\\", "/")
+        if PH in t:
+            tail = t.split(PH)[-1]
+            hits = self.ctx.bundled_tail(tail) if tail.strip("/") and "/" in "/" + tail.lstrip("/") else []
+            return ("file", hits[0][0], hits[0][1]) if len(hits) == 1 else ("unknown", None, None)
+        if t.startswith(("/", "~")) or re.match(r"^[A-Za-z]:/", t):
+            return "outside", None, None
+        here = self.file.rsplit("/", 1)[0] if "/" in self.file else ""
+        bases = [cwd] + ([here] if here and here != cwd else [])
+        status = "absent"
+        for base in bases:
+            from . import norm_rel
+            rel = norm_rel(f"{base}/{t}" if base else t)
+            st, path = self.ctx.bundled(rel)
+            if st in ("file", "aside"):
+                return st, rel, path
+            if st == "left":
+                status = "left"
+        return status, None, None
+
+    def run_package_file(self, pv: Val, ph, node, lang: str, cwd: str = "") -> bool:
+        """A package file this code runs (exec of its text, runpy, a loader, a script it starts), read at this phase.
+        At install / interpreter start one the package ships but that could not be read (too large to keep or to read)
+        is a finding. A file the package does not ship is not: running it fails, or code that was read makes it first.
+        True when the path was found."""
+        if ph not in AUTO:
+            return False
+        handled = False
+        for t in texts(pv)[:4]:
+            status, rel, path = self.find_package_file(t, cwd)
+            if status in ("file", "aside"):
+                handled = True
+                if not self.ctx.run_file(rel, path, lang, ph) and ph in ("install", "interpreter_start"):
+                    self.emit("install_runs_unread", ph, node, f"{t}: too large to read")
+            elif status == "left":
+                handled = True
+                if ph in ("install", "interpreter_start"):
+                    self.emit("install_runs_unread", ph, node, f"{t}: too large to read")
+        return handled
+
+    def runs_package_files(self, v: Val, cmd: str, ph, node, kw):
+        """A command run at install that hands the work to files of the package: a script given to an interpreter, a
+        Makefile for make, CMake files for cmake, a configure script. They are read at install (make and CMake files
+        for the commands they run); one that cannot be read is a finding (see run_package_file)."""
+        from .shell import _argv, _split_commands
+        cwd = text(kw["cwd"]) if "cwd" in kw and text(kw["cwd"]) else ""
+        if PH in cwd or cwd.startswith(("/", "~")):
+            cwd = ""
+        if v.known and isinstance(v.c, (list, tuple)):
+            argvs = [[text(x) if text(x) is not None else PH for x in v.c]]
+        else:
+            argvs = [_argv(c) for pipe in _split_commands(cmd) for c in pipe][:8]
+        for argv in argvs:
+            if not argv or PH in argv[0].rsplit("/", 1)[-1]:
+                continue
+            prog = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+            args = argv[1:]
+            if prog.startswith("python") and len(prog) < 12 or prog in ("py", "sys.executable"):
+                if "-c" in args:
+                    continue
+                if "-m" in args and args.index("-m") + 1 < len(args):
+                    name = args[args.index("-m") + 1]
+                    if self.local_module(name):
+                        self.load_module(name, ph)
+                    continue
+                script = next((a for a in args if not a.startswith("-")), None)
+                if script:
+                    self.run_package_file(Val(script), ph, node, "python", cwd)
+            elif prog in ("sh", "bash", "zsh", "dash", "ksh"):
+                script = next((a for a in args if not a.startswith("-")), None)
+                if script and "-c" not in args:
+                    self.run_package_file(Val(script), ph, node, "shell", cwd)
+            elif prog in ("make", "gmake"):
+                d = cwd
+                if "-C" in args and args.index("-C") + 1 < len(args):
+                    d = "/".join(x for x in (cwd, args[args.index("-C") + 1]) if x)
+                names = [args[args.index(f) + 1] for f in ("-f", "--file") if f in args and args.index(f) + 1 < len(args)]
+                for name in names or ["GNUmakefile", "makefile", "Makefile", "Makefile.in"]:
+                    if self.run_package_file(Val(name), ph, node, "make", d):
+                        break
+            elif prog == "cmake":
+                if "--build" in args or "--install" in args or "-E" in args:
+                    continue
+                cm = [(rel, p) for rel, p in list(self.ctx.by_rel.items()) + list(self.ctx._side().items())
+                      if rel.rsplit("/", 1)[-1] == "CMakeLists.txt" or rel.endswith(".cmake")][:50]
+                for rel, p in cm:
+                    if not self.ctx.run_file(rel, p, "cmake", ph):
+                        self.emit("install_runs_unread", ph, node, f"{rel}: too large to read")
+                for rel in sorted(self.ctx._left):
+                    if rel.rsplit("/", 1)[-1] == "CMakeLists.txt" or rel.endswith(".cmake"):
+                        self.emit("install_runs_unread", ph, node, f"{rel}: too large to read")
+            elif prog == "configure" or "/" in argv[0] and not argv[0].startswith(("/", "~")):
+                self.run_package_file(Val(argv[0]), ph, node, "shell", cwd)
 
 
 def _blob(v: Val) -> bool:
@@ -1993,8 +2118,24 @@ def _h_unmarshal(self, ref, args, kw, sc, ph, node):
 @_h("runpy.run_path", "runpy.run_module")
 def _h_runpy(self, ref, args, kw, sc, ph, node):
     target = args[0] if args else Val()
-    tags = self.open_file(target, "r", ph, node).tags if ref.endswith("run_path") else frozenset({LOCAL})
-    return self.exec_code(V(NOVAL, tags), ph, node, sc)
+    if ref.endswith("run_module"):
+        name = conc(target)
+        if isinstance(name, str) and self.local_module(name):
+            self.load_module(name, ph)
+            return Val()
+        return self.exec_code(V(NOVAL, frozenset({LOCAL})), ph, node, sc)
+    return self.exec_code(V(NOVAL, self.open_file(target, "r", ph, node).tags, fromfile=target), ph, node, sc)
+
+
+@_h("importlib.machinery.SourceFileLoader", "importlib.util.spec_from_file_location", "imp.load_source")
+def _h_file_loader(self, ref, args, kw, sc, ph, node):
+    """A module loaded from a file path (any suffix): its code runs when the loader's load_module / exec_module is
+    called - imp.load_source runs it at once."""
+    pv = _arg(args, kw, 1, "location" if ref.endswith("location") else "path" if ref.endswith("Loader") else "pathname")
+    if ref == "imp.load_source":
+        self.exec_code(V(NOVAL, self.open_file(pv, "r", ph, node).tags, fromfile=pv), ph, node, sc)
+        return Val()
+    return V(ref="#loader", path=pv)
 
 
 @_h(*PROCESS)
@@ -2505,6 +2646,14 @@ def _h_copy(self, ref, args, kw, sc, ph, node):
     return Val()
 
 
+@_h("shutil.rmtree", "os.remove", "os.unlink", "os.removedirs", "os.rmdir")
+def _h_remove(self, ref, args, kw, sc, ph, node):
+    target = args[0] if args else kw.get("path")
+    if target is not None and any(wipe_target(t) for t in texts(target)):
+        self.emit("wipe", ph, node)
+    return Val()
+
+
 @_h("shutil.copyfileobj")
 def _h_copyfileobj(self, ref, args, kw, sc, ph, node):
     if len(args) >= 2 and args[1].ref == "#file":
@@ -2662,11 +2811,46 @@ def _h_setup(self, ref, args, kw, sc, ph, node):
 def _h_runs_later(self, ref, args, kw, sc, ph, node):
     target = kw.get("target") or (args[1] if ref == "threading.Timer" and len(args) > 1 else
                                   args[1] if ref == "signal.signal" and len(args) > 1 else args[0] if args else None)
+    targs = kw.get("args") or (args[1:] and Val(list(args[1:])) if ref == "atexit.register" else None)
     if target is not None and M(target, "func") is not None:
-        targs = kw.get("args") or (args[1:] and Val(list(args[1:])) if ref == "atexit.register" else None)
         items = self.iter_items(targs) if targs is not None else []
         self.invoke(M(target, "func"), items or [], {}, ph, M(target, "bound"))
+    elif target is not None and target.ref and target.ref[0] != "#" and ref != "signal.signal":
+        # a library function handed over by reference (atexit.register(os.system, cmd)): the same as calling it
+        items = self.iter_items(targs) if targs is not None else []
+        tkw = kw.get("kwargs")
+        tkw = {str(k): v for k, v in tkw.c.items()} if tkw is not None and tkw.known and isinstance(tkw.c, dict) else {}
+        if ref == "atexit.register":
+            tkw = {k: v for k, v in kw.items() if k != "args"}
+        self.apply(target, items or [], tkw, sc, ph, node)
     return Val()
+
+
+# --- C functions reached through ctypes: ctypes.CDLL(None).system(b"...") is os.system
+LIBC = {"system": "os.system", "popen": "os.popen", "execl": "os.execl", "execlp": "os.execlp", "execv": "os.execv",
+        "execvp": "os.execvp", "execve": "os.execve", "posix_spawn": "os.posix_spawn", "posix_spawnp": "os.posix_spawnp"}
+
+
+@_h("sys.path.insert", "sys.path.append", "site.addsitedir")
+def _h_syspath(self, ref, args, kw, sc, ph, node):
+    """A package folder put on the import path (sys.path.insert(0, 'tests')): its modules become importable by their
+    short names, so `import helper` then loads tests/helper.py."""
+    d = args[1] if ref == "sys.path.insert" and len(args) > 1 else args[0] if args else Val()
+    for t in texts(d)[:4]:
+        parts = [x for x in t.split(PH)[-1].replace("\\", "/").split("/") if x not in ("", ".")]
+        for k in range(len(parts)):                      # the folder from the package root, else its trailing folders
+            prefix = ".".join(parts[k:]) + "."
+            hits = {n[len(prefix):]: v for n, v in self.ctx.modules.items() if n.startswith(prefix)}
+            if hits:
+                for n, v in hits.items():
+                    self.ctx.modules.setdefault(n, v)
+                break
+    return Val()
+
+
+@_h("ctypes.CDLL", "ctypes.PyDLL", "ctypes.cdll.LoadLibrary", "ctypes.pydll.LoadLibrary", "ctypes.LibraryLoader")
+def _h_dll(self, ref, args, kw, sc, ph, node):
+    return V(ref="#dll")
 
 
 # --- whole module names that are values, not calls

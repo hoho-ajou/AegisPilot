@@ -257,11 +257,21 @@ def _ml_subscore(ml_score: float, threshold: float) -> float:
     return rule_engine.ml_subscore(RULESET, ml_score, threshold)
 
 
+_VERDICT_RANK = {"ALLOW": 0, "NEEDS_HUMAN_REVIEW": 1, "BLOCK": 2}
+
+
 def compute_verdict(features: ScanFeatures) -> Verdict:
+    """The rules' verdict; with an ML result, the stricter of it and the ML path. The ML path replaces the rules'
+    code subscores (entropy, keywords, install hook, reputation) with the ML score, and the model reads its own release
+    file (the sdist it was trained on, not always the file pip installs), so on its own it could pass what the rules
+    would have stopped: installing the ML model must never weaken a verdict."""
+    rules = _compute_verdict_rules(features)
     ml = features.ml
     if not (ml and ml.get("ok")):
-        return _compute_verdict_rules(features)   # no ML: the rules alone
-    return Verdict(*rule_engine.score_ml(RULESET, features), features)
+        return rules                              # no ML: the rules alone
+    with_ml = Verdict(*rule_engine.score_ml(RULESET, features), features)
+    key = lambda v: (_VERDICT_RANK.get(v.verdict, 1), v.score)  # noqa: E731
+    return with_ml if key(with_ml) > key(rules) else rules
 
 
 
@@ -371,10 +381,11 @@ def scan_local_file(path: str | Path) -> Verdict:
             root = Path(tmp) / (path.name + ".unpacked")
             root.mkdir()
             skipped: list = []
+            aside = None if path.name.endswith(".whl") else safe_extract.aside_dir(root)    # see sources/pypi.fetch
             if path.name.endswith((".whl", ".zip")):
-                safe_extract.extract_zip(raw, root, skipped)
+                safe_extract.extract_zip(raw, root, skipped, aside=aside)
             elif path.name.endswith((".tar.gz", ".tgz")):
-                safe_extract.extract_targz(raw, root, skipped)
+                safe_extract.extract_targz(raw, root, skipped, aside=aside)
             else:
                 raise ValueError("cannot unpack a package file of this format")
             files = list(root.rglob("*"))
@@ -434,6 +445,25 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         return scan_files(files, features)
 
 
+def _as_package_root(root: Path, tmp: Path) -> Path:
+    """A repository checkout's package folder moved to `<tmp>/git.unpacked/pkg`, laid out like an sdist: every path is
+    then judged from the package root, so `#subdirectory=tests` does not make each file a test file. The files kept
+    aside next to the archive (safe_extract.aside_dir) move along."""
+    twin = None
+    for i, part in enumerate(root.parts):
+        if part.endswith(".unpacked"):
+            twin = safe_extract.aside_dir(Path(*root.parts[:i + 1])).joinpath(*root.parts[i + 1:])
+            break
+    new = tmp / "git.unpacked" / "pkg"
+    new.parent.mkdir(parents=True, exist_ok=True)
+    os.rename(root, new)
+    if twin is not None and twin.is_dir():
+        side = safe_extract.aside_dir(new.parent) / "pkg"
+        side.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(twin, side)
+    return new
+
+
 def scan_direct(src: dict) -> Verdict:
     """A package installed from a git repository or a URL (sources/direct.py): the same code the installer would fetch,
     read with the rules of its ecosystem. For npm the install scripts are read too, and `prepare` - npm runs it when it
@@ -457,34 +487,38 @@ def scan_direct(src: dict) -> Verdict:
         try:
             if src["kind"] == "git":
                 root = direct.checkout(src, Path(tmp))
+                if eco == "pypi":
+                    root = _as_package_root(root, Path(tmp))
                 files = [f for f in root.rglob("*") if f.is_file()]
             else:                                          # an npm tarball URL
                 path = direct.download(src, Path(tmp))
                 root = Path(tmp) / "pkg.unpacked"
                 root.mkdir()
                 skipped: list = []
-                safe_extract.extract_targz(path.read_bytes(), root, skipped, npm.KEEP_SUFFIXES)
+                files = npm.extract(path.read_bytes(), root, skipped)
                 features.skipped_members = skipped
-                files = list(root.rglob("*"))
             if eco == "npm":
-                features.install_time_files = npm.install_time_files(
-                    files, npm.LIFECYCLE + (("prepare",) if src["kind"] == "git" else ()))
-                files += npm.write_lifecycle(files, Path(tmp), "direct")
-                pkg = npm.root_package_jsons(files)
-                if src["kind"] == "git" and pkg:
-                    try:
-                        doc = json.loads(pkg[0].read_text(errors="replace"))
-                        prepare = (doc.get("scripts") or {}).get("prepare")
-                    except (OSError, ValueError, AttributeError):
-                        prepare = None
-                    if isinstance(prepare, str) and prepare.strip():
-                        f = Path(tmp) / "direct.scripts.unpacked" / "package.json#prepare.sh"
-                        f.parent.mkdir(parents=True, exist_ok=True)
-                        f.write_text(prepare + "\n")
-                        files.append(f)
+                events = npm.LIFECYCLE + (("prepare",) if src["kind"] == "git" else ())
+                features.install_time_files = npm.install_time_files(files, events)
+                files += npm.write_lifecycle(files, Path(tmp), "direct", events)
         except Exception as e:
             features.fetch_error = str(e)
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
+        return scan_files(files, features)
+
+
+def scan_npm_scripts(name: str, texts: dict) -> Verdict:
+    """A project's own npm install scripts (a bare `npm install` runs them: npm_parse) and what they run, already read
+    into `package.json#<event>...` texts (sources/npm.run_texts): read like the install scripts of an npm package."""
+    features = ScanFeatures(name=name, version=None, ecosystem="npm")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "project.scripts.unpacked"
+        out.mkdir()
+        files = []
+        for fname, text in texts.items():
+            f = out / Path(fname).name
+            f.write_text(text)
+            files.append(f)
         return scan_files(files, features)
 
 

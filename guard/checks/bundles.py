@@ -1,6 +1,7 @@
 """
 AegisPilot - check: files an agent extension runs - a local MCP server script, a plugin, a hook command or
-script. Read with the "bundle" ecosystem (every language is code).
+script. Read with the "bundle" ecosystem (every language is code). A project's own npm install scripts (kind
+"project_scripts", npm_parse) are read like an npm package's install scripts (scan_engine.scan_npm_scripts).
 """
 from __future__ import annotations
 
@@ -13,7 +14,10 @@ def run(ctx) -> Outcome:
     for b in getattr(ctx.parsed, "bundles", []):
         try:
             import scan_engine
-            result = scan_engine.scan_bundle(b.get("name") or b["label"], b.get("paths", []), b.get("texts"))
+            if b.get("kind") == "project_scripts":        # a project's npm install scripts: install-time code
+                result = scan_engine.scan_npm_scripts(b.get("name") or b["label"], b.get("texts") or {})
+            else:
+                result = scan_engine.scan_bundle(b.get("name") or b["label"], b.get("paths", []), b.get("texts"))
         except Exception as e:
             out.unscanned("unparsed", b["label"], f"not checked: {type(e).__name__}")
             continue

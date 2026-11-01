@@ -6,5 +6,5 @@ if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' 2>/de
   echo '[AegisPilot] python3 (3.11 or later) not found, so install checks are not running. Install Python 3.11 or later.'
   exit 0
 fi
-python3 -I "$(dirname "$0")/../install_state.py" --session 2>/dev/null
+python3 -I "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/install_state.py" --session 2>/dev/null   # the variable is set for plugin hooks
 exit 0

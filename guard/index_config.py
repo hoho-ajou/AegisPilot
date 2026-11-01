@@ -198,7 +198,7 @@ def config_command(toks: list[str]) -> str | None:
         return "changes the index in the pdm config"
     if first in ("npm", "pnpm", "yarn"):
         key = rest[2] if rest[:2] == ["config", "set"] and len(rest) > 2 else rest[1] if rest[:1] == ["set"] and len(rest) > 1 else ""
-        if re.search(r"(^|:)registry$", key.split("=")[0]):
+        if re.search(r"(^|:)registry$|^npmRegistryServer$|^npmScopes\.", key.split("=")[0], re.I):
             return "changes the registry in the npm config"
     return None
 

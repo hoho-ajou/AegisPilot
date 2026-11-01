@@ -58,10 +58,10 @@ class Sources(unittest.TestCase):
         commands = [h["command"] for ev in hooks.values() for m in ev for h in m["hooks"]]
         for cmd in commands:          # the directory refuses inline programs and other variables in hook commands
             self.assertNotRegex(cmd, r"\s-c\s|\$\((?!\{)|\$[A-Za-z_]", cmd)
-            script = re.search(r'"\$\{CLAUDE_PLUGIN_ROOT\}"/(\S+)', cmd).group(1)
+            script = re.search(r'"\$\{CLAUDE_PLUGIN_ROOT\}/([^"\s]+)"', cmd).group(1)
             self.assertTrue((GUARD / script).is_file(), script)
         for script in ("pretooluse_check.py", "pretooluse_editwrite_check.py"):
-            self.assertIn(f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}"/hooks/{script}', commands)
+            self.assertIn(f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}"', commands)
         self.assertTrue(all(h.get("timeout", 0) >= 600 for m in hooks["PreToolUse"] for h in m["hooks"]))
         self.assertTrue((GUARD / "hooks" / "python_check.sh").stat().st_mode & 0o111)
 
