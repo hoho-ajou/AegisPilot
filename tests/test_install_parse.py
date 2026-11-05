@@ -37,6 +37,10 @@ check("poetry add requests@2.31.0", [("requests", "2.31.0")])
 check("pipx install black", [("black", None)])
 # fetch-only commands build metadata (runs setup.py of an sdist): scanned like installs
 check("pip download yaml-config-loaderx==1.2.0 --no-deps -d /tmp/x", [("yaml-config-loaderx", "1.2.0")])
+# the folder after -d / --dest is where pip download saves, never a local project: also when it exists
+with tempfile.TemporaryDirectory() as dest:
+    check(f"pip download yaml-config-loaderx==1.2.0 --no-deps -d {dest}", [("yaml-config-loaderx", "1.2.0")])
+    check(f"pip download yaml-config-loaderx==1.2.0 --dest {dest}", [("yaml-config-loaderx", "1.2.0")])
 check("python3 -m pip wheel requests==2.31.0", [("requests", "2.31.0")])
 check("pip install --dry-run pyyaml==5.3.1", [("pyyaml", "5.3.1")])
 # local paths are never mistaken for package names; without a working folder their dependencies cannot be read -> asked
