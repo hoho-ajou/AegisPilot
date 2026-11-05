@@ -1,0 +1,55 @@
+name: Missed malicious or vulnerable package
+description: A malicious or vulnerable package was allowed.
+title: "[Missed] <package> <version>"
+labels: ["missed-detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Do not paste live malware or working exploit code: a package name, version and a link to a report are enough.
+        Please remove anything private (paths, project names, tokens) from what you paste.
+  - type: input
+    id: package
+    attributes:
+      label: Package and version
+      placeholder: "example-pkg 1.0.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: ecosystem
+    attributes:
+      label: Ecosystem
+      options: [PyPI, npm, git or URL install, MCP server, plugin or hook, other]
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong with it
+      options: [malicious code, known vulnerability, typosquat or made-up name, other]
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Links to an advisory (OSV, GHSA, a security blog), or the file and line that does the harm.
+    validations:
+      required: true
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: What AegisPilot did
+      options: [ALLOW (nothing shown), REVIEW, not checked at all, other]
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: The install command
+      placeholder: "pip install example-pkg==1.0.2"
+  - type: input
+    id: versions
+    attributes:
+      label: AegisPilot and Claude Code versions
+      description: "`claude plugin list` and `claude --version`"

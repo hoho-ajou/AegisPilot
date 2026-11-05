@@ -2,6 +2,8 @@
 
 AegisPilot is a Claude Code plugin that checks what your coding agent is about to install or connect, before it runs. When the agent runs `pip install`, `npm install`, a `git+https://` or URL install, or changes a settings file to add an MCP server, a plugin or a hook, AegisPilot downloads the package and reads its code without executing it. It then allows the action, asks, or blocks it, and explains why.
 
+> **Test release.** 0.1.0 is a test release (beta), not a stable release yet. Rules, messages and settings may still change. A stable release will be marked as such. Please tell us what goes wrong: see [Feedback](#feedback).
+
 ## Install
 
 ```bash
@@ -12,6 +14,16 @@ claude plugin install aegis-pilot@hoho-ajou
 Start a new Claude Code session after installing. Requires Python 3.11 or later as `python3`. Nothing else is installed: AegisPilot uses the Python standard library and bundles one small library ([packaging](guard/_vendor/README.md)). Other install methods (manual, Codex, system-wide) are in [docs/install.md](docs/install.md).
 
 An ML model adds a learned score for PyPI packages. The guard downloads it (two hash-checked files, about 9 MB) on its first PyPI check; `AEGIS_ML=0` turns it off. See [docs/ml.md](docs/ml.md).
+
+## Feedback
+
+Your reports decide what we fix first.
+
+- **A safe package was blocked or asked about:** [report a false alarm](https://github.com/hoho-ajou/AegisPilot/issues/new?template=false-alarm.yml)
+- **A malicious or vulnerable package got through:** [report a missed package](https://github.com/hoho-ajou/AegisPilot/issues/new?template=missed-package.yml)
+- **Anything else:** [open an issue](https://github.com/hoho-ajou/AegisPilot/issues/new/choose) or write to hohojeonseung@gmail.com
+
+Include the decision id from the message (for example `decision id D57eb`) if there was one. Remove paths, project names and tokens before you paste output.
 
 ## What you see
 

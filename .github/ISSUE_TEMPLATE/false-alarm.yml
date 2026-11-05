@@ -1,0 +1,57 @@
+name: False alarm
+description: AegisPilot blocked or asked about a package that is safe.
+title: "[False alarm] <package> <version>"
+labels: ["false-alarm"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. False alarms tell us which rules to fix first.
+        Please remove anything private (paths, project names, tokens) from what you paste.
+  - type: input
+    id: package
+    attributes:
+      label: Package and version
+      placeholder: "requests 2.32.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: ecosystem
+    attributes:
+      label: Ecosystem
+      options: [PyPI, npm, git or URL install, MCP server, plugin or hook, other]
+    validations:
+      required: true
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: What AegisPilot did
+      options: [BLOCK, REVIEW (asked me), other]
+    validations:
+      required: true
+  - type: input
+    id: decision
+    attributes:
+      label: Decision id
+      description: Shown at the end of the message, for example "decision id D57eb". Leave empty if there was none.
+  - type: textarea
+    id: message
+    attributes:
+      label: The message or report
+      description: The card or confirmation text you saw. `python3 <guard>/guard_cli.py report` prints the latest decision.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why you think it is safe
+      description: For example a well-known project, the code it flagged is a build step, a link to the source.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: AegisPilot and Claude Code versions
+      description: "`claude plugin list` and `claude --version`"
+      placeholder: "aegis-pilot 0.1.0, Claude Code 2.1.x"
