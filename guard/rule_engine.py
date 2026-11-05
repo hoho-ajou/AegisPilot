@@ -1227,14 +1227,10 @@ def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:
     # [ML] this path runs when ML gave no usable result; an alert can only raise to REVIEW, never BLOCK
     ml = features.ml
     if ml and ml.get("ok"):
-        if ml.get("alert"):
+        if ml_level(ml) == "review":
             total = max(total, rs.review_floor)
-            why = " / ".join(t["desc"] for t in ml.get("reasons", [])[:3]) or "statistical anomaly pattern"
-            reasons.append(f"[ML] anomaly alert (ml_score={ml['ml_score']:.3f}, threshold {ml['threshold']:.3f}): {why}")
-        elif ml.get("notes"):
-            reasons.append("[ML note] score below threshold, but has install-time behavior: "
-                           + " / ".join(t["desc"] for t in ml["notes"]))
-    elif ml and not ml.get("disabled"):
+        reasons += ml_reasons(ml)
+    elif ml and not ml.get("disabled") and not ml.get("not_installed"):
         reasons.append(f"[ML] no verdict ({ml.get('error')})")
     if ml and ml.get("ok") and not ml.get("code_analyzed") and "ArchiveLimitError" in str(ml.get("code_source")):
         total = max(total, rs.review_floor)
@@ -1243,8 +1239,33 @@ def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:
     return _classify(rs, total), round(total, 3), reasons
 
 
+def ml_level(ml: dict) -> str:
+    """review / note / pass (ml/scan.py); a result without a level (version 1) counts its alert as review."""
+    lv = ml.get("level")
+    return lv if lv in ("review", "note", "pass") else ("review" if ml.get("alert") else "pass")
+
+
+def ml_reasons(ml: dict) -> list:
+    """The ML lines of a decision: [ML review] for review, [ML note] for a note, with the reasons shown."""
+    lv = ml_level(ml)
+    why = " / ".join(t["desc"] for t in ml.get("reasons", [])[:3])
+    review_at = ml.get("review_threshold", ml["threshold"])
+    if lv == "review":
+        return [f"[ML review] risk detected (ml_score={ml['ml_score']:.3f}, review at {review_at:.4f}): "
+                + (why or "statistical anomaly pattern")]
+    if lv == "note":
+        kind = ("no risky behavior found in the code" if ml.get("code_analyzed")
+                else f"metadata only, below the review threshold {review_at:.4f}")
+        return [f"[ML note] score above the alert threshold (ml_score={ml['ml_score']:.3f}, alert at "
+                f"{ml['threshold']:.4f}), {kind}; does not raise the verdict" + (f": {why}" if why else "")]
+    if ml.get("notes"):
+        return ["[ML note] score below the alert threshold, but has install-time behavior: "
+                + " / ".join(t["desc"] for t in ml["notes"])]
+    return []
+
+
 def ml_subscore(rs: Ruleset, ml_score: float, threshold: float) -> float:
-    """ML score -> 0..1, scaled so the ML alert threshold lands exactly on the review threshold. On its own the ML
+    """ML score -> 0..1, scaled so the ML review threshold lands exactly on the review threshold. On its own the ML
     score reaches at most ml weight, which is below the block threshold, so it never blocks."""
     anchor = min(1.0, (rs.review_threshold + 0.001) / rs.ml_weight)
     if threshold <= 0 or threshold >= 1:
@@ -1254,19 +1275,25 @@ def ml_subscore(rs: Ruleset, ml_score: float, threshold: float) -> float:
     return anchor + (1 - anchor) * (ml_score - threshold) / (1 - threshold)
 
 
+def ml_subscore_level(rs: Ruleset, ml: dict) -> float:
+    """The ML sub-score of a result, by its level: review reaches at least the review line on its own; note and pass
+    stay below it (a note never raises a verdict to REVIEW by itself)."""
+    review_at = ml.get("review_threshold", ml["threshold"])
+    sub = ml_subscore(rs, ml.get("ml_score_exact", ml["ml_score"]), review_at)
+    anchor = min(1.0, (rs.review_threshold + 0.001) / rs.ml_weight)
+    if ml_level(ml) == "review":
+        return max(sub, anchor)
+    return min(sub, max(0.0, (rs.review_threshold - 0.001) / rs.ml_weight))
+
+
 def score_ml(rs: Ruleset, features) -> tuple[str, float, list]:
     """The path used when the ML model returned a score: vuln + typosquat + ML, then the hard rules marked for ml mode."""
     ml = features.ml
     reasons, sub = [], {}
     sub["vuln"] = _vuln_sub(rs, features, reasons)
     sub["typosquat"] = _typosquat_sub(rs, features, reasons)
-    sub["ml"] = ml_subscore(rs, ml["ml_score"], ml["threshold"])
-    if ml.get("alert"):
-        why = " / ".join(t["desc"] for t in ml.get("reasons", [])[:3]) or "statistical anomaly pattern"
-        reasons.append(f"[ML] anomaly alert (ml_score={ml['ml_score']:.3f}, threshold {ml['threshold']:.3f}): {why}")
-    elif ml.get("notes"):
-        reasons.append("[ML note] score below threshold, but has install-time behavior: "
-                       + " / ".join(t["desc"] for t in ml["notes"]))
+    sub["ml"] = ml_subscore_level(rs, ml)
+    reasons += ml_reasons(ml)
     total = sum(rs.weights[k] * sub[k] for k in rs.ml_subscores) + rs.ml_weight * sub["ml"]
     verdict, score, reasons = _apply_hard_rules(rs, "ml", features, total, reasons)
     if verdict:

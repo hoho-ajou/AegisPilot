@@ -22,7 +22,7 @@
                                         put the guard back to its official build (--yes: no typed confirmation)
   python3 guard/guard_cli.py ack <id>   auto mode: go on with the action the guard stopped (the same action passes once)
   python3 guard/guard_cli.py ml-install [--from DIR] [--yes]
-                                        add the optional ML model (~/.aegis/ml: an environment + model files)
+                                        add the optional ML model (~/.aegis/ml/models: two model files, a few seconds)
   python3 guard/guard_cli.py ml-uninstall [--yes]
   sudo python3 guard/guard_cli.py system-install [--prefix DIR] [--managed-hooks-only] [--dry-run]
                                         root-owned install + Claude Code hooks pinned in managed settings
@@ -189,7 +189,8 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
     import ml_install
     ap = argparse.ArgumentParser(prog=f"guard_cli.py {cmd}")
     if cmd == "ml-install":
-        ap.add_argument("--from", dest="src", type=Path, help="a folder with the model files (default: download them)")
+        ap.add_argument("--from", "--source", dest="src", type=Path,
+                        help="a folder with the model files (default: download them)")
     ap.add_argument("--yes", action="store_true", help="no typed confirmation")
     a = ap.parse_args(argv)
     folder = ml_bridge.ml_dir()
@@ -207,16 +208,16 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
             return 1
         return 0
     s = ml_install.spec()
-    print(f"AegisPilot ML into {folder}:\n  an environment with scikit-learn and shap ({folder / 'venv'})\n"
-          f"  model files from {a.src or s['release_url']} ({folder / 'models'}), checked against models.json")
+    size = sum(m.get("size", 0) for m in s["models"].values()) / 1e6
+    print(f"AegisPilot ML into {folder / 'models'}:\n"
+          f"  two model files ({size:.0f}MB) from {a.src or s['release_url']}, checked against models.json")
     if not a.yes and input("Type install to go on: ").strip() != "install":
         print("Cancelled.")
         return 1
     try:
         folder.mkdir(parents=True, exist_ok=True)
         ml_install.install_models(folder / "models", a.src)
-        ml_install.install_venv(folder / "venv")
-    except (OSError, ValueError, subprocess.CalledProcessError) as e:
+    except (OSError, ValueError) as e:
         print(f"Not installed: {e}")
         return 1
     print(f"ML: {ml_install.status(folder)}. It is used for PyPI packages from the next check on (AEGIS_ML=0 turns it off).")
@@ -382,7 +383,11 @@ if __name__ == "__main__":
             sys.exit(2)
         import scan_engine
         v = scan_engine.scan_package(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
-        print(json.dumps({"package": sys.argv[2], "verdict": v.verdict, "score": v.score, "reasons": v.reasons},
+        import review_report
+        from output import render
+        ml = review_report._ml_fields(v.features)              # the same line as the report: score and level, or why none
+        print(json.dumps({"package": sys.argv[2], "verdict": v.verdict, "score": v.score, "reasons": v.reasons,
+                          "ml": render.ml_line(ml), **({"ml_reasons": render.ml_why_line(ml)} if render.ml_why_line(ml) else {})},
                          ensure_ascii=False, indent=2))
     elif cmd in ("ml-install", "ml-uninstall"):
         sys.exit(ml_cmd(cmd, sys.argv[2:]))

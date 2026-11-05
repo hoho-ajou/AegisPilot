@@ -574,9 +574,16 @@ def _ml_fields(features) -> dict:
     if ml is None:
         return {"ml_status": "not_run"}
     if ml.get("ok"):
+        import rule_engine
+        level = rule_engine.ml_level(ml)
+        src = ml.get("reasons", []) if level != "pass" else ml.get("notes", [])
         return {"ml_status": "ok", "ml_score": ml.get("ml_score"), "ml_threshold": ml.get("threshold"),
+                "ml_review_threshold": ml.get("review_threshold", ml.get("threshold")), "ml_level": level,
                 "ml_alert": bool(ml.get("alert")), "ml_model": clean(ml.get("model") or "", 30),
-                "ml_code_analyzed": bool(ml.get("code_analyzed"))}
+                "ml_code_analyzed": bool(ml.get("code_analyzed")),
+                "ml_why": [clean(t.get("desc") or "", 120) for t in src[:3] if isinstance(t, dict)]}
+    if ml.get("not_installed"):
+        return {"ml_status": "not_installed"}
     if ml.get("disabled"):
         return {"ml_status": "disabled"}
     return {"ml_status": "unavailable", "ml_note": clean(ml.get("error") or "", 80)}

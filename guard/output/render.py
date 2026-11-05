@@ -75,19 +75,35 @@ def load_last_review(project_dir: str | Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+ML_NOT_INSTALLED = "ML detection off — run python3 guard_cli.py ml-install to turn it on (a few seconds)"
+
+
 def ml_line(pkg: dict) -> str:
     """The ML Score line. A number only when the ML model really ran; otherwise the real reason, never 'not connected'."""
     status = pkg.get("ml_status")
     ms = ml_score(pkg)
     if ms is not None and status in (None, "ok"):
-        try:
-            th = float(pkg.get("ml_threshold"))
-        except (TypeError, ValueError):
-            th = None
+        def num(k):
+            try:
+                return float(pkg.get(k))
+            except (TypeError, ValueError):
+                return None
+        th, rv = num("ml_threshold"), num("ml_review_threshold")
         model = _plain(pkg.get("ml_model") or "", 30)
-        verdict = "ALERT" if pkg.get("ml_alert") else "pass"
-        extra = ", ".join(x for x in (model, f"threshold {th:.3f}" if th is not None else "") if x)
+        level = pkg.get("ml_level")
+        rv = rv if rv is not None else th
+        if level == "review":
+            verdict, at = "REVIEW — risk detected (ML)", f"review at {rv:.4f}" if rv is not None else ""
+        elif level == "note":
+            verdict, at = "note (does not change the verdict)", f"alert at {th:.4f}" if th is not None else ""
+        elif level == "pass":
+            verdict, at = "pass", f"alert at {th:.4f}" if th is not None else ""
+        else:                                            # a result without a level (ML version 1)
+            verdict, at = ("ALERT" if pkg.get("ml_alert") else "pass"), f"threshold {th:.3f}" if th is not None else ""
+        extra = ", ".join(x for x in (model, at) if x)
         return f"{ms:.3f}" + (f" ({extra})" if extra else "") + f" — {verdict}"
+    if status == "not_installed":
+        return ML_NOT_INSTALLED
     if status == "disabled":
         return "N/A (disabled: AEGIS_ML=0)"
     if status == "unavailable":
@@ -96,6 +112,15 @@ def ml_line(pkg: dict) -> str:
     if status == "not_run":
         return "N/A (not run: package was not analyzed)"
     return "N/A (not recorded)"
+
+
+def ml_why_line(pkg: dict) -> str | None:
+    """The reasons of an ML review or note (and the install-time behavior of a passed package), or None."""
+    why = [_plain(str(w), 120) for w in (pkg.get("ml_why") or []) if w]
+    if pkg.get("ml_status") not in (None, "ok") or not why:
+        return None
+    tag = {"review": "[ML review]", "note": "[ML note]"}.get(pkg.get("ml_level"), "[ML note]")
+    return f"{tag} " + " / ".join(why)
 
 
 def _score100(value) -> float | None:
@@ -707,6 +732,7 @@ def _package_block(pkg: dict, verdict: str, multi: bool) -> list[str]:
             else "Risk Score : N/A"
         ),
         f"ML Score   : {ml_line(pkg)}",
+        *(wrap("ML Reasons : ", ml_why_line(pkg), " " * 13) if ml_why_line(pkg) else []),
         *policy_lines(pkg, pkg_verdict),
         "",
         "Potential Attack Path",
@@ -867,6 +893,7 @@ def markdown_report(report: dict) -> str:
             else "- Risk Score: **N/A**"
         ),
         f"- ML Score: **{_md_inline(ml_line(pkg))}**",
+        *([f"- ML Reasons: {_md_inline(ml_why_line(pkg))}"] if ml_why_line(pkg) else []),
         *_md_policy(pkg, str(pkg.get("verdict") or verdict).replace("NEEDS_HUMAN_REVIEW", "REVIEW") if multi else verdict),
         f"- Generated: {_md_inline(generated)}",
         f"- Surface: {_md_inline((report.get('surface') or {}).get('surface', 'unknown'))}",
@@ -920,6 +947,7 @@ def markdown_report(report: dict) -> str:
                 f"- Decision: **{_md_inline(pv)}**",
                 f"- Risk Score: **{prs:.1f} / 100**" if prs is not None else "- Risk Score: **N/A**",
                 f"- ML Score: **{_md_inline(ml_line(p))}**",
+                *([f"- ML Reasons: {_md_inline(ml_why_line(p))}"] if ml_why_line(p) else []),
                 *_md_policy(p, pv),
                 f"- Potential Attack Path: {_md_inline(' → '.join(x.strip(' └─') for x in path_tree(p.get('path', ''), width=10 ** 6)))}",
                 "",
