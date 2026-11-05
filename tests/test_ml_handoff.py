@@ -1,5 +1,5 @@
 """ML hand-off: the ML model (guard/ml) scores from the collected PyPI JSON + a local archive, with no network.
-Skipped when the ML environment is not installed (guard_cli.py ml-install; AEGIS_ML_DIR for another folder)."""
+Skipped when the model files are not installed (guard_cli.py ml-install; AEGIS_ML_DIR for another folder)."""
 import io
 import json
 import subprocess
@@ -33,7 +33,7 @@ def release(version="1.0"):
     return {"info": info, "urls": [f]}
 
 
-@unittest.skipUnless(ml_bridge.installed(), "ML environment not installed")
+@unittest.skipUnless(ml_bridge.installed(), "ML model files not installed")
 class HandoffTests(unittest.TestCase):
     def run_handoff(self, setup_py):
         rel = release()
