@@ -119,9 +119,17 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
     except json.JSONDecodeError:
         tail = (p.stderr or p.stdout or "").strip().splitlines()[-1:] or [""]
         return {"ok": False, "error": f"could not parse result: {tail[0][:200]}"}
+    if not isinstance(r, dict):
+        return {"ok": False, "error": "could not parse result: not a JSON object"}
     if "error" in r:
         return {"ok": False, "error": r["error"]}
+    try:
+        return _result(r)
+    except (KeyError, TypeError, AttributeError) as e:
+        return {"ok": False, "error": f"incomplete result: {type(e).__name__}: {e}"}
 
+
+def _result(r: dict) -> dict:
     reasons = r.get("reasons", {})
     return {
         "ok": True,
