@@ -1,5 +1,6 @@
-"""The optional ML model: hash-checked install and use (run: python3 tests/test_ml_install.py). Offline: fake model
-files, so nothing is downloaded. Version 2 installs the model files only (no environment)."""
+"""The ML model: hash-checked install (automatic on first use, or ml-install) and use (run: python3
+tests/test_ml_install.py). Offline: fake model files and a fake download, so nothing is downloaded. Version 2 installs
+the model files only (no environment)."""
 import hashlib
 import json
 import os
@@ -23,10 +24,37 @@ with tempfile.TemporaryDirectory() as t:
     assert set(real["models"]) == {"full", "meta"} and real["release_url"].startswith("https://github.com/")
     assert all(len(m["sha256"]) == 64 for m in real["models"].values())
 
-    # not installed: rules only, and the bridge says so instead of failing
-    assert not ml_bridge.installed() and not ml_bridge.ml_enabled()
-    assert ml_bridge.ml_predict("requests")["ok"] is False
-    assert ml_install.status(t / "ml").startswith("not installed")
+    # not installed: on by default, downloaded on first use. Offline here: the download fails, the check goes on with
+    # rules only, says why, and does not retry on every check
+    assert not ml_bridge.installed() and ml_bridge.ml_enabled()
+    assert ml_install.status(t / "ml").startswith("not installed yet")
+    calls = []
+    real_fetch = ml_install._fetch
+    ml_install._fetch = lambda url, dest, timeout=120: (calls.append(url), (_ for _ in ()).throw(OSError("offline")))
+    r = ml_bridge.ml_predict("requests")
+    assert r["ok"] is False and r.get("not_installed") and "automatic download failed" in r["error"], r
+    assert len(calls) == 1 and calls[0].startswith(real["release_url"]) and calls[0].endswith(".json.gz")
+    r = ml_bridge.ml_predict("requests")
+    assert "tried again later" in r["error"] and len(calls) == 1, r                  # remembered: no second attempt
+    assert "the last automatic download failed" in ml_install.status(t / "ml")
+    assert ml_install.auto_install(t / "ml", now=__import__("time").time() + ml_install.AUTO_RETRY_SECONDS + 1)
+    assert len(calls) == 2                                                             # tried again after the pause
+    # a download already running in another check: this one does not wait or start a second one
+    (t / "ml" / ".auto_failed").unlink()
+    (t / "ml" / ".auto.lock").write_text("")
+    assert "another check" in ml_install.auto_install(t / "ml") and len(calls) == 2
+    (t / "ml" / ".auto.lock").unlink()
+    ml_install._fetch = real_fetch
+    # AEGIS_ML=0: nothing is downloaded
+    os.environ["AEGIS_ML"] = "0"
+    assert ml_bridge.ml_predict("requests").get("disabled") and len(calls) == 2
+    os.environ.pop("AEGIS_ML")
+    # removed with ml-uninstall: the marker keeps it off and nothing is downloaded again
+    ml_install.opt_out_marker(t / "ml").write_text("")
+    assert not ml_bridge.ml_enabled() and "ml-uninstall" in ml_install.status(t / "ml")
+    assert "ml-uninstall" in ml_bridge.ml_predict("requests")["error"] and len(calls) == 2
+    ml_install.opt_out_marker(t / "ml").unlink()
+    (t / "ml" / ".auto_failed").unlink(missing_ok=True)
 
     # a fake list of models; install from a folder copies only files with the listed SHA-256
     src = t / "src"
@@ -39,6 +67,17 @@ with tempfile.TemporaryDirectory() as t:
     ml_install.spec = lambda: fake
     ml_install.install_models(t / "ml" / "models", src)
     assert ml_install.check_models(t / "ml" / "models") is None
+
+    # automatic download that works: the same hash check as ml-install, and the lock is gone afterwards
+    ml_install._fetch = lambda url, dest, timeout=120: dest.write_bytes(
+        {"a.joblib": b"model a", "b.joblib": b"model b"}[url.rsplit("/", 1)[1]])
+    assert ml_install.auto_install(t / "auto") is None and ml_install.check_models(t / "auto" / "models") is None
+    assert not (t / "auto" / ".auto.lock").exists() and not (t / "auto" / ".auto_failed").exists()
+    # a download with another hash is not used and is remembered as a failure
+    ml_install._fetch = lambda url, dest, timeout=120: dest.write_bytes(b"something else")
+    why = ml_install.auto_install(t / "auto2")
+    assert why and "SHA-256" in why and not (t / "auto2" / "models" / "a.joblib").exists()
+    ml_install._fetch = real_fetch
 
     # a changed file is refused at install, and nothing of that install is moved in
     (src / "b.joblib").write_bytes(b"tampered")
@@ -73,6 +112,10 @@ with tempfile.TemporaryDirectory() as t:
     r = subprocess.run([sys.executable, "-I", str(GUARD / "guard_cli.py"), "ml-uninstall"], capture_output=True,
                        text=True, stdin=subprocess.DEVNULL, env={**os.environ})
     assert r.returncode == 2 and "--yes" in r.stdout, r.stdout
+    # ml-uninstall leaves the marker that stops the automatic download
+    r = subprocess.run([sys.executable, "-I", str(GUARD / "guard_cli.py"), "ml-uninstall", "--yes"], capture_output=True,
+                       text=True, stdin=subprocess.DEVNULL, env={**os.environ})
+    assert r.returncode == 0 and ml_install.opted_out(t / "ml") and "not downloaded again" in r.stdout, r.stdout
 
 # no environment and no pip any more
 assert not hasattr(ml_install, "install_venv")

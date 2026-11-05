@@ -105,7 +105,7 @@ These cannot turn a REVIEW or BLOCK of the rules into an ALLOW, so they are alwa
 | `AEGIS_MODE` | not set (`user`, or the project's `.aegis/policy.json`) | `user`, `auto` |
 | `AEGIS_FAIL_CLOSED` | `0` | `1`: when the guard cannot finish (time limit, internal error), it refuses the command instead of asking |
 | `AEGIS_SCAN_PROCESSES` | `1` | `0`: scan several packages with threads only, no worker processes |
-| `AEGIS_ML` | on when the [ML model](ml.md) is installed | `0`: do not use it |
+| `AEGIS_ML` | on: the [ML model](ml.md) is downloaded on the first PyPI check (off after `ml-uninstall`) | `0`: do not use or download it |
 | `AEGIS_ML_TIMEOUT` | `45` | seconds the ML model may take per package |
 
 ### Switches that a built guard ignores in the environment

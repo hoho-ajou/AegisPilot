@@ -115,15 +115,15 @@ python3 /opt/aegis-pilot/guard_cli.py verify
 
 On WSL, `/etc/claude-code` is writable by the user, so a system install there is not out of the agent's reach. Codex has no system-wide hook location that the guard uses; Codex hooks stay per user or per project.
 
-## Optional: the ML model
+## The ML model
 
-The ML model adds a learned score for PyPI packages. It is off until you add it: two model files (about 9 MB), read with the Python standard library only, so nothing else is installed and it takes a few seconds. Add it to any of the installs, in your own terminal:
+The ML model adds a learned score for PyPI packages. Nothing is installed for it: on its first PyPI check the guard downloads two model files (about 9 MB, hash-checked) and reads them with the Python standard library. To download them ahead of time (for example before going offline), run in your own terminal:
 
 ```bash
 python3 <guard>/guard_cli.py ml-install
 ```
 
-Details, and what it changes in the verdicts: [ml.md](ml.md).
+`AEGIS_ML=0` turns it off without downloading anything; `ml-uninstall` deletes the files and keeps them from being downloaded again. Details, and what it changes in the verdicts: [ml.md](ml.md).
 
 ## Using more than one install
 

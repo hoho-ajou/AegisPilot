@@ -12,7 +12,7 @@ Type `/aegis` in Claude Code to get the last decision explained. Run `python3 gu
 
 Network: package names and versions (never your code or files) go to `pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org` and `api.osv.dev`, and for git/URL installs and `repair` to `github.com` / `codeload.github.com` or the host in the command. No telemetry. Files written: decision records in `.aegis/` in each project, and small state files in `~/.aegis/` (ack ids, package indexes seen, MCP servers seen).
 
-Optional ML model: `python3 guard_cli.py ml-install` puts two model files from the `ml-models-v2` GitHub release into `~/.aegis/ml/models` (checked by SHA-256, read with the standard library only, a few seconds). Without it, verdicts are rule-based and each result says how to turn it on.
+ML model: on its first PyPI check the guard downloads two model files from the `ml-models-v2` GitHub release into `~/.aegis/ml/models` (checked by SHA-256, read with the standard library only). `python3 guard_cli.py ml-install` downloads them ahead of time; `AEGIS_ML=0` or `ml-uninstall` turns ML off. When the model cannot be used, verdicts are rule-based and the result says so.
 
 Documentation:
 
