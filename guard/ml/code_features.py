@@ -24,7 +24,6 @@ import tarfile
 import zipfile
 import ast
 import tokenize
-import pyzipper
 
 VERSION = 3
 MAX_MEMBER = 5 * 1024 * 1024    # largest single file read (compression bombs)
@@ -212,6 +211,13 @@ def auto_features(code, is_setup):
 
 
 
+AES_COMPRESS_TYPE = 99
+
+
+class UnreadableArchive(Exception):
+    """An archive the standard library cannot read (AES zip): code_ok=False, the metadata model is used."""
+
+
 def _check_inflation(data, budget):
     """How far a gz/bz2/xz stream inflates, counted up to a limit and thrown away (nothing on disk); ArchiveLimitError
     past it. tarfile inflates the whole stream to list the members, so this runs before tarfile opens it. At most 1MB is
@@ -266,9 +272,13 @@ def _iter_py(data, depth, budget):
     bio = io.BytesIO(data)
     members = []
     if zipfile.is_zipfile(bio):
-        z = pyzipper.AESZipFile(bio)
-        z.setpassword(b"infected")              # the password malware sample archives use (training data)
+        z = zipfile.ZipFile(bio)
+        z.setpassword(b"infected")              # the password malware sample archives use (training data, ZipCrypto)
         for info in z.infolist():
+            if info.compress_type == AES_COMPRESS_TYPE:
+                # AES-encrypted (WinZip AE-x): the standard library cannot read it, so the code counts as unreadable
+                # and the metadata model is used
+                raise UnreadableArchive("AES-encrypted zip")
             if not info.is_dir() and info.file_size <= MAX_MEMBER:
                 members.append((info.filename, lambda i=info: z.read(i)))
     else:
