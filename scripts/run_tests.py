@@ -37,6 +37,9 @@ def main() -> int:
            "GIT_AUTHOR_NAME": "AegisPilot tests", "GIT_AUTHOR_EMAIL": "tests@example.invalid",
            "GIT_COMMITTER_NAME": "AegisPilot tests", "GIT_COMMITTER_EMAIL": "tests@example.invalid"}
     env.pop("CLAUDE_CONFIG_DIR", None)
+    # the guard downloads the ML model on its first PyPI check; tests that need ML set AEGIS_ML themselves, the rest run
+    # rules only so that no test downloads the model or depends on it
+    env.setdefault("AEGIS_ML", "0")
     failed = []
     t0 = time.time()
     for name, cmd in jobs:

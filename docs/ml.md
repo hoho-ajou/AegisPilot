@@ -1,14 +1,18 @@
-# ML model (optional)
+# ML model
 
-AegisPilot works without it. The optional ML model adds a learned score for PyPI packages, next to the rules: it looks at how a release was published and at what its code does when it is installed or imported, and it scores how much the release looks like known malicious packages.
+AegisPilot works without it. The ML model adds a learned score for PyPI packages, next to the rules: it looks at how a release was published and at what its code does when it is installed or imported, and it scores how much the release looks like known malicious packages.
 
-It is off until you install it. Version 2 runs with the Python standard library only (no scikit-learn, numpy or other packages): installing it downloads two model files (about 9 MB) and takes a few seconds. It runs wherever the guard runs (Linux, macOS, WSL, Windows).
+It is on by default. Version 2 runs with the Python standard library only (no scikit-learn, numpy or other packages), so nothing is installed for it: the guard downloads two model files (about 9 MB) on its first PyPI check, checks their SHA-256 and uses them from then on. It runs wherever the guard runs (Linux, macOS, WSL, Windows).
 
-When it is not installed, each result says so in one line: `ML detection off — run python3 guard_cli.py ml-install to turn it on (a few seconds)`.
+To turn it off, set `AEGIS_ML=0` (nothing is downloaded) or run `ml-uninstall` (the files are deleted and not downloaded again).
 
-## Install
+When the model could not be used for a check (for example, the download failed because the machine is offline), the result says so in one line: `ML not used for this check — run python3 guard_cli.py ml-install to install it now (a few seconds)`. The check then uses the rules alone.
 
-In your own terminal (not through the agent):
+## Download
+
+The first PyPI check downloads the model files by itself. It waits at most 30 seconds per file; if the download fails, that check and the checks of the next 6 hours use the rules alone, and then it is tried again.
+
+To download them ahead of time, or to retry at once, run in your own terminal (not through the agent):
 
 ```bash
 python3 <guard>/guard_cli.py ml-install
@@ -25,7 +29,7 @@ Options:
 - `--from DIR` (or `--source DIR`) copies the model files from a folder instead of downloading them (offline machines). The hashes are checked the same way.
 - `--yes` skips the typed confirmation.
 
-`guard_cli.py verify` shows whether the ML model is installed and used. `guard_cli.py ml-uninstall` deletes `~/.aegis/ml/`.
+`guard_cli.py verify` shows whether the ML model is installed and used. `guard_cli.py ml-uninstall` deletes `~/.aegis/ml/` and leaves a marker (`~/.aegis/ml.off`) so the files are not downloaded again; `ml-install` removes the marker.
 
 Upgrading from version 1: `~/.aegis/ml/venv/` (scikit-learn, about 200 MB) is no longer used. `ml-install` leaves it in place and `verify` mentions it; you can delete it.
 
@@ -102,7 +106,7 @@ The reasons shown for an alert are the features that raised the score most for t
 
 ## Network and files
 
-- `ml-install` downloads the two model files from `github.com` (the release). Nothing else.
+- The first PyPI check (or `ml-install`) downloads the two model files from `github.com` (the release of this repository). Nothing is sent but the request for the files. With `AEGIS_ML=0` or after `ml-uninstall`, nothing is downloaded.
 - At check time the model reads the release file the guard already downloaded. When there is none, it downloads the release file itself from `files.pythonhosted.org` (sdist first, 20 MB or less). Nothing is sent anywhere else.
 - Files: `~/.aegis/ml/` only.
 
@@ -110,6 +114,6 @@ The reasons shown for an alert are the features that raised the score most for t
 
 | Switch | Default | Effect |
 | --- | --- | --- |
-| `AEGIS_ML` | on when installed | `0`: do not use the ML model; `1`: use it (an error when it is not installed) |
+| `AEGIS_ML` | on (downloaded on first use), off after `ml-uninstall` | `0`: do not use or download the ML model; `1`: use it |
 | `AEGIS_ML_DIR` | `~/.aegis/ml` | another folder for the models. It names the model files the guard loads, so a built guard reads it from a settings file only ([configuration.md](configuration.md#switches-that-a-built-guard-ignores-in-the-environment)) |
 | `AEGIS_ML_TIMEOUT` | `45` | seconds per package |

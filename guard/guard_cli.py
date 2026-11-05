@@ -22,7 +22,8 @@
                                         put the guard back to its official build (--yes: no typed confirmation)
   python3 guard/guard_cli.py ack <id>   auto mode: go on with the action the guard stopped (the same action passes once)
   python3 guard/guard_cli.py ml-install [--from DIR] [--yes]
-                                        add the optional ML model (~/.aegis/ml/models: two model files, a few seconds)
+                                        download the ML model now (~/.aegis/ml/models, a few seconds);
+                                        without it, it is downloaded on the first PyPI check
   python3 guard/guard_cli.py ml-uninstall [--yes]
   sudo python3 guard/guard_cli.py system-install [--prefix DIR] [--managed-hooks-only] [--dry-run]
                                         root-owned install + Claude Code hooks pinned in managed settings
@@ -203,9 +204,13 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
             return 1
         try:
             print(f"Removed {folder}." if ml_install.uninstall(folder) else "Nothing to remove.")
-        except ValueError as e:
+            ml_install.opt_out_marker(folder).parent.mkdir(parents=True, exist_ok=True)
+            ml_install.opt_out_marker(folder).write_text("ML removed with ml-uninstall: not downloaded again automatically. "
+                                                         "guard_cli.py ml-install turns it back on.\n")
+        except (OSError, ValueError) as e:
             print(f"Not removed: {e}")
             return 1
+        print("It is not downloaded again automatically; guard_cli.py ml-install turns it back on.")
         return 0
     s = ml_install.spec()
     size = sum(m.get("size", 0) for m in s["models"].values()) / 1e6
@@ -217,6 +222,7 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
     try:
         folder.mkdir(parents=True, exist_ok=True)
         ml_install.install_models(folder / "models", a.src)
+        ml_install.opt_out_marker(folder).unlink(missing_ok=True)
     except (OSError, ValueError) as e:
         print(f"Not installed: {e}")
         return 1

@@ -311,7 +311,16 @@ class BridgeAndDisplay(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_not_installed_line(self):
-        r = self.b.ml_predict("requests")
+        # the model files cannot be downloaded (offline): no ML verdict for this check, and the line says how to fix it
+        real_fetch = self.i._fetch
+
+        def offline(url, dest, timeout=120):
+            raise OSError("offline")
+        self.i._fetch = offline
+        try:
+            r = self.b.ml_predict("requests")
+        finally:
+            self.i._fetch = real_fetch
         self.assertFalse(r["ok"])
         self.assertTrue(r.get("not_installed"))
         import review_report
@@ -321,7 +330,7 @@ class BridgeAndDisplay(unittest.TestCase):
             ml = r
         fields = review_report._ml_fields(Feat())
         self.assertEqual(fields["ml_status"], "not_installed")
-        self.assertEqual(render.ml_line(fields), "ML detection off — run python3 guard_cli.py ml-install to turn it on (a few seconds)")
+        self.assertEqual(render.ml_line(fields), "ML not used for this check — run python3 guard_cli.py ml-install to install it now (a few seconds)")
         os.environ["AEGIS_ML"] = "0"
         r = self.b.ml_predict("requests")
         self.assertTrue(r.get("disabled"))

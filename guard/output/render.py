@@ -75,7 +75,7 @@ def load_last_review(project_dir: str | Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-ML_NOT_INSTALLED = "ML detection off — run python3 guard_cli.py ml-install to turn it on (a few seconds)"
+ML_NOT_INSTALLED = "ML not used for this check — run python3 guard_cli.py ml-install to install it now (a few seconds)"
 
 
 def ml_line(pkg: dict) -> str:

@@ -6,11 +6,11 @@ process, with the guard's own interpreter in isolated mode (`sys.executable -I`)
 timed out and never takes the guard down; only its JSON result comes back. Without the model files the verdict is
 rule-based only.
 
-Set up by the person, once: `python3 guard_cli.py ml-install` (ml_install.py) puts into ~/.aegis/ml/
-  models/    the model files (ml/models.json: names and SHA-256), a few seconds
+The model files go into ~/.aegis/ml/models/ (ml/models.json: names and SHA-256). They are downloaded automatically on
+the first PyPI check (ml_install.auto_install), or ahead of time with `python3 guard_cli.py ml-install`.
 
 Settings
-  AEGIS_ML          0 off, 1 on              default: on when the ML environment is installed
+  AEGIS_ML          0 off (nothing is downloaded), 1 on      default: on, unless turned off with ml-uninstall
   AEGIS_ML_DIR      the ML folder            default: ~/.aegis/ml. It names the model files the guard loads, so a built
                                              guard reads it from the settings files only (switches.py)
   AEGIS_ML_TIMEOUT  seconds per package      default: 45
@@ -60,11 +60,18 @@ def installed() -> bool:
 
 
 def ml_enabled() -> bool:
-    """AEGIS_ML=0 off, AEGIS_ML=1 on, unset = on when installed (a fresh install runs rules only)."""
+    """AEGIS_ML=0 off, AEGIS_ML=1 on, unset = on unless the person removed it with ml-uninstall (the model files are
+    downloaded on first use)."""
     flag = os.environ.get("AEGIS_ML")
     if flag is not None:
         return flag != "0"
-    return installed()
+    if installed():
+        return True
+    try:
+        import ml_install
+        return not ml_install.opted_out(ml_dir())
+    except Exception:
+        return False
 
 
 def ml_predict(name: str, version: str | None = None, handoff: dict | None = None) -> dict:
@@ -74,9 +81,13 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
     flag = os.environ.get("AEGIS_ML")
     if flag == "0":
         return {"ok": False, "disabled": True, "error": "ML is off (AEGIS_ML=0)"}
-    if flag is None and not installed():
-        return {"ok": False, "not_installed": True, "error": "ML not installed"}
     import ml_install
+    if not installed():
+        if flag is None and ml_install.opted_out(ml_dir()):
+            return {"ok": False, "not_installed": True, "error": "ML turned off with ml-uninstall"}
+        why = ml_install.auto_install(ml_dir())          # first use: download and hash-check the model files
+        if why:
+            return {"ok": False, "not_installed": True, "error": f"ML not installed: {why}"}
     problem = ml_install.check_models(models_dir())
     if problem:
         return {"ok": False, "error": f"ML model files not used: {problem} (run guard_cli.py ml-install)"}
