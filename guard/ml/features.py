@@ -1,21 +1,23 @@
 """
 AegisPilot ML - features of one PyPI release, defined as in the training data (PyPI metadata from BigQuery).
 
-    from features import compute, to_vector
+    from features import compute
     r = compute("requests", "2.32.3")
-    r["raw"]                                                           # values before the log transform (for reasons)
-    to_vector(r["raw"], bundle["features"], bundle["log_features"])   # the model input
+    r["raw"]                                # values before the log transform (for reasons); forest.vector() makes the input
 
 - Code is read as text, never run (code_features.py).
 - A release file over 20MB or one that cannot be read gives code_ok=False: the metadata model is used.
 - The guard passes the PyPI JSON and the release file it already fetched (compute_from_release), so nothing is
   fetched twice; compute() fetches them itself (command-line use).
+- age_days is the age of the project when it is checked: whole days from the first upload of any of its files to the
+  scan time (UTC), rounded down (`now` can be given, for tests and re-measurement).
+- Standard library only (urllib): the guard's own python3 runs this.
 """
 import re
+import json
 import time
 import datetime
-import requests
-import numpy as np
+import urllib.request
 from code_features import code_features, CODE_FEATURES
 
 PYPI = "https://pypi.org/pypi"
@@ -23,16 +25,27 @@ FREE_MAIL = {"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com
              "proton.me", "protonmail.com", "qq.com", "163.com"}
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 MAX_ARTIFACT = 20 * 1024 * 1024  # the same limit the benign training code was collected with
+MAX_JSON = 32 * 1024 * 1024      # a PyPI project JSON larger than this is refused
+UA = {"User-Agent": "AegisPilot-ML"}
 
 
 def norm_name(name):
     return re.sub(r"[-_.]+", "-", name.lower())
 
 
+def _get(url, timeout, limit):
+    """The body of an https GET, at most `limit` bytes (ValueError past it)."""
+    if not url.startswith("https://"):
+        raise ValueError(f"not an https address: {url}")
+    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout) as resp:
+        data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"larger than {limit >> 20}MB")
+    return data
+
+
 def _get_json(url):
-    r = requests.get(url, timeout=15)
-    r.raise_for_status()
-    return r.json()
+    return json.loads(_get(url, 15, MAX_JSON))
 
 
 def _t(s):
@@ -47,8 +60,23 @@ def fetch(name, version=None):
     return proj, rel, version
 
 
-def upload_features(proj, rel):
-    """Six upload features, from the history up to this release."""
+def first_upload(proj):
+    """The first upload time of any file of the project."""
+    ts = [_t(f["upload_time_iso_8601"]) for fs in proj["releases"].values() for f in fs]
+    return min(ts) if ts else None
+
+
+def age_days(proj, now=None, fallback=None):
+    """Whole days from the first upload of the project to `now` (UTC, default: the current time), rounded down."""
+    first = first_upload(proj) or fallback
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    return float(max(0, int((now - first).total_seconds() // 86400)))
+
+
+def upload_features(proj, rel, now=None):
+    """Six upload features, from the history up to this release; age_days at the scan time (`now`)."""
     files = rel["urls"]
     if not files:
         raise ValueError("no files uploaded for this release")
@@ -64,7 +92,7 @@ def upload_features(proj, rel):
     emails = {e.lower() for e in EMAIL_RE.findall(text)}
     return {
         "n_versions": len(history),
-        "age_days": (t_target - min(history)).total_seconds() / 86400,
+        "age_days": age_days(proj, now, fallback=min(history)),
         "files_latest": len(files),
         "free_email": int(any(e.split("@")[1] in FREE_MAIL for e in emails)),
         "email_count": len(emails),
@@ -111,7 +139,7 @@ def code_part(rel, artifact_path=None):
             f = pick_artifact(rel["urls"])
             if f is None:
                 return None, "no release file of 20MB or less"
-            data = requests.get(f["url"], timeout=60).content
+            data = _get(f["url"], 60, MAX_ARTIFACT)
             fname = f["filename"]
         feats = code_features(data)
         del data
@@ -120,19 +148,20 @@ def code_part(rel, artifact_path=None):
         return None, f"could not read the code: {type(e).__name__}"
 
 
-def compute(name, version=None, artifact_path=None, with_code=True):
+def compute(name, version=None, artifact_path=None, with_code=True, now=None):
     """The raw feature values of one release (fetches the PyPI JSON)."""
     t0 = time.perf_counter()
     proj, rel, version = fetch(name, version)
-    return compute_from_release(name, version, proj, rel, artifact_path, with_code, _t0=t0)
+    return compute_from_release(name, version, proj, rel, artifact_path, with_code, _t0=t0, now=now)
 
 
-def compute_from_release(name, version, proj, rel, artifact_path=None, with_code=True, _t0=None):
+def compute_from_release(name, version, proj, rel, artifact_path=None, with_code=True, _t0=None, now=None):
     """From PyPI JSON already fetched (proj = the project, rel = the release); PyPI is not asked again. With
-    artifact_path that file is read, otherwise the release file is downloaded (sdist first, 20MB or less)."""
+    artifact_path that file is read, otherwise the release file is downloaded (sdist first, 20MB or less).
+    now: the scan time for age_days (default: the current time)."""
     t0 = _t0 if _t0 is not None else time.perf_counter()
     t1 = time.perf_counter()
-    raw = {**upload_features(proj, rel), **pack_features(rel)}
+    raw = {**upload_features(proj, rel, now), **pack_features(rel)}
     code_ok, code_src = False, None
     if with_code:
         feats, code_src = code_part(rel, artifact_path)
@@ -171,7 +200,3 @@ def compute_local(name, version, meta, artifact_path=None):
         "timing_sec": {"pypi_info": 0.0, "features": round(t1 - t0, 2), "total": round(t1 - t0, 2)},
     }
 
-
-def to_vector(raw, features, log_features):
-    """The model input: the training order and log transform."""
-    return np.array([[np.log1p(raw[f]) if f in log_features else raw[f] for f in features]], dtype=float)

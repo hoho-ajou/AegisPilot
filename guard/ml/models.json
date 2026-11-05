@@ -1,17 +1,49 @@
 {
-  "about": "The trained models of AegisPilot ML. They are not in the repository: `guard_cli.py ml-install` downloads them from the GitHub release below and refuses a file whose SHA-256 differs. The guard checks the hashes again before each run.",
-  "version": 1,
-  "release_url": "https://github.com/hoho-ajou/AegisPilot/releases/download/ml-models-v1/",
+  "about": "The trained models of AegisPilot ML (JSON forests, read by the Python standard library only: ml/forest.py). They are not in the repository: `guard_cli.py ml-install` downloads them from the GitHub release below and refuses a file whose SHA-256 differs. The guard checks the hashes again before each run.",
+  "version": 2,
+  "release_url": "https://github.com/hoho-ajou/AegisPilot/releases/download/ml-models-v2/",
   "models": {
-    "full": {"file": "aegis-ml-full-1.joblib", "size": 975317, "sha256": "01a0ca9a37f28c8ff172d786567f56416b19bd587a88b5847c3463a4b58e4c37"},
-    "meta": {"file": "aegis-ml-meta-1.joblib", "size": 9286216, "sha256": "2e67d20f3aa2d4a5f538a95a55168dcc93e84554434e6ef319d1f972881b7bc5"}
+    "full": {
+      "file": "aegis-ml-full-2.json.gz",
+      "size": 801204,
+      "sha256": "6b86d1862234cbe421867600ca9a57147547402970b11c9b3539472603cbf650"
+    },
+    "meta": {
+      "file": "aegis-ml-meta-2.json.gz",
+      "size": 8017009,
+      "sha256": "c6460d4441a1f413032474101930b1e02810b7578db21f3f77bed0f7b8789613"
+    }
+  },
+  "thresholds": {
+    "full": {
+      "alert": 0.2352,
+      "review": 0.2352,
+      "review_rule": "alert and a code behavior signal (a SEVERE feature present, or another BEHAVIOR feature present with a positive SHAP contribution); an alert without one is a note"
+    },
+    "meta": {
+      "alert": 0.9002,
+      "review": 0.9464,
+      "review_rule": "score >= review; alert <= score < review is a note"
+    }
   },
   "trained": {
-    "algorithm": "random forest (scikit-learn 1.9.1)",
-    "full": {"features": 33, "train_malicious": 1351, "train_benign": 1833, "threshold": 0.225},
-    "meta": {"features": 13, "train_malicious": 11666, "train_benign": 5996, "threshold": 0.587},
-    "threshold_rule": "5-fold out-of-fold scores: the alert threshold is the top 5% of benign scores (5% false alarms on benign packages)",
+    "algorithm": "random forest (scikit-learn 1.9.1, 300 trees, min_samples_leaf=2), converted to JSON (ml/convert.py)",
+    "variant": "v2",
+    "full": {
+      "features": 32,
+      "train_malicious": 1351,
+      "train_benign": "1833 + 498 new benign (experiment A)"
+    },
+    "meta": {
+      "features": 12,
+      "train_malicious": 11666,
+      "train_benign": "5996 + 498 new benign (experiment A)"
+    },
+    "age_definition": "age_days = log1p(floor((scan time UTC - first upload of the project) / 1 day)); files_latest is not used",
+    "training_ages": "new benign replicated at 0/1/3/7/14/30 days, malicious at 0..T (T = days to the report), weights 1/6",
+    "threshold_rule": "the lowest thresholds that meet every goal (all <= 5%, top <= 2%, longtail and new <= 8% false alarms) on 494 real-condition benign packages at install ages 0-30 days, rounded up to 4 decimals",
+    "final_check": "independent 650 benign (2026-11-05; new 250, longtail 250, top 150), worst install age (same day), REVIEW: all 2.0%, new 4.0%, longtail 0.8%, top 0.7%",
     "data_snapshot": "2026-09-25",
-    "trained_at": "2026-10-01"
+    "trained_at": "2026-11-05"
   }
 }

@@ -1,48 +1,45 @@
 """
-AegisPilot ML - scores one PyPI release: ml_score and the reasons a developer is shown.
+AegisPilot ML - scores one PyPI release: ml_score, the level (review / note / pass) and the reasons a developer is shown.
 
-    python scan.py requests                     # latest version
-    python scan.py requests 2.32.3 --json       # JSON only (what the guard reads)
-    python scan.py mypkg 0.1.0 --artifact ./mypkg-0.1.0.tar.gz   # read the code of a local release file
-    python scan.py demo 0.1.0 --artifact demo-0.1.0.tar.gz --meta meta.json   # no PyPI at all (demo / offline)
+    python3 -I scan.py requests                     # latest version
+    python3 -I scan.py requests 2.32.3 --json       # JSON only (what the guard reads)
+    python3 -I scan.py mypkg 0.1.0 --artifact ./mypkg-0.1.0.tar.gz   # read the code of a local release file
+    python3 -I scan.py demo 0.1.0 --artifact demo-0.1.0.tar.gz --meta meta.json   # no PyPI at all (demo / offline)
 
-Runs in its own environment (scikit-learn, shap; see requirements.txt), started by guard/ml_bridge.py. The models are
-the full model when the code could be read and the metadata model otherwise; --models names their folder, and the
-guard checks their SHA-256 (models.json) before it starts this.
+Standard library only: guard/ml_bridge.py runs it with the guard's own python3 (-I) as a separate process. The models
+are the full model when the code could be read and the metadata model otherwise (loaded only then); --models names
+their folder. Each model file is loaded only after its SHA-256 matches models.json (forest.load).
+
+Two stages:
+  full  score >= alert threshold and a code behavior signal (a SEVERE feature present, or another BEHAVIOR feature
+        present with a positive SHAP contribution) -> review; an alert without one -> note
+  meta  score >= review threshold -> review; >= alert threshold -> note
+SHAP (TreeSHAP) runs only for an alert.
 """
 import sys
 import json
 import time
 import argparse
-import joblib
-import numpy as np
-from features import compute, compute_local, compute_from_release, to_vector
-
 from pathlib import Path
+
 _HERE = Path(__file__).resolve().parent
-MODEL_FILES = {k: v["file"] for k, v in json.loads((_HERE / "models.json").read_text())["models"].items()}
+if str(_HERE) not in sys.path:                    # -I leaves the script's folder off sys.path
+    sys.path.insert(0, str(_HERE))
+
+import forest  # noqa: E402
+from features import compute, compute_local, compute_from_release  # noqa: E402
+
+SPEC = json.loads((_HERE / "models.json").read_text())
 MODELS_DIR = _HERE / "models"
 _cache = {}
 
 
 def _load(kind):
-    """The model and its SHAP explainer, loaded once."""
+    """The forest of `kind`, loaded once, after its SHA-256 check (ModelError otherwise)."""
     if kind not in _cache:
-        import shap
-        bundle = joblib.load(MODELS_DIR / MODEL_FILES[kind])
-        _cache[kind] = (bundle, shap.TreeExplainer(bundle["model"]))
+        m = SPEC["models"][kind]
+        _cache[kind] = forest.load(Path(MODELS_DIR) / m["file"], m["sha256"])
     return _cache[kind]
-
-
-def _shap_row(explainer, X):
-    """The contributions to the "malicious" class, whatever the shap version returns."""
-    sv = explainer.shap_values(X)
-    if isinstance(sv, list):
-        sv = sv[1]
-    sv = np.asarray(sv)
-    if sv.ndim == 3:
-        sv = sv[..., 1]
-    return sv[0]
 
 
 # ---------------- feature -> sentence for the developer ----------------
@@ -56,8 +53,8 @@ def _size(b):
 
 DESC = {
     "n_versions":       lambda v: f"only {int(v)} version(s) published so far",
-    "age_days":         lambda v: ("first upload, or uploaded right after it" if v < 1
-                                   else f"uploaded {v:.0f} days after the first version"),
+    "age_days":         lambda v: ("project first uploaded less than a day ago" if v < 1
+                                   else f"project first uploaded {v:.0f} day(s) ago"),
     "files_latest":     lambda v: f"{int(v)} release file(s) in this version",
     "free_email":       lambda v: "registered with a free mail address (gmail and similar)" if v else "no free mail address",
     "email_count":      lambda v: "no e-mail address registered" if v == 0 else f"{int(v)} e-mail address(es) registered",
@@ -110,73 +107,85 @@ def _present(f, raw):
     return v > 1000 if f == "max_line_len" else v > 0
 
 
-def _item(f, raw, c):
+def _item(f, raw, c=None):
     v = raw[f]
-    return {"feature": f, "value": v, "contribution": round(float(c), 3),
+    return {"feature": f, "value": v, "contribution": None if c is None else round(float(c), 3),
             "desc": DESC.get(f, lambda x: f"{f} = {x}")(v)}
 
 
-def scan(name, version=None, artifact_path=None, top_k=3, meta_path=None, handoff_path=None):
+def scan(name, version=None, artifact_path=None, top_k=3, meta_path=None, handoff_path=None, now=None):
     t0 = time.perf_counter()
     if handoff_path:  # what the guard already collected (no second PyPI query or download)
         with open(handoff_path, encoding="utf-8") as fh:
             h = json.load(fh)
         art = (h.get("artifact") or {}).get("path")
-        feat = compute_from_release(name, version or h["version"], h["proj"], h["rel"], artifact_path=art)
+        feat = compute_from_release(name, version or h["version"], h["proj"], h["rel"], artifact_path=art, now=now)
     elif meta_path:  # demo / offline: a metadata file instead of PyPI
         with open(meta_path, encoding="utf-8") as fh:
             meta = json.load(fh)
         feat = compute_local(name, version or "0.0.0", meta, artifact_path=artifact_path)
     else:
-        feat = compute(name, version, artifact_path=artifact_path)
+        feat = compute(name, version, artifact_path=artifact_path, now=now)
     kind = "full" if feat["code_ok"] else "meta"
-    bundle, explainer = _load(kind)
+    model = _load(kind)
     raw = feat["raw"]
 
-    X = to_vector(raw, bundle["features"], bundle["log_features"])
-    score = float(bundle["model"].predict_proba(X)[0, 1])
-    alert = score >= bundle["threshold"]
-    contrib = dict(zip(bundle["features"], _shap_row(explainer, X)))
+    x = model.vector(raw)
+    score = model.predict(x)
+    th = model.thresholds
+    alert = score >= th["alert"]
 
-    # 1) risky behavior found in the code: present, and severe or raising the score
-    severe = [f for f in SEVERE if f in contrib and _present(f, raw)]            # every severe signal
-    other = sorted([f for f in BEHAVIOR if f not in SEVERE and f in contrib
-                    and _present(f, raw) and contrib[f] > 0], key=lambda f: -contrib[f])[:2]
-    code_behavior = [_item(f, raw, contrib[f]) for f in severe + other]
+    code_behavior, package_profile, all_up, notes = [], [], [], []
+    if alert:
+        _, phi = model.shap(x)
+        contrib = dict(zip(model.features, phi))
+        # 1) risky behavior found in the code: present, and severe or raising the score
+        severe = [f for f in SEVERE if f in contrib and _present(f, raw)]            # every severe signal
+        other = sorted([f for f in BEHAVIOR if f not in SEVERE and f in contrib
+                        and _present(f, raw) and contrib[f] > 0], key=lambda f: -contrib[f])[:2]
+        code_behavior = [_item(f, raw, contrib[f]) for f in severe + other]
+        # 2) package profile: other features that raised the score enough
+        prof = [f for f in sorted(contrib, key=lambda f: -contrib[f])
+                if f not in BEHAVIOR and contrib[f] >= MIN_CONTRIB][:2]
+        package_profile = [_item(f, raw, contrib[f]) for f in prof]
+        # for analysis: the features that raised the score most
+        all_up = [_item(f, raw, contrib[f]) for f in sorted(contrib, key=lambda f: -contrib[f])
+                  if contrib[f] > 0][:top_k]
+    else:
+        # 3) passed, but with a severe signal: reported as a note without contributions (the verdict stays)
+        notes = [_item(f, raw) for f in SEVERE if f in model.features and _present(f, raw)]
 
-    # 2) package profile: other features that raised the score enough
-    prof = [f for f in sorted(contrib, key=lambda f: -contrib[f])
-            if f not in BEHAVIOR and contrib[f] >= MIN_CONTRIB][:2]
-    package_profile = [_item(f, raw, contrib[f]) for f in prof]
-
-    # 3) passed, but with a severe signal: reported as a note (the verdict stays)
-    notes = [] if alert else [x for x in code_behavior if x["feature"] in SEVERE]
-
-    # for analysis: the features that raised the score most (also when passed)
-    all_up = [_item(f, raw, contrib[f]) for f in sorted(contrib, key=lambda f: -contrib[f])
-              if contrib[f] > 0][:top_k]
+    if kind == "full":
+        level = ("review" if code_behavior else "note") if alert else "pass"
+    else:
+        level = "review" if score >= th["review"] else "note" if alert else "pass"
 
     return {
         "package": feat["package"], "version": feat["version"],
         "ml_score": round(score, 3),
-        "threshold": round(bundle["threshold"], 3),
+        "ml_score_exact": score,
+        "threshold": th["alert"],
+        "review_threshold": th["review"],
         "alert": alert,
+        "level": level,
         "model": f"ml_{kind}",
         "code_analyzed": feat["code_ok"],
         "code_source": feat["code_source"],
-        "reasons": {"code_behavior": code_behavior if alert else [],
-                    "package_profile": package_profile if alert else []},
+        "reasons": {"code_behavior": code_behavior, "package_profile": package_profile},
         "notes": notes,                                            # severe signals of a passed package
-        "top_features": (code_behavior + package_profile) if alert else [],   # older readers
+        "top_features": code_behavior + package_profile,           # older readers
         "all_contributions": all_up,                               # for analysis
         "elapsed_sec": round(time.perf_counter() - t0, 2),
     }
 
 
 def _print_human(r):
-    status = "ALERT: this may be an unknown malicious package" if r["alert"] else "passed: no strong risk signal"
+    status = {"review": "REVIEW: risk detected (ML), may be an unknown malicious package",
+              "note": "note: score above the alert threshold, but no risky behavior in the code" if r["model"] == "ml_full"
+                      else "note: metadata score above the alert threshold, below the review threshold",
+              "pass": "passed: no strong risk signal"}[r["level"]]
     print(f"\n[AegisPilot ML] {r['package']}=={r['version']}")
-    print(f"  ml_score  : {r['ml_score']:.3f}  (alert at {r['threshold']:.3f})")
+    print(f"  ml_score  : {r['ml_score']:.3f}  (alert at {r['threshold']:.4f}, review at {r['review_threshold']:.4f})")
     print(f"  verdict   : {status}")
     print(f"  model     : {r['model']}  (code {'read' if r['code_analyzed'] else 'not read: ' + str(r['code_source'])})")
     if r["reasons"]["code_behavior"]:
@@ -203,11 +212,14 @@ if __name__ == "__main__":
     ap.add_argument("--handoff", default=None, help="what the guard collected: JSON with proj, rel, artifact.path")
     ap.add_argument("--models", default=None, help="the folder with the model files (default: models/ here)")
     ap.add_argument("--json", action="store_true", help="print JSON only")
+    ap.add_argument("--now", default=None, help="scan time for age_days, ISO 8601 UTC (tests and re-measurement)")
     a = ap.parse_args()
     if a.models:
         MODELS_DIR = Path(a.models)
     try:
-        result = scan(a.package, a.version, artifact_path=a.artifact, meta_path=a.meta, handoff_path=a.handoff)
+        import datetime
+        now = datetime.datetime.fromisoformat(a.now.replace("Z", "+00:00")) if a.now else None
+        result = scan(a.package, a.version, artifact_path=a.artifact, meta_path=a.meta, handoff_path=a.handoff, now=now)
     except Exception as e:
         err = {"package": a.package, "version": a.version, "error": f"{type(e).__name__}: {e}"}
         print(json.dumps(err, ensure_ascii=False) if a.json else f"[AegisPilot ML] failed: {err['error']}")

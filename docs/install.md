@@ -117,7 +117,7 @@ On WSL, `/etc/claude-code` is writable by the user, so a system install there is
 
 ## Optional: the ML model
 
-The ML model adds a learned score for PyPI packages. It needs about 200 MB (scikit-learn and shap in their own environment), so it is not part of any install method above. It runs on Linux, macOS and WSL and needs Python's `venv` module (on Debian and Ubuntu: `sudo apt install python3-venv`). Add it to any of the installs, in your own terminal:
+The ML model adds a learned score for PyPI packages. It is off until you add it: two model files (about 9 MB), read with the Python standard library only, so nothing else is installed and it takes a few seconds. Add it to any of the installs, in your own terminal:
 
 ```bash
 python3 <guard>/guard_cli.py ml-install

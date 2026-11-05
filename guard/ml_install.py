@@ -1,13 +1,14 @@
 """
 AegisPilot - installs the optional ML model (guard/ml) for this user: `guard_cli.py ml-install`.
 
-  1. ~/.aegis/ml/venv: a Python environment with ml/requirements.txt (exact versions, wheels only: nothing is built)
-  2. ~/.aegis/ml/models: the model files of ml/models.json, downloaded from the GitHub release named there, or copied
-     from a folder (--from DIR, e.g. offline). A file whose SHA-256 differs from models.json is refused.
+  ~/.aegis/ml/models: the two model files of ml/models.json (JSON, read by the standard library only), downloaded from
+  the GitHub release named there, or copied from a folder (--from DIR, e.g. offline). A file whose SHA-256 differs from
+  models.json is refused. Nothing else is installed: no environment, no pip.
 
-The guard checks the hashes again before every run (ml_bridge.py): the files are loaded with joblib (pickle), which
-runs code, and ~/.aegis/ml can be written by anything that runs as this user. A person runs this from a terminal; the
-agent running it is asked about first (guard_paths: a change to the guard's install).
+The guard checks the hashes again before every run (ml_bridge.py, and ml/forest.py before it parses a file):
+~/.aegis/ml can be written by anything that runs as this user. A person runs this from a terminal; the agent running
+it is asked about first (guard_paths: a change to the guard's install).
+The ~/.aegis/ml/venv folder of version 1 (scikit-learn) is no longer used; it is left in place and can be deleted.
 """
 from __future__ import annotations
 
@@ -15,8 +16,6 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
-import sys
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -83,18 +82,10 @@ def install_models(target: Path, source: Path | None = None, log=print) -> None:
             os.replace(Path(tmp) / m["file"], target / m["file"])
 
 
-def install_venv(venv: Path, log=print, python: str = sys.executable) -> None:
-    """Make the environment and install ml/requirements.txt into it (binary wheels only).
-    `-I` and the folder "/": with -m, Python would first import venv.py / pip/ from the current folder (a project the
-    person happens to be in). `--isolated` and the index: pip ignores PIP_* variables and pip.conf, so the packages
-    the guard will later run come from PyPI, not from whatever index the shell or a project points at."""
-    if not (venv / "bin" / "python").exists():
-        log(f"  creating {venv}")
-        subprocess.run([python, "-I", "-m", "venv", str(venv)], check=True, cwd="/")
-    log("  installing scikit-learn, shap and their dependencies (exact versions, about 200MB)")
-    subprocess.run([str(venv / "bin" / "python"), "-I", "-m", "pip", "install", "--isolated", "--disable-pip-version-check",
-                    "--quiet", "--index-url", "https://pypi.org/simple", "--only-binary", ":all:",
-                    "-r", str(ML_CODE / "requirements.txt")], check=True, cwd="/")
+def legacy_venv(folder: Path) -> Path | None:
+    """The environment of ML version 1, if it is still there (no longer used)."""
+    v = Path(folder) / "venv"
+    return v if v.is_dir() else None
 
 
 def uninstall(folder: Path) -> bool:
@@ -114,12 +105,12 @@ def uninstall(folder: Path) -> bool:
 
 
 def status(folder: Path) -> str:
-    venv_ok = (folder / "venv" / "bin" / "python").exists()
+    folder = Path(folder)
     problem = check_models(folder / "models")
-    if not venv_ok and problem and not (folder / "models").exists():
-        return "not installed (rules only). To add it: guard_cli.py ml-install"
-    if not venv_ok:
-        return f"incomplete: no environment in {folder / 'venv'} (run guard_cli.py ml-install)"
+    old = legacy_venv(folder)
+    tail = f" ({old} is from ML version 1 and no longer used: it can be deleted)" if old else ""
+    if problem and not (folder / "models").exists():
+        return "not installed (rules only). To add it: guard_cli.py ml-install" + tail
     if problem:
-        return f"not used: {problem} (run guard_cli.py ml-install)"
-    return f"installed in {folder}"
+        return f"not used: {problem} (run guard_cli.py ml-install)" + tail
+    return f"installed in {folder}" + tail

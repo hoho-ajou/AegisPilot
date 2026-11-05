@@ -1,5 +1,5 @@
 """The optional ML model: hash-checked install and use (run: python3 tests/test_ml_install.py). Offline: fake model
-files and a fake environment, so nothing is downloaded or installed."""
+files, so nothing is downloaded. Version 2 installs the model files only (no environment)."""
 import hashlib
 import json
 import os
@@ -49,10 +49,13 @@ with tempfile.TemporaryDirectory() as t:
         assert "SHA-256" in str(e)
     assert not list((t / "other" / "models").iterdir())
 
-    # a model file changed after install is not used: the bridge checks before every run
-    (t / "ml" / "venv" / "bin").mkdir(parents=True)
-    (t / "ml" / "venv" / "bin" / "python").write_text("")
+    # the model files alone make it installed (no environment any more); a version 1 venv is only mentioned
     assert ml_bridge.installed() and ml_bridge.ml_enabled()
+    assert ml_install.status(t / "ml").startswith("installed")
+    (t / "ml" / "venv" / "bin").mkdir(parents=True)
+    assert "no longer used" in ml_install.status(t / "ml") and (t / "ml" / "venv").is_dir()
+
+    # a model file changed after install is not used: the bridge checks before every run
     (t / "ml" / "models" / "a.joblib").write_bytes(b"tampered")
     r = ml_bridge.ml_predict("requests")
     assert r["ok"] is False and "differs" in r["error"], r
@@ -71,15 +74,9 @@ with tempfile.TemporaryDirectory() as t:
                        text=True, stdin=subprocess.DEVNULL, env={**os.environ})
     assert r.returncode == 2 and "--yes" in r.stdout, r.stdout
 
-# the environment is made without the current folder on the path and with pip isolated from local config
+# no environment and no pip any more
+assert not hasattr(ml_install, "install_venv")
 with tempfile.TemporaryDirectory() as t2:
-    calls = []
-    real_run = ml_install.subprocess.run
-    ml_install.subprocess.run = lambda args, **k: calls.append((args, k))
-    ml_install.install_venv(Path(t2) / "venv", log=lambda *_: None)
-    ml_install.subprocess.run = real_run
-    assert all("-I" in a and k.get("cwd") == "/" for a, k in calls), calls
-    assert "--isolated" in calls[-1][0] and "https://pypi.org/simple" in calls[-1][0]
     # removing the ML folder never follows a link on the way (a planted ~/.aegis -> ~ would delete another folder)
     other = Path(t2) / "other" / "ml"
     other.mkdir(parents=True)
@@ -96,7 +93,7 @@ with tempfile.TemporaryDirectory() as t2:
 import rule_engine  # noqa: E402
 import scan_engine as se  # noqa: E402
 f = se.ScanFeatures(name="x", version="1")
-f.ml = {"ok": True, "ml_score": 0.0, "threshold": 0.2, "alert": False}
+f.ml = {"ok": True, "ml_score": 0.0, "threshold": 0.2, "alert": False, "level": "pass"}
 real_rules, real_ml = se._compute_verdict_rules, rule_engine.score_ml
 se._compute_verdict_rules = lambda feat: se.Verdict("NEEDS_HUMAN_REVIEW", 0.3, ["rules"], feat)
 rule_engine.score_ml = lambda rs, feat: ("ALLOW", 0.05, ["ml"])

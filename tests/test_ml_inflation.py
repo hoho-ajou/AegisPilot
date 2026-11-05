@@ -1,5 +1,5 @@
 """ML code features (guard/ml/code_features): compression bombs raise ArchiveLimitError quickly, odd gzip input never
-loops. Runs in the ML environment (pyzipper); skipped when it is not installed."""
+loops. Runs with this Python (standard library only since ML version 2)."""
 import subprocess
 import sys
 import unittest
@@ -7,7 +7,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent / "guard"
 sys.path.insert(0, str(HERE))
-import ml_bridge
 
 SCRIPT = r"""
 import sys, io, gzip, bz2, lzma, tarfile, time
@@ -43,10 +42,9 @@ print("garbage", run(b"\x1f\x8b" + b"junk" * 100))
 """ % str(HERE / "ml")
 
 
-@unittest.skipUnless(ml_bridge.ml_python().exists(), "ML environment not installed")
 class MLInflation(unittest.TestCase):
     def test_bombs_refused_and_odd_streams_terminate(self):
-        p = subprocess.run([str(ml_bridge.ml_python()), "-c", SCRIPT], capture_output=True, text=True, timeout=90)
+        p = subprocess.run([sys.executable, "-I", "-c", SCRIPT], capture_output=True, text=True, timeout=90)
         got = dict(l.split(" ", 1) for l in p.stdout.splitlines() if " " in l)
         self.assertEqual(got.get("gz"), "limit", p.stderr[-300:])
         self.assertEqual(got.get("bz2"), "limit")

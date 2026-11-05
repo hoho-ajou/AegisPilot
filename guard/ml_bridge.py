@@ -1,30 +1,31 @@
 """
 AegisPilot - bridge to the optional ML model (guard/ml).
 
-The model needs scikit-learn and shap, which the guard's own python3 does not have. So `ml/scan.py --json` runs as a
-separate process with the python of the ML environment, and only its JSON result comes back. Nothing extra is needed
-for the guard itself: without the ML environment the verdict is rule-based only.
+The model runs with the Python standard library only (ml/forest.py). `ml/scan.py --json` still runs as a separate
+process, with the guard's own interpreter in isolated mode (`sys.executable -I`), so a slow or failing model can be
+timed out and never takes the guard down; only its JSON result comes back. Without the model files the verdict is
+rule-based only.
 
-Set up by the person, once: `python3 guard_cli.py ml-install` (ml_install.py) makes ~/.aegis/ml/ with
-  venv/      the environment (ml/requirements.txt, exact versions)
-  models/    the model files (ml/models.json: names and SHA-256)
+Set up by the person, once: `python3 guard_cli.py ml-install` (ml_install.py) puts into ~/.aegis/ml/
+  models/    the model files (ml/models.json: names and SHA-256), a few seconds
 
 Settings
   AEGIS_ML          0 off, 1 on              default: on when the ML environment is installed
-  AEGIS_ML_DIR      the ML folder            default: ~/.aegis/ml. It names the python the guard runs, so a built guard
-                                             reads it from the settings files only (switches.py)
+  AEGIS_ML_DIR      the ML folder            default: ~/.aegis/ml. It names the model files the guard loads, so a built
+                                             guard reads it from the settings files only (switches.py)
   AEGIS_ML_TIMEOUT  seconds per package      default: 45
 
 Rules
   - Never raises. On any failure it returns {"ok": False, "error": ...} and the verdict is rule-based.
-  - The model files are checked against models.json (SHA-256) before every run: they are loaded with joblib (pickle),
-    which runs code, and ~/.aegis/ml can be written by anything that runs as the user.
+  - The model files are checked against models.json (SHA-256) before every run, and scan.py parses a file only after
+    its own check: ~/.aegis/ml can be written by anything that runs as the user. They are JSON (no pickle).
   - The model reads the release file the guard already downloaded (handoff); without it, it downloads the file itself
     by the rule it was trained with (sdist first, 20MB or less).
 """
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -35,10 +36,6 @@ ML_CODE = Path(__file__).resolve().parent / "ml"
 
 def ml_dir() -> Path:
     return Path(switches.get("AEGIS_ML_DIR") or Path.home() / ".aegis" / "ml")
-
-
-def ml_python() -> Path:
-    return ml_dir() / "venv" / "bin" / "python"
 
 
 def models_dir() -> Path:
@@ -53,11 +50,11 @@ def timeout() -> int:
 
 
 def installed() -> bool:
-    """The ML environment and both model files are there (not yet checked against their hashes)."""
+    """Both model files of models.json are there (not yet checked against their hashes)."""
     try:
         import ml_install
         models = ml_install.spec()["models"]
-        return ml_python().exists() and all((models_dir() / m["file"]).is_file() for m in models.values())
+        return all((models_dir() / m["file"]).is_file() for m in models.values())
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -74,16 +71,17 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
     """Score one package with the ML model. Always returns a dict; ok=False means no ML verdict.
     handoff = the collection step's result {"proj", "rel", "artifact": {"path", ...}|None}: the model then does not ask
     PyPI again."""
-    if not ml_enabled():
-        return {"ok": False, "disabled": True, "error": "ML is off (AEGIS_ML=0 or not installed)"}
+    flag = os.environ.get("AEGIS_ML")
+    if flag == "0":
+        return {"ok": False, "disabled": True, "error": "ML is off (AEGIS_ML=0)"}
+    if flag is None and not installed():
+        return {"ok": False, "not_installed": True, "error": "ML not installed"}
     import ml_install
     problem = ml_install.check_models(models_dir())
     if problem:
         return {"ok": False, "error": f"ML model files not used: {problem} (run guard_cli.py ml-install)"}
-    if not ml_python().exists():
-        return {"ok": False, "error": f"ML environment not found: {ml_python()} (run guard_cli.py ml-install)"}
 
-    cmd = [str(ml_python()), "-E", "-s", str(ML_CODE / "scan.py"), name] + ([version] if version else []) + \
+    cmd = [sys.executable or "python3", "-I", str(ML_CODE / "scan.py"), name] + ([version] if version else []) + \
           ["--json", "--models", str(models_dir())]
     tmp_handoff = None
     try:
@@ -92,7 +90,7 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
                 json.dump({"schema": "aegis.handoff/1", "package": name, "version": version, **handoff}, fh)
                 tmp_handoff = fh.name
             cmd += ["--handoff", tmp_handoff]
-        # -E -s: no PYTHON* variables, no user site folder (not -I: scan.py imports the modules next to it)
+        # -I: no PYTHON* variables, no user site folder, not the current folder (scan.py adds its own folder itself)
         p = subprocess.run(cmd, cwd=ML_CODE, capture_output=True, text=True, timeout=timeout())
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"exceeded {timeout()}s"}
@@ -119,8 +117,11 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
         "package": r.get("package"),
         "version": r.get("version"),
         "ml_score": r["ml_score"],
+        "ml_score_exact": r.get("ml_score_exact", r["ml_score"]),
         "threshold": r["threshold"],
+        "review_threshold": r.get("review_threshold", r["threshold"]),
         "alert": bool(r["alert"]),
+        "level": r.get("level") or ("review" if r["alert"] else "pass"),
         "model": r.get("model"),
         "code_analyzed": r.get("code_analyzed"),
         "code_source": r.get("code_source"),
@@ -136,17 +137,19 @@ def to_schema_item(ml: dict, name: str, version: str | None, ecosystem: str = "p
     """One results[] item for the report and dashboard."""
     if not ml or not ml.get("ok"):
         return None
-    contribs = sorted(ml.get("all_contributions", []), key=lambda t: -t.get("contribution", 0))[:5]
+    contribs = sorted(ml.get("all_contributions", []), key=lambda t: -(t.get("contribution") or 0))[:5]
     return {
         "package_name": name,
         "package_version": ml.get("version") or version or "",
         "ecosystem": ecosystem,
-        "is_flagged": ml["alert"],
+        "is_flagged": ml.get("level") == "review",
+        "ml_alert": ml["alert"],
+        "ml_level": ml.get("level"),
         "ml_score": ml["ml_score"],
         "model": ml.get("model") or "ml",
         "triggered_features": [
             {"feature": t["feature"], "value": t.get("value"),
-             "importance": round(min(1.0, max(0.0, t.get("contribution", 0))), 4),
+             "importance": round(min(1.0, max(0.0, t.get("contribution") or 0)), 4),
              "desc": t.get("desc")}
             for t in contribs
         ],

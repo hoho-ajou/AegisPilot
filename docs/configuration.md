@@ -132,7 +132,7 @@ Format:
 | `AEGIS_HOOK_DEADLINE_SECONDS` | `570` | time limit of one check. When it is reached, the command is not checked and the guard asks (or refuses with `AEGIS_FAIL_CLOSED=1`). |
 | `AEGIS_ARTIFACT_POLICY` | `installed` | which release file of a PyPI package to read. `installed`: the file pip would install (a compatible wheel, else the sdist). `sdist_first`: the sdist when there is one. |
 | `AEGIS_CACHE` | `0` | `1`: turn on the verdict cache (below) |
-| `AEGIS_ML_DIR` | `~/.aegis/ml` | the folder of the [ML model](ml.md) (its environment and model files) |
+| `AEGIS_ML_DIR` | `~/.aegis/ml` | the folder of the [ML model](ml.md) (its model files) |
 
 `guard_cli.py verify` lists switches that are set in the environment but ignored.
 
