@@ -16,12 +16,12 @@ ML model: on its first PyPI check the guard downloads two model files from the `
 
 Documentation:
 
-- [Install](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/install.md)
-- [Usage](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/usage.md)
-- [Configuration](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/configuration.md)
-- [How it works](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/how-it-works.md)
-- [ML model](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/ml.md)
-- [Privacy](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/docs/privacy.md)
-- [Rule files](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.0/guard/rules/README.md)
+- [Install](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/docs/install.md)
+- [Usage](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/docs/usage.md)
+- [Configuration](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/docs/configuration.md)
+- [How it works](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/docs/how-it-works.md)
+- [ML model](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/docs/ml.md)
+- [Privacy](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/docs/privacy.md)
+- [Rule files](https://github.com/hoho-ajou/AegisPilot/blob/v0.1.1/guard/rules/README.md)
 
 License: Apache-2.0 (`LICENSE`).

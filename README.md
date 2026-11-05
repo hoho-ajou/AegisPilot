@@ -2,7 +2,7 @@
 
 AegisPilot is a Claude Code plugin that checks what your coding agent is about to install or connect, before it runs. When the agent runs `pip install`, `npm install`, a `git+https://` or URL install, or changes a settings file to add an MCP server, a plugin or a hook, AegisPilot downloads the package and reads its code without executing it. It then allows the action, asks, or blocks it, and explains why.
 
-> **Test release.** 0.1.0 is a test release (beta), not a stable release yet. Rules, messages and settings may still change. A stable release will be marked as such. Please tell us what goes wrong: see [Feedback](#feedback).
+> **Test release.** 0.1.1 is a test release (beta), not a stable release yet. Rules, messages and settings may still change. A stable release will be marked as such. Please tell us what goes wrong: see [Feedback](#feedback).
 
 ## Install
 

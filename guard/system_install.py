@@ -118,7 +118,7 @@ def _release_tag() -> str:
     try:
         return "v" + json.loads((GUARD_DIR / ".claude-plugin" / "plugin.json").read_text())["version"]
     except (OSError, ValueError, KeyError, TypeError):
-        return "v0.1.0"
+        return "v0.1.1"
 
 
 def install(p: dict, root_owned: bool = True) -> None:
