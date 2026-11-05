@@ -25,7 +25,7 @@
                                         download the ML model now (~/.aegis/ml/models, a few seconds);
                                         without it, it is downloaded on the first PyPI check
   python3 guard/guard_cli.py ml-uninstall [--yes]
-  sudo python3 guard/guard_cli.py system-install [--prefix DIR] [--managed-hooks-only] [--dry-run]
+  sudo python3 guard/guard_cli.py system-install [--prefix DIR] [--managed-hooks-only] [--dry-run] [--from-user-folder]
                                         root-owned install + Claude Code hooks pinned in managed settings
   sudo python3 guard/guard_cli.py system-uninstall [--prefix DIR]
 """
@@ -266,6 +266,8 @@ def system_cmd(cmd: str, argv: list[str]) -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--managed-hooks-only", action="store_true",
                     help="allowManagedHooksOnly: only managed hooks run (turns off every user / project hook)")
+    ap.add_argument("--from-user-folder", action="store_true",
+                    help="install from this folder although other users can change it (checked against its checksums only)")
     a = ap.parse_args(argv)
     if a.root is None and not a.dry_run and os.geteuid() != 0:
         print("System install must run as root (sudo). --dry-run shows what it would do.")
@@ -275,7 +277,7 @@ def system_cmd(cmd: str, argv: list[str]) -> int:
         print("\n".join(f"Removed: {r}" for r in removed) or "Nothing to remove (or --dry-run).")
         return 0
     try:
-        p = si.plan(a.prefix, a.root, a.managed_hooks_only)
+        p = si.plan(a.prefix, a.root, a.managed_hooks_only, from_user_folder=a.from_user_folder or a.dry_run)
     except si.InstallError as e:
         print(f"Not installed: {e}")
         return 1
@@ -288,6 +290,10 @@ def system_cmd(cmd: str, argv: list[str]) -> int:
           f"Claude Code managed settings: {p['dropin']}\nSystem config: {p['config']} (only if missing)")
     if a.dry_run:
         print(json.dumps(p["dropin_doc"], ensure_ascii=False, indent=2))
+        why = None if a.root or a.from_user_folder else si.user_writable(si.GUARD_DIR)
+        if why:
+            print(f"Note: a real install from this folder is refused ({why}); install from a fresh download:\n  "
+                  + si.FRESH_COPY.format(tag=si._release_tag()))
         return 0
     try:
         si.install(p, root_owned=a.root is None)

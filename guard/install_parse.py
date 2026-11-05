@@ -52,6 +52,7 @@ _VALUE_FLAGS = {
     "--timeout", "--trusted-host", "--upgrade-strategy", "--root-user-action", "--src",
     "--config-settings", "-C", "--global-option", "--install-option", "--exists-action",
     "--report", "--cache-dir", "--log", "--keyring-provider", "--index", "--default-index",
+    "-d", "--dest",                    # pip download: the folder it saves into, not something to install
 }
 _OPERATORS = {"&&", "||", ";", "|", "&", ";;", "(", ")", "\n"}
 # words that open a command list without being the command: `{ pip install x; }`, `if pip install x; then ...`, `! cmd`

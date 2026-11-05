@@ -132,6 +132,18 @@ with tempfile.TemporaryDirectory() as t2:
         pass
     assert other.is_dir()
 
+# a result without a score (a changed or broken scan.py) gives no ML verdict instead of an exception in the check
+with tempfile.TemporaryDirectory() as t3:
+    real_run, real_check, real_installed = ml_bridge.subprocess.run, ml_install.check_models, ml_bridge.installed
+    for out in ("{}", "[1, 2]"):
+        ml_bridge.subprocess.run = lambda args, out=out, **k: subprocess.CompletedProcess(args, 0, out, "")
+        ml_install.check_models = lambda folder: None
+        ml_bridge.installed = lambda: True
+        os.environ["AEGIS_ML"] = "1"
+        r = ml_bridge.ml_predict("requests")
+        assert r["ok"] is False and ("incomplete" in r["error"] or "not a JSON object" in r["error"]), r
+    ml_bridge.subprocess.run, ml_install.check_models, ml_bridge.installed = real_run, real_check, real_installed
+
 # installing the ML model never lowers a verdict: the stricter of the rules alone and the ML path is kept
 import rule_engine  # noqa: E402
 import scan_engine as se  # noqa: E402

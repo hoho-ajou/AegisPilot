@@ -105,12 +105,14 @@ def describe(item: dict) -> str:
 
 
 def _refuse(path: Path) -> str | None:
-    """Why this settings file is not changed here (None = it can be). The folders are the agent's to write, and under
-    sudo this runs as root: a file that is a link (~/.claude/settings.json -> /etc/bash.bashrc), sits in a linked folder,
-    is not a JSON object or belongs to someone else would make root overwrite the wrong file."""
-    for p in (path, path.parent):
-        if p.is_symlink():
-            return f"{p} is a link"
+    """Why this settings file is not changed here (None = it can be). A file that is not a JSON object is never
+    rewritten. Under sudo this runs as root in folders the user can write: a link there (~/.claude/settings.json ->
+    /etc/bash.bashrc), or a file of another user, would make root overwrite the wrong file. As the user, a link is
+    followed to the user's own file (settings kept in a dotfiles folder)."""
+    if os.geteuid() == 0:
+        for p in (path, path.parent):
+            if p.is_symlink():
+                return f"{p} is a link"
     if path.exists():
         if not isinstance(_load(path), dict):
             return f"{path} is not a JSON settings file"
@@ -153,6 +155,8 @@ def turn_off(item: dict) -> str:
         why = _refuse(path)
         if why:
             return f"not changed: {why}; turn the AegisPilot install there off yourself"
+        if os.geteuid() != 0 and path.exists():
+            path = path.resolve()                        # write the file a link points at, and keep the link
     if item["kind"] == "plugin":
         doc = _load(path) or {}
         doc.setdefault("enabledPlugins", {})[item["where"]] = False

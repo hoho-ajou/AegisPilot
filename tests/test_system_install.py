@@ -62,4 +62,35 @@ with tempfile.TemporaryDirectory() as t:
     p = cli("system-uninstall", "--root", str(root))
     assert p.returncode == 0 and not inst.exists() and not (root / "etc" / "claude-code" / "managed-settings.d" / "aegis-pilot.json").exists()
     assert (root / "etc" / "aegis" / "config.json").exists()
+
+# a real install runs only from a copy only root can change: a user-owned build is refused (dry-run says so, with the
+# fresh-download command), and the rule itself on fake owners: root-owned tree, a sticky world-writable /tmp above
+sys.path.insert(0, str(ROOT / "guard"))
+import system_install as si  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    dist = Path(t) / "dist"
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_dist.py"), "test", "--out", str(dist), "--skip-tests"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    p = subprocess.run([sys.executable, "-I", str(dist / "guard_cli.py"), "system-install", "--dry-run"], capture_output=True, text=True)
+    assert p.returncode == 0 and "is refused" in p.stdout and "clone -q --depth 1" in p.stdout and "--branch v" in p.stdout, p.stdout
+    assert "not owned by root" in si.user_writable(dist)
+    import stat as st_
+    from unittest import mock
+
+    class S:
+        def __init__(self, uid, mode):
+            self.st_uid, self.st_mode = uid, mode
+    def fake(owner_of):
+        def stat_(self, *a, **k):
+            return owner_of(str(self))
+        return stat_
+    root_tree = lambda p: S(0, st_.S_IFDIR | (0o1777 if p == str(Path(t)) or p == "/tmp" else 0o755))  # noqa: E731
+    with mock.patch.object(Path, "stat", fake(root_tree)), mock.patch.object(si.os, "lstat", lambda p: S(0, 0o644)):
+        assert si.user_writable(dist) is None
+    with mock.patch.object(Path, "stat", fake(lambda p: S(0, st_.S_IFDIR | (0o775 if p == str(dist) else 0o755)))), \
+            mock.patch.object(si.os, "lstat", lambda p: S(0, 0o644)):
+        assert "written by other users" in si.user_writable(dist)
+    with mock.patch.object(Path, "stat", fake(root_tree)), mock.patch.object(si.os, "lstat", lambda p: S(1000, 0o644)):
+        assert "not root-owned" in si.user_writable(dist)
 print("system_install: all cases passed")

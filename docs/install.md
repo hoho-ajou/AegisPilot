@@ -84,11 +84,13 @@ Codex hooks cannot ask a person. Every action that would ask in Claude Code is r
 
 A system install puts the guard where the agent cannot change it. An agent runs as the developer and cannot change root-owned files without `sudo`.
 
-Run it from a release build: a clone of a release tag (see above) or the plugin's installed folder. The command refuses to install a guard whose files differ from its own checksums.
+Run it from a fresh download that only root can change. The command runs that folder's code as root, so a folder you (or a program running as you) can write could have been changed together with its checksums and its checks. This downloads the release into a new root-owned folder and installs from there:
 
 ```bash
-sudo python3 <guard>/guard_cli.py system-install
+sudo sh -c 'd=$(mktemp -d) && git -c advice.detachedHead=false clone -q --depth 1 --branch v0.1.0 https://github.com/hoho-ajou/AegisPilot "$d" && python3 -I "$d/guard/guard_cli.py" system-install'
 ```
+
+Add options such as `--managed-hooks-only` after `system-install`. From a folder that is not root-owned, or that other users can write (a clone in your home folder, the plugin folder), the command refuses and prints this command; `--from-user-folder` overrides that when you know the folder is unchanged. Either way, a guard whose files differ from its own checksums is not installed.
 
 It does the following:
 
@@ -158,7 +160,7 @@ claude plugin update aegis-pilot@hoho-ajou
 
 Manual install: check out the new release tag in the same folder (`git fetch --tags && git checkout v<version>`). The hook paths stay the same, so the settings need no change. If you moved the folder, run `guard_cli.py snippet` again and replace the old hook block.
 
-System install: run `sudo python3 <guard>/guard_cli.py system-install` again from the new release. It replaces the installed copy and the drop-in file, and keeps an existing `/etc/aegis/config.json`.
+System install: run the fresh-download command above again with the new release tag. It replaces the installed copy and the drop-in file, and keeps an existing `/etc/aegis/config.json`.
 
 ## Uninstalling
 
