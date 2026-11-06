@@ -54,4 +54,4 @@ body:
     attributes:
       label: AegisPilot and Claude Code versions
       description: "`claude plugin list` and `claude --version`"
-      placeholder: "aegis-pilot 0.1.0, Claude Code 2.1.x"
+      placeholder: "aegis-pilot 0.1.1, Claude Code 2.1.x"
