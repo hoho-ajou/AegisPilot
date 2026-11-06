@@ -17,7 +17,7 @@ command or file edit
 
 ### 1. Parse
 
-The shell command is split into its parts (`&&`, `;`, `|`, quotes) and each part is read as an install command: package names and versions, requirements files, index options, git and URL sources, and project installs with their lock files. Commands of the agent's own CLI that add MCP servers, plugins or marketplaces are recognized too.
+The shell command is split into its parts (`&&`, `;`, `|`, quotes) and each part is read as an install command: package names and versions, requirements files, index options, git and URL sources, and project installs with their lock files. A requirements file that the same command writes with text spelled out in it (`printf '...' > requirements.txt`, `echo ... >> requirements.txt`, a heredoc) is read from that text, together with the file already on disk; written any other way (variables, command substitution, `tee`, a download, another program's output), its contents are unknown before the command runs and the install is a REVIEW. Commands of the agent's own CLI that add MCP servers, plugins or marketplaces are recognized too.
 
 For a file edit, the guard computes the file's new content and compares it with the current one. New MCP servers, new hook commands and plugins switched on are turned into the code they would run, and that code goes through the same pipeline.
 
