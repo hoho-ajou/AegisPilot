@@ -233,11 +233,29 @@ assert r.unscanned == [] and r.packages == []
 check("echo hi\npip install six", [("six", None)])
 check("echo 'a\npip install six'", [])                                            # a quoted newline is not a command
 with tempfile.TemporaryDirectory() as d:
-    check("cat > req.txt <<EOF\nsix==1.16.0\nEOF\npip install -r req.txt", [], ("requirements_unreadable",), d)
+    # a requirements file written in the same command with text written out in it: that text is what gets installed
+    check("cat > req.txt <<EOF\nsix==1.16.0\nEOF\npip install -r req.txt", [("six", "1.16.0")], (), d)
+    check("printf 'fastapi\\nuvicorn[standard]\\n' > requirements.txt && python3 -m venv .venv && "
+          ".venv/bin/pip install -q -r requirements.txt && .venv/bin/pip list 2>/dev/null | grep -i fastapi",
+          [("fastapi", None), ("uvicorn", None)], (), d)
+    check("cat > req.txt <<'EOF'\nrequests==$V\nEOF\npip install -r req.txt", [("requests", None)], (), d)  # quoted: no $
+    check("cat <<-'EOF' > req.txt\n\tsix==1.16.0\n\tEOF\npip install -r req.txt", [("six", "1.16.0")], (), d)
+    check("echo six > req.txt; echo 'flask==3.0.0' >> req.txt; pip install -r req.txt", [("six", None), ("flask", "3.0.0")], (), d)
+    # ...but not when the text is not known before the command runs
+    check("cat > req.txt <<EOF\nrequests==$V\nEOF\npip install -r req.txt", [], ("requirements_unreadable",), d)
+    check("printf '%s\\n' six > req.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
+    check("printf '\\x65vil\\n' > req.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
+    check('echo "six$X" > req.txt && pip install -r req.txt', [], ("requirements_unreadable",), d)
+    check("echo -e 'evil\\n' > req.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
+    check("echo six | tee req.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
+    check("echo six > req.txt && python gen.py >> req.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
     Path(d, "req.txt").write_text("six==1.16.0\n")
     check("pip install -r req.txt", [("six", "1.16.0")], (), d)                                      # existing file is read
-    check("cat > req.txt <<EOF\nevil\nEOF\npip install -r req.txt", [], ("requirements_unreadable",), d)   # ...unless this command rewrites it
-    check("echo evil >> req.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
+    # rewritten or appended to with literal text: both that text and the file on disk are scanned (the install may run
+    # before the write, and >> keeps the old lines)
+    check("cat > req.txt <<EOF\nevil\nEOF\npip install -r req.txt", [("evil", None), ("six", "1.16.0")], (), d)
+    check("echo evil >> req.txt && pip install -r req.txt", [("evil", None), ("six", "1.16.0")], (), d)
+    check("pip install -r req.txt; printf 'evil\\n' > req.txt", [("evil", None), ("six", "1.16.0")], (), d)
     check("curl -o req.txt https://x/r.txt && pip install -r req.txt", [], ("requirements_unreadable",), d)
     check("echo hi > log.txt && pip install -r req.txt", [("six", "1.16.0")], (), d)                 # other files do not matter
     Path(d, "pyproject.toml").write_text('[project]\nname="a"\nversion="0"\ndependencies=["six==1.16.0"]\n')

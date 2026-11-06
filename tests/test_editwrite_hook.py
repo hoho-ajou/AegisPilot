@@ -58,6 +58,10 @@ try:
         assert r.startswith("[AegisPilot] Guard setting change") and "If approved" in r and len(r) <= 200, r
         assert json.loads((Path(d) / ".aegis" / "last_review.json").read_text())["kind"] == "protected_path"
         assert run({"tool_name": "Write", "cwd": d, "tool_input": {"file_path": "/p/readme.md", "content": "x"}}) == ""
+        # a long path is shortened from the left: the file that changes stays visible
+        deep = "/home/someone/" + "/".join(f"folder{i:02d}" for i in range(12)) + "/project/.aegis/policy.json"
+        r = run({"tool_name": "Write", "cwd": d, "tool_input": {"file_path": deep, "content": "{}"}})
+        assert "/project/.aegis/policy.json —" in r and "…" in r, r
 
     # package index configs written with the file tools (the shell route was already caught by install_parse)
     with tempfile.TemporaryDirectory() as d:

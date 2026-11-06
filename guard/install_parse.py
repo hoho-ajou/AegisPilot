@@ -82,6 +82,8 @@ class Parsed:
         self.project_installs: list[str] = []      # project directories read for a project-level install
         self.installs = False                      # an install-type command was seen (index settings only matter then)
         self.written: set[str] = set()             # base names of files this same command writes
+        self.literal_files: dict[str, str] = {}    # of those, files written only with text in the command itself
+                                                   # (printf/echo of a quoted literal, a heredoc): base name -> the text
         self.tools: set[str] = set()               # installers that run (pip, uv, poetry, pdm, pipenv): whose config files matter
         self.command_text = ""                     # the whole command (a script written in it is judged on this text)
         self.local_files: list[tuple[str, str]] = []   # (as written, absolute path) of local wheels / sdists: their code is scanned
@@ -260,6 +262,104 @@ def _files_written(segments: list[list[str]], redirects: list) -> set[str]:
         elif head == "sed" and operands and any(a.startswith("-i") or a == "--in-place" for a in args):
             out.add(Path(operands[-1]).name)
     return {n for n in out if n}
+
+
+_HEREDOC = re.compile(r"(?m)^[ \t]*cat[ \t]*(?:(?P<op1>>>?)[ \t]*(?P<f1>[^\s;&|<>]+)[ \t]*<<(?P<dash1>-?)[ \t]*(?P<q1>['\"]?)(?P<d1>\w+)(?P=q1)"
+                      r"|<<(?P<dash2>-?)[ \t]*(?P<q2>['\"]?)(?P<d2>\w+)(?P=q2)[ \t]*(?P<op2>>>?)[ \t]*(?P<f2>[^\s;&|<>]+))[ \t]*\n")
+_PRINTF_ESC = {"n": "\n", "t": "\t", "\\": "\\", "'": "'", '"': '"'}
+
+
+def _printf_text(fmt: str) -> str | None:
+    """The output of `printf FORMAT` with no arguments, or None when it cannot be known exactly here."""
+    out, i = [], 0
+    while i < len(fmt):
+        c = fmt[i]
+        if c == "\\":
+            if i + 1 >= len(fmt) or fmt[i + 1] not in _PRINTF_ESC:
+                return None
+            out.append(_PRINTF_ESC[fmt[i + 1]])
+            i += 2
+        elif c == "%":
+            if fmt[i + 1:i + 2] != "%":
+                return None
+            out.append("%")
+            i += 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _literal_writes(command: str) -> dict[str, str | None]:
+    """Files this command writes with text written out in the command itself, in order: base name -> the text the file
+    gets (appends joined), or None when any write to it is not such a literal (variables, command substitution, escapes
+    that differ between shells, printf formats). Recognized: `printf 'TEXT' >file`, `echo TEXT >file` (no backslash),
+    `cat >file <<'EOF' ... EOF` (an unquoted EOF only when the body has no $, backtick or backslash), and >> for each."""
+    writes: list[tuple[str, str, str | None]] = []           # (name, op, text or None)
+    rest = command
+    for m in list(_HEREDOC.finditer(command)):
+        op, name = (m.group("op1"), m.group("f1")) if m.group("f1") else (m.group("op2"), m.group("f2"))
+        delim = m.group("d1") or m.group("d2")
+        quoted = bool(m.group("q1") or m.group("q2"))
+        dash = bool(m.group("dash1") or m.group("dash2"))
+        end = re.search(rf"(?m)^[ \t]*{re.escape(delim)}[ \t]*$", command[m.end():])
+        if not end:
+            writes.append((Path(name).name, op, None))
+            continue
+        body = command[m.end():m.end() + end.start()]
+        if dash:
+            body = "\n".join(line.lstrip("\t") for line in body.split("\n"))
+        text = body if (quoted or not re.search(r"[$`\\]", body)) else None
+        writes.append((Path(name).name, op, text))
+        rest = rest.replace(command[m.start():m.end() + end.end()], "\n", 1)
+    try:
+        lex = shlex.shlex(rest, posix=True, punctuation_chars="();<>|&\n")
+        lex.whitespace = " \t\r"
+        lex.whitespace_split = True
+        lex.commenters = ""
+        tokens = list(lex)
+    except ValueError:
+        return {}
+    seg: list[str] = []
+    for tok in tokens + [";"]:
+        if tok in _OPERATORS or set(tok) == {"\n"}:
+            redirects = [i for i, t in enumerate(seg) if t in (">", ">>", ">|", "&>", "&>>")]
+            if seg and redirects and Path(seg[0]).name not in ("printf", "echo"):
+                for i in redirects:                  # any other command writing a file: its contents are not known here
+                    if i + 1 < len(seg):
+                        writes.append((Path(seg[i + 1]).name, seg[i], None))
+            elif seg and redirects:
+                i = redirects[0]
+                target = seg[i + 1] if i + 1 < len(seg) else ""
+                words = seg[1:i] + seg[i + 2:]
+                text = None
+                if len(redirects) == 1 and target and not any(re.search(r"[$`]", w) for w in words):
+                    if Path(seg[0]).name == "printf":
+                        args = words[1:] if words[:1] == ["--"] else words
+                        text = _printf_text(args[0]) if len(args) == 1 else None
+                    else:
+                        newline = "\n"
+                        while words and words[0] in ("-n", "-E"):
+                            newline = "" if words[0] == "-n" else newline
+                            words = words[1:]
+                        if not any("\\" in w for w in words) and not (words and words[0].startswith("-")):
+                            text = " ".join(words) + newline
+                if target:
+                    writes.append((Path(target).name, seg[redirects[0]], text))
+            seg = []
+        else:
+            seg.append(tok)
+    out: dict[str, str | None] = {}
+    for name, op, text in writes:
+        if not name:
+            continue
+        if text is None or out.get(name, "") is None:
+            out[name] = None
+        elif op == ">>":
+            out[name] = (out.get(name) or "") + text
+        else:
+            out[name] = text
+    return out
 
 
 def _install_args(seg: list[str]) -> list[str] | None:
@@ -779,7 +879,21 @@ def _read_constraints(path: Path, parsed: Parsed, depth: int, shown: str) -> Non
 
 def _read_requirements(path: Path, parsed: Parsed, cwd: Path | None, depth: int, shown: str) -> None:
     if path.name in parsed.written:
-        parsed.add_unscanned("requirements_unreadable", shown, "requirements file written in the same command - its contents are unknown before it runs")
+        literal = parsed.literal_files.get(path.name)
+        if literal is None:
+            parsed.add_unscanned("requirements_unreadable", shown, "requirements file written in the same command - its contents are unknown before it runs")
+            return
+        if depth > MAX_REQUIREMENT_DEPTH or len(literal) > MAX_REQUIREMENT_FILE_BYTES:
+            parsed.add_unscanned("requirements_unreadable", shown, "requirements nested too deep or too large")
+            return
+        # the text this command writes, and what is on disk now (the install may run before or after the write, and
+        # >> keeps the old lines): both are scanned
+        _requirements_text(literal, path, parsed, cwd, depth, shown)
+        try:
+            if path.is_file() and path.stat().st_size <= MAX_REQUIREMENT_FILE_BYTES:
+                _requirements_text(path.read_text(errors="ignore"), path, parsed, cwd, depth, shown)
+        except OSError:
+            pass
         return
     if depth > MAX_REQUIREMENT_DEPTH:
         parsed.add_unscanned("requirements_unreadable", shown, "requirements nested too deep")
@@ -795,6 +909,10 @@ def _read_requirements(path: Path, parsed: Parsed, cwd: Path | None, depth: int,
         # really does not exist only costs a question.
         parsed.add_unscanned("requirements_unreadable", shown, "cannot read the requirements file (missing, or made in the same command) - what gets installed is unknown")
         return
+    _requirements_text(text, path, parsed, cwd, depth, shown)
+
+
+def _requirements_text(text: str, path: Path, parsed: Parsed, cwd: Path | None, depth: int, shown: str) -> None:
     text = re.sub(r"\\\n", "", text)
     for raw in text.splitlines():
         line = raw.split(" #", 1)[0].strip()
@@ -961,6 +1079,14 @@ def parse_install_command(command: str, cwd: str | Path | None = None, env: dict
     except ValueError:
         return parsed       # unbalanced quotes etc.: not something we can read -> fall through
     parsed.written |= _files_written(segments, redirects)
+    if not _depth:
+        # files written only with literal text here can be read from the command; a file also written another way
+        # (tee, cp, curl, sed -i, or a redirect this cannot read) stays unknown
+        literal = _literal_writes(command)
+        by_tool = _files_written(segments, [])
+        for name, text in literal.items():
+            if text is not None and name not in by_tool:
+                parsed.literal_files[name] = text
     if not _depth:
         parsed.command_text = command
     exported: dict = {}

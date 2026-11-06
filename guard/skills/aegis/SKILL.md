@@ -1,6 +1,6 @@
 ---
 name: aegis
-description: Explains why AegisPilot stopped or flagged an install or a settings change, shows what a flagged package could reach (attack paths), and scans a PyPI package on request before it is installed. Use when the user runs /aegis, asks why something was blocked or flagged ("why?", "tell me more"), asks what a flagged package could reach ("attack path", "how far could this go?"), or asks whether a package is safe to install. Also use before installing a package you chose yourself rather than one the user named. The user may ask in any language.
+description: Explains why AegisPilot stopped or flagged an install or a settings change, shows what a flagged package could reach (attack paths), and scans a PyPI package on request before it is installed. Use when the user runs /aegis, asks why something was blocked or flagged ("why?", "tell me more"), asks what a flagged package could reach ("attack path", "how far could this go?"), or asks whether a package is safe to install. Also use when the user asks to switch AegisPilot between user and auto mode, or to turn its ML model on or off, and before installing a package you chose yourself rather than one the user named. The user may ask in any language.
 ---
 
 # AegisPilot
@@ -70,3 +70,22 @@ It prints JSON with `verdict`, `score` and `reasons`.
 This command scans PyPI packages only. The hooks also cover npm, git/URL installs, MCP servers, plugins and hooks when
 the install actually runs. Sources the guard cannot read (private indexes, conda channels, other ecosystems) are
 reported as not checked; say so instead of implying they were checked.
+
+## Switching modes, turning ML off (the user asks)
+
+Two modes, chosen per project:
+- `user` (default): every REVIEW is the person's approval dialog; on a BLOCK, show the report and ask the person.
+- `auto` (for unattended runs): REVIEW and BLOCK come to you as evidence cards; you decide and report a one-line summary.
+  Changes to the guard itself still need the person in both modes.
+
+To switch when the user asks, write `"mode"` into `<project>/.aegis/policy.json`, keeping any other keys in it (allow and
+deny lists): `{"mode": "auto"}` or `{"mode": "user"}`. Read the file first if it exists and change only `"mode"`.
+This is a protected file, so Claude Code asks the person to approve the write; that dialog is expected, do not look for
+another way around it. A missing or unreadable file, or an unknown value, means `user`. The person can also set the
+environment variable `AEGIS_MODE=auto` (or `user`) in their own settings; it wins over the file.
+
+The ML model is on by default: its two model files are downloaded on the first PyPI check. To turn it off, the person
+sets `AEGIS_ML=0` in their settings (nothing is downloaded), or runs
+`python3 -I "${CLAUDE_PLUGIN_ROOT}/guard_cli.py" ml-uninstall` in their own terminal (it stays off until `ml-install`).
+Do not change these yourself to get past a decision.
+

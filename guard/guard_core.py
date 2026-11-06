@@ -550,7 +550,7 @@ def _check_file_write(file_path: str, proposed_text: str | None, project_dir: st
         }, _text_or(
             "popup_protected_path",
             cap_line(f"{PREFIX} Direct edit of a guard-protected path: {clean(file_path, 90)} → the safety net could be turned off or tampered with. Details: /aegis"),
-            clean(file_path, 90)), always_ask=True)
+            clean(file_path, 400)), always_ask=True)
     new = check_new_mcp_servers(file_path, proposed_text) if is_mcp else []
     scanned = _scan_config_write(file_path, proposed_text, new, project_dir, agent)
     if scanned is not None and scanned.action != ALLOW:
@@ -590,7 +590,7 @@ def _check_file_write(file_path: str, proposed_text: str | None, project_dir: st
         }, _text_or(
             "popup_protected_path",
             cap_line(f"{PREFIX} Direct edit of a guard-protected path: {clean(file_path, 90)} → the safety net could be turned off or tampered with. Details: /aegis"),
-            clean(file_path, 90)))
+            clean(file_path, 400)))
 
     # where later installs come from: pip.conf / uv.toml / pyproject.toml / Pipfile written with the file tools
     # (the same write through the shell is caught by install_parse). It also changes the user's own installs
