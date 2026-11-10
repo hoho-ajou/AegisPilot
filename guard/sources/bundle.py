@@ -81,3 +81,25 @@ def copy_into(paths: list[Path | str], dest: Path, name: str, texts: dict[str, s
         target.write_text(text)
         out.append(target)
     return out, sorted(set(notes))
+
+
+_CMD_PATH = re.compile(r"[\w./${}\\:-]+\.(?:py|js|mjs|cjs|ts|sh|bash|ps1)\b")
+AUTO_KINDS = {"hook", "mcp_server"}         # everything in these bundles is what the agent runs by itself
+
+
+def auto_run(files: list[Path], kind: str | None, texts: dict[str, str] | None) -> list[str]:
+    """Package-relative names of the copied files the agent runs by itself, without anyone calling them: all of a hook
+    or an MCP server bundle; in a plugin, its hook command lines and the files they name. The behavior check reads
+    them at the install phase (dangerous code there is a BLOCK, like a package's install script)."""
+    import rule_engine
+    rels = [rule_engine.package_relative(f).replace("\\", "/") for f in files]
+    if kind in AUTO_KINDS:
+        return rels
+    if kind != "plugin" or not texts:
+        return []
+    out = [_safe(rel) for rel in texts]
+    for text in texts.values():
+        for tok in _CMD_PATH.findall(text or ""):
+            parts = [x for x in tok.replace("\\", "/").split("/") if x not in ("", ".")]
+            out += [rel for rel in rels if rel not in out and parts[-len(rel.split("/")):] == rel.split("/")]
+    return out

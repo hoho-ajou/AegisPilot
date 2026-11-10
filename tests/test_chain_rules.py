@@ -57,7 +57,7 @@ class StillAChain(unittest.TestCase):
                 'os.system(f"start {t.name}")\n')
         self.assertTrue(chain(code, "dl"))
         f = analyze(code, "setup.py"); self.assertTrue(f.has_download_then_execute)
-        self.assertEqual(E.compute_verdict(f).verdict, "BLOCK")
+        self.assertEqual(E.compute_verdict(f).verdict, "NEEDS_HUMAN_REVIEW")      # the text chain alone; BLOCK comes from the behavior check
 
     def test_code_inside_one_literal(self):
         self.assertTrue(chain('code = "import base64; exec(base64.b64decode(\'QQ==\'))"\n', "decode"))

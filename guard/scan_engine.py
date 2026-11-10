@@ -522,10 +522,12 @@ def scan_npm_scripts(name: str, texts: dict) -> Verdict:
         return scan_files(files, features)
 
 
-def scan_bundle(name: str, paths: list, texts: dict | None = None) -> Verdict:
+def scan_bundle(name: str, paths: list, texts: dict | None = None, kind: str | None = None) -> Verdict:
     """Files already on disk - a skill, a plugin, a hook script, a local MCP server script (sources/bundle.py) - read
     with the "bundle" ecosystem: every language is code, nothing is skipped. texts: text that is not a file (a hook's
-    command line), scanned as a file of its own."""
+    command line), scanned as a file of its own. kind: what the agent runs by itself is read like install-time code
+    (a hook's commands and scripts, an MCP server's script; in a plugin, its hook command lines and the files they
+    name), the rest like code that runs only when called."""
     from sources import bundle
     features = ScanFeatures(name=name, version=None, ecosystem="bundle")
     with tempfile.TemporaryDirectory() as tmp:
@@ -534,6 +536,7 @@ def scan_bundle(name: str, paths: list, texts: dict | None = None) -> Verdict:
         except Exception as e:
             features.fetch_error = str(e)
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
+        features.install_time_files = bundle.auto_run(files, kind, texts)
         verdict = scan_files(files, features)
         verdict.reasons.extend(notes)
         return verdict

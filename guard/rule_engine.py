@@ -27,7 +27,7 @@ import switches  # noqa: E402  (AEGIS_RULES_DIR: a built guard reads it from the
 RULES_DIR = Path(switches.get("AEGIS_RULES_DIR") or str(Path(__file__).resolve().parent / "rules"))
 DETECTORS = {"startup", "keyword_count", "chain", "entropy_blocks", "first_line", "setup_local_imports", "placement"}
 PLACEMENT_CHECKS = {"command_shadowing", "sourceless_bytecode", "environment_index"}
-POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "osv_unavailable", "typosquat", "new_package"}
+POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "osv_unavailable", "typosquat", "new_package"}   # new_package: off by default (age alone is not a reason)
 VERDICTS = {"ALLOW", "NEEDS_HUMAN_REVIEW", "BLOCK"}
 FILES = ("signals", "rules", "scoring", "post")
 
@@ -1152,17 +1152,31 @@ def _typosquat_sub(rs: Ruleset, features, reasons: list) -> float:
     return 0.0
 
 
+def distinct_vulns(vulns: list) -> int:
+    """How many vulnerabilities, not records: OSV often lists one flaw twice (GHSA-… and PYSEC-… with the same CVE)."""
+    groups: list[set] = []
+    for v in vulns or []:
+        ids = {str(v.get("id", ""))} | {str(a) for a in (v.get("aliases") or [])}
+        ids.discard("")
+        hit = [g for g in groups if g & ids]
+        for g in hit:
+            ids |= g
+            groups.remove(g)
+        groups.append(ids)
+    return len(groups)
+
+
 def _vuln_sub(rs: Ruleset, features, reasons: list) -> float:
     if features.osv_vulns:
-        reasons.append(rs.sub["vuln"]["reason"].format(n_vulns=len(features.osv_vulns),
+        reasons.append(rs.sub["vuln"]["reason"].format(n_vulns=distinct_vulns(features.osv_vulns),
                                                        osv_max_severity=features.osv_max_severity))
         return 1.0
     return 0.0
 
 
 def _classify(rs: Ruleset, total: float) -> str:
-    if total >= rs.block_threshold:
-        return "BLOCK"
+    # the score never blocks on its own: BLOCK comes only from a known malicious release, the deny list or a block
+    # hard rule (dangerous code that runs at install, interpreter start or import)
     if total >= rs.review_threshold:
         return "NEEDS_HUMAN_REVIEW"
     return "ALLOW"

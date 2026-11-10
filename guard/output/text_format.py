@@ -361,6 +361,10 @@ def build_rows(rec: dict, report_path: str | None) -> tuple[str, list[tuple[str,
     elif case == "fetch":
         why = _plain((rec.get("coverage") or {}).get("failure") or _evidence(rec, "fetch_error").get("snippet") or "unknown cause", 100)
         rows.append(("Reason", f"not scanned: {why}"))
+    elif rec.get("malicious_ids"):
+        rows.append(("Reason", "known malicious version: OSV records this release as malicious"))
+        if _rr.RULES.get(lead, {}).get("risk"):
+            rows.append(("Impact", _rr.RULES[lead]["risk"]))
     else:
         labels = [e.get("label") for e in rec.get("evidence") or [] if e.get("rule") not in ("score",)][:4]
         rows.append(("Reason", "several weak risk signals: " + ", ".join(_plain(l, 20) for l in labels if l) if labels else _long(lead)))

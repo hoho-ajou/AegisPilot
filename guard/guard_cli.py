@@ -74,7 +74,8 @@ def codex_snippet() -> dict:
 # live PyPI/OSV data, so a mismatch is a prompt to look, not proof of a bug.
 # (command, expected decision, why[, mode]): `user` mode is the person-facing contract (REVIEW asks); `auto` has no person, so a REVIEW is a card
 SAMPLES = [
-    ("pip install pyyaml==5.3.1", "deny", "CRITICAL CVE -> BLOCK"),
+    ("pip install ctx==0.2.2", "deny", "release OSV records as malicious (hijacked account, 2022) -> BLOCK"),
+    ("pip install pyyaml==5.3.1", "ask", "CRITICAL CVE -> REVIEW popup (a vulnerability is a flaw, not malice)"),
     ("pip install requests==2.31.0", "ask", "old pinned version with CVEs -> REVIEW popup"),
     ("pip install requests==2.31.0", "deny", "auto mode: the same REVIEW is handed to the agent as a card, nobody is asked", "auto"),
     ("pip install requests>=2", "pass", "latest requests is clean -> ALLOW (silent)"),

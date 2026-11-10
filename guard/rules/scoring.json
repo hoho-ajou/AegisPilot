@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "about": "Verdict: subscores -> weighted sum -> hard rules (top to bottom; the first BLOCK that matches ends it) -> thresholds. If you change a value, re-measure with the tests and with benign and malicious samples.",
+  "about": "Verdict: subscores -> weighted sum -> hard rules (top to bottom; the first BLOCK that matches ends it) -> thresholds. The score alone never blocks: at or above review it is a REVIEW. BLOCK comes only from a known malicious release (post.json), the deny list, or a hard rule for dangerous code that runs at install, interpreter start or import. If you change a value, re-measure with the tests and with benign and malicious samples.",
   "thresholds": {
     "block": 0.6,
     "review": 0.25,
@@ -52,19 +52,10 @@
   },
   "hard_rules": [
     {
-      "id": "critical_vuln",
-      "when": {"field": "osv_max_severity", "equals": "CRITICAL"},
-      "action": "block",
-      "score": "total",
-      "reason": "[hard rule] CRITICAL vulnerability → always BLOCK",
-      "modes": ["rules", "ml"]
-    },
-    {
       "id": "decode_then_exec",
       "when": {"field": "has_decode_then_exec"},
-      "action": "block",
-      "score": "at_least_block",
-      "reason": "[hard rule] decode_then_exec chain (exec/eval within {window} lines of a decode call) → always BLOCK",
+      "action": "review",
+      "reason": "[hard rule] decode_then_exec chain (exec/eval within {window} lines of a decode call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
       "window_from": "decode_then_exec",
       "modes": ["rules", "ml"]
     },
@@ -79,9 +70,8 @@
     {
       "id": "download_then_execute",
       "when": {"field": "has_download_then_execute"},
-      "action": "block",
-      "score": "at_least_block",
-      "reason": "[hard rule] download_then_execute chain (exec call within {window} lines of a download call) → always BLOCK",
+      "action": "review",
+      "reason": "[hard rule] download_then_execute chain (exec call within {window} lines of a download call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
       "window_from": "download_then_execute",
       "modes": ["rules", "ml"]
     },
@@ -128,9 +118,8 @@
     {
       "id": "exfil_to_known_host",
       "when": {"all": [{"evidence": "secret_then_send"}, {"any": [{"evidence": "exfil_endpoint"}, {"evidence": "messenger_endpoint"}]}]},
-      "action": "block",
-      "score": "at_least_block",
-      "reason": "[hard rule] code that reads and sends credentials or identity info, plus a collector or messenger address → always BLOCK",
+      "action": "review",
+      "reason": "[hard rule] code that reads and sends credentials or identity info, plus a collector or messenger address → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
       "modes": ["rules", "ml"]
     },
     {
@@ -158,9 +147,8 @@
     {
       "id": "reverse_shell",
       "when": {"evidence": "reverse_shell"},
-      "action": "block",
-      "score": "at_least_block",
-      "reason": "[hard rule] reverse shell (shell connected to a remote address) → always BLOCK",
+      "action": "review",
+      "reason": "[hard rule] reverse shell (shell connected to a remote address) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
       "modes": ["rules", "ml"]
     },
     {

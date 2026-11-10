@@ -31,9 +31,9 @@ Some sources cannot be read: private indexes the guard does not know, `ssh://` a
 
 | Verdict | Meaning |
 | --- | --- |
-| ALLOW | No known risk signal was found. The command runs and nothing is shown. ALLOW means no red flags were found, not that the package is verified safe. |
-| REVIEW | A suspicious signal was found, or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
-| BLOCK | A critical vulnerability, a release OSV lists as malicious, a deny-list entry, or install-time code that runs downloaded, decoded or hidden code, sends credentials out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped. |
+| BLOCK | Only three things: a release OSV records as malicious, a package on your deny list, or code that runs by itself (at install, at Python start, at import, or as a hook or MCP server the agent starts) and runs downloaded or hidden code, sends credentials or data out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped. |
+| REVIEW | A rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, an ML score at or above its review threshold. Or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
+| ALLOW | Neither of the above. The command runs and nothing is shown. ALLOW means no evidence of a problem was found, not that the package is verified safe. |
 
 Each message starts with `[AegisPilot ...]` and ends with its decision id (for example `decision id: D7f3a`), which `/aegis` uses to explain it.
 
@@ -47,7 +47,7 @@ The default is `user` mode: you decide on every REVIEW and BLOCK. `auto` mode is
 | BLOCK | The command is refused. A report is shown and the agent asks you what to do. | The command is refused. The agent gets the evidence card and an ack id, and decides; it can go ahead after `guard_cli.py ack <id>`. |
 | Actions on the guard itself | Claude Code's approval dialog. You decide. | Claude Code's approval dialog. You decide. |
 
-In `auto` mode the agent is told to start its final answer with a one-line summary per package (for example `[AegisPilot] pyyaml 5.3.1 blocked · CRITICAL · upgrade to >=5.4`). That line comes from the agent, so you see it only if the agent follows the instruction. The full record is always in `.aegis/reviews/` (see below). Because the agent can go ahead after a BLOCK in this mode, use `auto` only where an unattended run matters more than a person seeing every BLOCK.
+In `auto` mode the agent is told to start its final answer with a one-line summary per package (for example `[AegisPilot] ctx 0.2.2 blocked · known malicious version`). That line comes from the agent, so you see it only if the agent follows the instruction. The full record is always in `.aegis/reviews/` (see below). Because the agent can go ahead after a BLOCK in this mode, use `auto` only where an unattended run matters more than a person seeing every BLOCK.
 
 To switch, create `.aegis/policy.json` in the project:
 

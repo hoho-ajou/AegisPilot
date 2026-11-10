@@ -6,8 +6,7 @@
     {"id": "new_risky_code", "title": "This release adds risky code the previous release did not have", "applies_to": ["ALLOW", "NEEDS_HUMAN_REVIEW"], "verdict": "NEEDS_HUMAN_REVIEW"},
     {"id": "late_file", "title": "A file that will be installed was recently added to an old release", "applies_to": ["ALLOW", "NEEDS_HUMAN_REVIEW"], "verdict": "NEEDS_HUMAN_REVIEW"},
     {"id": "osv_unavailable", "title": "Could not reach OSV (vulnerability and malware records) during the scan", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"},
-    {"id": "typosquat", "title": "Recent project with a name close to a popular package", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"},
-    {"id": "new_package", "title": "Newly registered project", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"}
+    {"id": "typosquat", "title": "Recent project with a name close to a popular package", "applies_to": ["ALLOW"], "verdict": "NEEDS_HUMAN_REVIEW"}
   ],
   "known_malicious": {
     "about": "OSV records that call this release malicious: an id prefix (OpenSSF malicious-packages) or the description text. The text counts only when the package itself is the subject (phrases like 'malicious URLs' that describe what a vulnerability enables are excluded).",
@@ -22,7 +21,7 @@
     "established_days": 730
   },
   "new_package": {
-    "about": "Review if the project was first registered fewer than this many days ago.",
+    "about": "Not a rule: a project first registered fewer than this many days ago is shown as newly registered in the record (the ML model also uses the age). Age alone does not change the verdict.",
     "days": 30
   },
   "osv_probe": {

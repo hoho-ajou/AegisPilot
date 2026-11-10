@@ -1,4 +1,5 @@
-"""Rules after the scan (run: python3 tests/test_post_rules.py): a project first published < 30 days ago -> REVIEW."""
+"""Rules after the scan (run: python3 tests/test_post_rules.py): known malicious releases, typosquats, new risky code,
+late files, OSV outages. A project first published < 30 days ago is not a reason by itself."""
 import json
 import os
 import subprocess
@@ -42,12 +43,9 @@ pypi.metadata = lambda n: {{"info": {{"name": n}}, "releases": {{}}}}
 
 with tempfile.TemporaryDirectory() as t:
     p = Path(t)
-    out, rec = hook(p, "pip install fastjsonx==0.1", {"fastjsonx": 3})
-    assert out and out["permissionDecision"] == "deny" and "first registered on PyPI only recently" in out["permissionDecisionReason"], out
-    assert rec["packages"][0]["evidence"][0]["rule"] == "new_package" and rec["packages"][0]["new_package_days"] == 3
-    assert "[AegisPilot] fastjsonx 0.1 held · newly registered package" in out["permissionDecisionReason"]
-    out, _ = hook(p, "pip install fastjsonx==0.1", {"fastjsonx": 3}, mode="user")
-    assert out and out["permissionDecision"] == "ask" and "newly registered package" in out["permissionDecisionReason"]
+    out, rec = hook(p, "pip install fastjsonx==0.1", {"fastjsonx": 3})             # 3 days old, nothing else: passes
+    assert out is None and rec["packages"][0]["verdict"] == "ALLOW", (out, rec["packages"][0])
+    assert hook(p, "pip install fastjsonx==0.1", {"fastjsonx": 3}, mode="user")[0] is None
     assert hook(p, "pip install requests", {"requests": 5000})[0] is None              # an old project: unchanged
     assert hook(p, "pip install oldpkg", {"oldpkg": 30.5})[0] is None                  # boundary: 30 days and older pass
     out, rec = hook(p, "pip install bad==1.0", {"bad": 2})                              # BLOCK stays BLOCK (never lowered)

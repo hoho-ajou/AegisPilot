@@ -2,14 +2,8 @@
   "schema": 1,
   "about": "Examples for the scoring.json hard rules. features are scan result (ScanFeatures) values. mode: rules (default, no ML result) or ml. If verdict is given, the final verdict is checked too. Run: python3 guard/rule_check.py",
   "examples": {
-    "critical_vuln": [
-      {"expect": "hit", "verdict": "BLOCK", "why": "CRITICAL vulnerability in OSV",
-       "features": {"osv_max_severity": "CRITICAL", "osv_vulns": [{"id": "GHSA-x"}]}},
-      {"expect": "miss", "why": "HIGH is not a hard rule (counts only in the score)",
-       "features": {"osv_max_severity": "HIGH", "osv_vulns": [{"id": "GHSA-x"}]}}
-    ],
     "decode_then_exec": [
-      {"expect": "hit", "verdict": "BLOCK", "why": "Has a decode→exec chain", "features": {"has_decode_then_exec": true}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has a decode→exec chain (a text pattern, not tied to when it runs: BLOCK only through the behavior check)", "features": {"has_decode_then_exec": true}},
       {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"has_decode_then_exec": true}},
       {"expect": "miss", "verdict": "ALLOW", "why": "No chain", "features": {}}
     ],
@@ -20,7 +14,7 @@
       {"expect": "miss", "why": "No chain", "features": {"pth_exec": true}}
     ],
     "download_then_execute": [
-      {"expect": "hit", "verdict": "BLOCK", "why": "Has a download→exec chain", "features": {"has_download_then_execute": true}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has a download→exec chain (a text pattern: BLOCK only through the behavior check)", "features": {"has_download_then_execute": true}},
       {"expect": "miss", "why": "No chain", "features": {"setup_network": false}}
     ],
     "install_hook_with_keywords": [
@@ -57,8 +51,8 @@
       {"expect": "miss", "why": "Neither", "features": {}}
     ],
     "exfil_to_known_host": [
-      {"expect": "hit", "verdict": "BLOCK", "why": "Read-and-send code + collector address", "features": {"evidence": [{"rule": "secret_then_send"}, {"rule": "exfil_endpoint"}]}},
-      {"expect": "hit", "verdict": "BLOCK", "why": "Read-and-send code + messenger bot", "features": {"evidence": [{"rule": "secret_then_send"}, {"rule": "messenger_endpoint"}]}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Read-and-send code + collector address", "features": {"evidence": [{"rule": "secret_then_send"}, {"rule": "exfil_endpoint"}]}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Read-and-send code + messenger bot", "features": {"evidence": [{"rule": "secret_then_send"}, {"rule": "messenger_endpoint"}]}},
       {"expect": "miss", "why": "Messenger address only (normal notification integration)", "features": {"evidence": [{"rule": "messenger_endpoint"}]}}
     ],
     "exfil_signal": [
@@ -79,7 +73,7 @@
       {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
     ],
     "reverse_shell": [
-      {"expect": "hit", "verdict": "BLOCK", "why": "Has evidence", "features": {"evidence": [{"rule": "reverse_shell"}]}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence (the behavior check blocks a remote shell that runs by itself)", "features": {"evidence": [{"rule": "reverse_shell"}]}},
       {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
     ],
     "shell_download_exec": [

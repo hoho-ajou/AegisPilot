@@ -42,7 +42,9 @@ Dependencies pulled in by the package are resolved from registry metadata alone:
 
 ### 4. Score
 
-Evidence is weighted into a score with a review threshold and a block threshold (`guard/rules/scoring.json`). Hard rules set a minimum verdict whatever the score. For example, a CRITICAL vulnerability, a decode-then-execute chain, a reverse shell, or code that reads credentials and sends them to a known collector is always a BLOCK.
+Evidence is weighted into a score with a review threshold (`guard/rules/scoring.json`). A score at or above it is a REVIEW; the score alone never blocks. Hard rules set a minimum verdict whatever the score. Most of them raise it to REVIEW (a known vulnerability of any severity, a decode-then-execute or download-then-execute text pattern, read-and-send code with a collector address). Two block: the behavior check's BLOCK facts (dangerous code that runs by itself, see below) and a decode or download chain in a `.pth` file, which runs at every Python start.
+
+So a BLOCK always has one of three reasons: a release OSV records as malicious (step 5), a deny-list entry (step 6), or dangerous code that runs by itself.
 
 ### 5. Post rules
 
@@ -55,7 +57,8 @@ Adjustments that need more than the package's own files (`guard/rules/post.json`
 | a file was added to an old release recently | REVIEW |
 | OSV could not be reached | REVIEW |
 | the name is close to a popular package | REVIEW |
-| the package was first published recently | REVIEW |
+
+A project's age alone is not a rule: it is shown in the record and used by the ML model.
 
 ### 6. Lists and verdict
 
@@ -67,7 +70,7 @@ All checks of one command share a 540-second budget. The hook stops itself at 57
 
 ## The behavior check
 
-The behavior check reads Python, JavaScript and shell code (including PowerShell and cmd command lines, and the commands Python and JavaScript code runs) without running it. It rebuilds values that the code assembles at run time, such as decoded strings, joined names and constants, and follows where data flows: a network response that reaches `exec`, a credential file that reaches a network send (including raw senders such as `nc` and `scp`), a command that removes the home folder or a system folder. From this it records facts about what the code does, together with when it runs: at install time, at interpreter start, at import, only when called, or when run by hand as a script. A policy table in `guard/rules/behavior.json` maps each fact and phase to block, review or nothing. Test and maintenance files are skipped only while nothing that runs reaches them: a file that install-time code, a `.pth` line, an import, the in-tree build backend named in `pyproject.toml` or a hook command reaches is read at the phase of what reached it. Files an sdist's `setup.py` hands work to (a Makefile, a configure script, CMake files, a data file it `exec`s) are read too, and Python files are decoded with the source encoding they declare; an encoding that rewrites the code (`utf-7`, `unicode_escape`) gets a REVIEW. A file over the size, step or file-count limits in that table is recorded as not analyzed, and one that would run at install, interpreter start or import gets a REVIEW (the time limit alone does not, because it depends on the machine).
+The behavior check reads Python, JavaScript and shell code (including PowerShell and cmd command lines, and the commands Python and JavaScript code runs) without running it. It rebuilds values that the code assembles at run time, such as decoded strings, joined names and constants, and follows where data flows: a network response that reaches `exec`, a credential file that reaches a network send (including raw senders such as `nc` and `scp`), a command that removes the home folder or a system folder. From this it records facts about what the code does, together with when it runs: at install time, at interpreter start, at import, only when called, or when run by hand as a script. A policy table in `guard/rules/behavior.json` maps each fact and phase to block, review or nothing: a dangerous fact blocks only when the code runs by itself (install, interpreter start, import), and is a REVIEW when it runs only when called. In an MCP server or a hook (also a plugin's hooks and the files their commands name), the code the agent starts by itself is read as install-time code; a skill's scripts run only when the agent uses the skill. Test and maintenance files are skipped only while nothing that runs reaches them: a file that install-time code, a `.pth` line, an import, the in-tree build backend named in `pyproject.toml` or a hook command reaches is read at the phase of what reached it. Files an sdist's `setup.py` hands work to (a Makefile, a configure script, CMake files, a data file it `exec`s) are read too, and Python files are decoded with the source encoding they declare; an encoding that rewrites the code (`utf-7`, `unicode_escape`) gets a REVIEW. A file over the size, step or file-count limits in that table is recorded as not analyzed, and one that would run at install, interpreter start or import gets a REVIEW (the time limit alone does not, because it depends on the machine).
 
 ## Self-protection
 

