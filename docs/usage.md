@@ -32,7 +32,7 @@ Some sources cannot be read: private indexes the guard does not know, `ssh://` a
 | Verdict | Meaning |
 | --- | --- |
 | BLOCK | Only three things: a release OSV records as malicious, a package on your deny list, or code that runs by itself (at install, at Python start, at import, or as a hook or MCP server the agent starts) and runs downloaded or hidden code, sends credentials or data out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped. |
-| REVIEW | A rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, an ML score at or above its review threshold. Or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
+| REVIEW | A rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, a version published less than 24 hours ago, an ML score at or above its review threshold. Or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
 | ALLOW | Neither of the above. The command runs and nothing is shown. ALLOW means no evidence of a problem was found, not that the package is verified safe. |
 
 Each message starts with `[AegisPilot ...]` and ends with its decision id (for example `decision id: D7f3a`), which `/aegis` uses to explain it.

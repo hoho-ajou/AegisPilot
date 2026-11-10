@@ -91,8 +91,9 @@ Checked top to bottom; only the first rule that matches and whose 'applies to' i
 | 1 | `known_malicious` | Release that OSV records as malicious (including releases removed from PyPI) | all | block | 2 / 2 |
 | 2 | `new_risky_code` | This release adds risky code the previous release did not have | allow, review | review | 1 / 2 |
 | 3 | `late_file` | A file that will be installed was recently added to an old release | allow, review | review | 1 / 1 |
-| 4 | `osv_unavailable` | Could not reach OSV (vulnerability and malware records) during the scan | allow | review | 1 / 2 |
-| 5 | `typosquat` | Recent project with a name close to a popular package | allow | review | 2 / 3 |
+| 4 | `fresh_release` | The version being installed was published within the last day (a hijacked release does its damage in its first hours) | allow, review | review | 2 / 2 |
+| 5 | `osv_unavailable` | Could not reach OSV (vulnerability and malware records) during the scan | allow | review | 1 / 2 |
+| 6 | `typosquat` | Recent project with a name close to a popular package | allow | review | 2 / 3 |
 
 ### Signals checked against the previous release (`post.json` → `version_diff`)
 
@@ -137,6 +138,7 @@ Used for removed malicious releases, source that was not scanned, and evidence t
 | `environment_index` | makes later installs in that environment come from another server | at install | confirmed |
 | `exfil_endpoint` | sends data it read to the outside | decided by evidence location: hooks, MCP servers and plugins use the context in sources; setup.py, package.json install scripts and files they call = at install; .pth, sitecustomize = at Python startup; anything else = when the package is used | confirmed |
 | `fetch_error` | none | | |
+| `fresh_release` | none | | |
 | `high_entropy` | none | | |
 | `install_hook` | runs code at install | at install | confirmed |
 | `install_hook_import` | runs code at install | at install | confirmed |

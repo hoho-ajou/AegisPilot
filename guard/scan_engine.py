@@ -21,6 +21,7 @@ import urllib.request
 import warnings
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +138,7 @@ class ScanFeatures:
 
     maintainer_count: int | None = None
     package_age_days: float | None = None
+    release_age_hours: float | None = None   # hours since the version being installed was first uploaded (None: unknown)
     has_readme: bool = False
 
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
@@ -275,6 +277,23 @@ def compute_verdict(features: ScanFeatures) -> Verdict:
 
 
 
+def _hours_since(t: str | None, now: datetime | None = None) -> float | None:
+    try:
+        when = datetime.fromisoformat(str(t).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, ((now or datetime.now(timezone.utc)) - when).total_seconds() / 3600)
+
+
+def pypi_release_age_hours(meta: dict, version: str | None, now: datetime | None = None) -> float | None:
+    """Hours since the first file of this version was uploaded to PyPI (yanked files ignored), None if unknown."""
+    files = [f for f in (meta.get("releases") or {}).get(version or "") or [] if not f.get("yanked")]
+    ages = [h for h in (_hours_since(f.get("upload_time_iso_8601"), now) for f in files) if h is not None]
+    return max(ages) if ages else None
+
+
 def scan_package(name: str, version: str | None = None) -> Verdict:
     """Collection (one PyPI JSON), then the independent lookups run concurrently: the installed file's download and
     static analysis, OSV, the dependency list and (when enabled) the ML model. Verdict logic stays in compute_verdict."""
@@ -289,6 +308,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
     resolved = version or meta.get("info", {}).get("version")
     features.resolved_version = resolved
+    features.release_age_hours = pypi_release_age_hours(meta, resolved)
 
     import threading
 
@@ -427,6 +447,10 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         features.fetch_error = str(e)
         return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
     features.version = features.resolved_version = version
+    try:
+        features.release_age_hours = npm.release_age_hours(name, version, meta)
+    except Exception:
+        features.release_age_hours = None                 # unknown: the fresh-release rule does not apply
     from concurrent.futures import ThreadPoolExecutor
     with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(1) as pool:
         osv_f = pool.submit(query_osv, name, version, "npm")

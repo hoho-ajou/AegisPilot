@@ -151,3 +151,45 @@ print("post_rules: all cases passed")
 # OSV wording for a malicious release that is not a "MAL-" record (event-stream 3.3.6), without catching ordinary CVE text
 assert PR._MALICIOUS.search("The NPM package `flatmap-stream` is considered malicious.")
 assert not PR._MALICIOUS.search("A malicious actor could send a crafted request that crashes the parser.")
+# a version published within the last day: REVIEW whatever the scan found (direct packages and dependencies)
+from datetime import datetime, timedelta, timezone  # noqa: E402
+from checks import base as _base  # noqa: E402
+_now = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+_meta = {"releases": {"2.0": [{"upload_time_iso_8601": "2026-11-10T09:00:00Z"}, {"upload_time_iso_8601": "2026-11-10T11:00:00Z"}],
+                      "1.0": [{"upload_time_iso_8601": "2026-01-01T00:00:00Z"}], "3.0": [{"upload_time_iso_8601": "2026-11-10T11:30:00Z", "yanked": True}]}}
+assert se.pypi_release_age_hours(_meta, "2.0", _now) == 3.0                 # the first file of the version counts
+assert se.pypi_release_age_hours(_meta, "1.0", _now) > 24 and se.pypi_release_age_hours(_meta, "3.0", _now) is None
+
+
+def _fresh(hours, verdict="ALLOW"):
+    f = se.ScanFeatures(name="pkg", version="2.0", fetch_ok=True)
+    f.release_age_hours = hours
+    return se.Verdict(verdict, 0.1, [], f)
+
+
+assert PR.apply(_fresh(3.0)) == ("NEEDS_HUMAN_REVIEW", {"rule": "fresh_release", "hours": 3.0})
+assert PR.apply(_fresh(24.0)) == ("ALLOW", None) and PR.apply(_fresh(None)) == ("ALLOW", None)
+assert PR.apply(_fresh(3.0, "BLOCK")) == ("BLOCK", None)                     # never lowers a BLOCK
+rec = {"evidence": [], "verdict": "ALLOW"}
+_base.post_rules_into(rec, _fresh(3.0), "2.0", True, None, None)
+assert rec["verdict"] == "NEEDS_HUMAN_REVIEW" and rec["headline"].startswith("latest version, published within a day"), rec
+assert rec["evidence"][0]["location"] == "published 3 hours ago" and rec["release_age_hours"] == 3.0
+rec = {"evidence": [{"rule": "osv", "label": "known vulnerability"}], "verdict": "NEEDS_HUMAN_REVIEW", "headline": "known vulnerability"}
+_base.post_rules_into(rec, _fresh(0.5, "NEEDS_HUMAN_REVIEW"), "2.0", True, None, None)
+assert rec["headline"] == "known vulnerability" and [e["rule"] for e in rec["evidence"]] == ["osv", "fresh_release"], rec
+assert rec["evidence"][1]["location"] == "published less than an hour ago"
+# npm: the abbreviated document's `modified` answers for old packages; the full document only when it changed today
+from sources import npm as _npm  # noqa: E402
+_calls = []
+_orig = _u.urlopen
+try:
+    class _Doc:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, *a): return json.dumps({"time": {"4.1.0": "2026-11-10T10:00:00Z"}}).encode()
+    _u.urlopen = lambda *a, **k: (_calls.append(a), _Doc())[1]
+    assert _npm.release_age_hours("left", "4.1.0", {"modified": "2026-10-01T00:00:00Z"}, _now) > 24 and not _calls
+    assert _npm.release_age_hours("left", "4.1.0", {"modified": "2026-11-10T10:00:00Z"}, _now) == 2.0 and len(_calls) == 1
+finally:
+    _u.urlopen = _orig
+print("post_rules: fresh releases held")

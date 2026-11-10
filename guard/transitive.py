@@ -99,7 +99,7 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
         except Exception:
             deps = []
         return {"name": collect.normalize_name(name), "version": version, "via": via,
-                "uploaded": up.date().isoformat() if up else None, "recent": bool(up and up >= recent_cut),
+                "uploaded": up.date().isoformat() if up else None, "uploaded_at": up.isoformat() if up else None, "recent": bool(up and up >= recent_cut),
                 "dependencies": deps}
 
     with ThreadPoolExecutor(int(cfg["workers"])) as pool:

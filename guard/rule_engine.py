@@ -27,7 +27,7 @@ import switches  # noqa: E402  (AEGIS_RULES_DIR: a built guard reads it from the
 RULES_DIR = Path(switches.get("AEGIS_RULES_DIR") or str(Path(__file__).resolve().parent / "rules"))
 DETECTORS = {"startup", "keyword_count", "chain", "entropy_blocks", "first_line", "setup_local_imports", "placement"}
 PLACEMENT_CHECKS = {"command_shadowing", "sourceless_bytecode", "environment_index"}
-POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "osv_unavailable", "typosquat", "new_package"}   # new_package: off by default (age alone is not a reason)
+POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "fresh_release", "osv_unavailable", "typosquat", "new_package"}   # new_package: off by default (age alone is not a reason)
 VERDICTS = {"ALLOW", "NEEDS_HUMAN_REVIEW", "BLOCK"}
 FILES = ("signals", "rules", "scoring", "post")
 
@@ -219,6 +219,7 @@ class Ruleset:
             self.malicious_max_ids = int(km["max_ids"])
             self.typosquat_established_days = int(post["typosquat"]["established_days"])
             self.new_package_days = int(post["new_package"]["days"])
+            self.fresh_release_hours = float(post["fresh_release"]["hours"])
             pr = post["osv_probe"]
             self.osv_probe = (str(pr["name"]), str(pr["version"]))
             self.osv_probe_timeout = float(pr["timeout_seconds"])

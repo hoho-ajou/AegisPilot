@@ -10,7 +10,7 @@ claude plugin marketplace add hoho-ajou/AegisPilot && claude plugin install aegi
 
 Type `/aegis` in Claude Code to get the last decision explained. Run `python3 guard_cli.py verify` in this folder to check that its files match the release.
 
-Verdicts: BLOCK only for a release OSV records as malicious, a deny-list entry, or dangerous code that runs by itself (at install, Python start or import, or as a hook or MCP server); REVIEW (Claude Code asks you) for known vulnerabilities, other rule findings, ML scores over the review threshold and anything that could not be checked; ALLOW otherwise.
+Verdicts: BLOCK only for a release OSV records as malicious, a deny-list entry, or dangerous code that runs by itself (at install, Python start or import, or as a hook or MCP server); REVIEW (Claude Code asks you) for known vulnerabilities, versions published less than 24 hours ago, other rule findings, ML scores over the review threshold and anything that could not be checked; ALLOW otherwise.
 
 What it reads on your machine: the command, the files it names (requirements and lock files, settings files that add MCP servers, plugins or hooks), and, to explain what a flagged package could reach, whether common credential and settings files exist and are readable. It never reads or sends their contents.
 
