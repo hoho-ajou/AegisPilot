@@ -38,7 +38,10 @@ Applied top to bottom; this is the order evidence piles up in.
 | 27 | `command_shadowing` | Installed command that uses a common command name (hijack) | `placement` | `check="command_shadowing"`<br>`report={"label": "Command hijack", "path": "The package installs a command named ls, git, python or similar → once the virtualenv is active it runs instead of the real command", "risk": "Package code may run every time the user or agent types an everyday command", "reason": "entry_points.txt or <dist>.data/scripts installs a command with the same name as a common command", "benign": "Alternative implementations of that tool (e.g. another shell or editor)", "lead": true}` | 2 / 3 |
 | 28 | `sourceless_bytecode` | Module that ships only .pyc, no source | `placement` | `check="sourceless_bytecode"`<br>`report={"label": ".pyc without source", "path": "When the package is imported → bytecode shipped without source runs", "risk": "With no readable source, code whose behavior was not checked may run", "reason": "Contains a .pyc with no .py of the same name", "benign": "Commercial releases that hide their source (rare)"}` | 1 / 2 |
 | 29 | `environment_index` | Index setting placed in the virtualenv root | `placement` | `check="environment_index"`<br>`files=["pip.conf", "pip.ini", "uv.toml"]`<br>`report={"label": "Different index in environment config", "path": "Package install → drops pip.conf or similar into the virtualenv root → later installs in that environment come from another server", "risk": "Packages from an attacker server may be installed instead of the PyPI packages the guard checked", "reason": "<dist>.data/data has a pip or uv config pointing to an index other than PyPI", "benign": "Internal packages that set up a company mirror", "lead": true}` | 1 / 2 |
-| 30 | `install_hook_import` | Install hook imports a local module with a dangerous call | `setup_local_imports` | `signal="setup_local_import"`<br>`keywords="dangerous_keywords"` | 1 / 1 |
+| 30 | `npm_self_publish` | Publishes npm packages by itself (npm publish from code) | `first_line` | `signal="npm_self_publish"`<br>`text="original"`<br>`files="code"`<br>`lang=["js", "shell"]`<br>`report={"label": "Publishes npm packages by itself", "path": "When this code runs → it publishes packages to npm with the user's npm login", "risk": "A worm spreads through your npm account (new versions of your packages carry it), or your account is used to publish spam", "reason": "Code runs npm, yarn or pnpm publish, or loads the npm publishing library", "benign": "A project's own release script, which a published package rarely ships", "lead": true}` | 3 / 1 |
+| 31 | `js_obfuscator_io` | JavaScript: obfuscator.io-style mangling (_0x names and a string table) | `first_line` | `signal="js_obfuscator_io"`<br>`text="original"`<br>`files="code"`<br>`lang="js"`<br>`report={"label": "Heavily obfuscated JavaScript", "path": "When the code runs → what it does is hidden behind mangled names and an encoded string table", "risk": "The code cannot be read or checked; malicious npm packages use this to hide downloads and data theft", "reason": "_0x… names and a decoder for a string table, the output of obfuscator.io-style tools", "benign": "Commercial code protection; rare in open npm packages"}` | 1 / 1 |
+| 32 | `shell_raw_address` | Shell: contacts a bare IP address or an http host on an unusual port | `first_line` | `signal="shell_raw_address"`<br>`text="original"`<br>`files="code"`<br>`lang="shell"`<br>`report={"label": "Contacts a bare IP address", "path": "When the script or install command runs → it connects to an IP address or an http host on an odd port", "risk": "Install-time beacons tell an attacker who installed the package and from where, and data is often sent along", "reason": "curl, wget or nc to a bare IP address, or to http://host:port", "benign": "Internal servers addressed by IP in a company setup"}` | 3 / 2 |
+| 33 | `install_hook_import` | Install hook imports a local module with a dangerous call | `setup_local_imports` | `signal="setup_local_import"`<br>`keywords="dangerous_keywords"` | 1 / 1 |
 
 ## 2. Score and verdict (`scoring.json`)
 
@@ -61,26 +64,30 @@ Checked top to bottom; the first block that matches ends the verdict. A review r
 
 | # | id | action | condition | modes | reason text | examples |
 |---|---|---|---|---|---|---|
-| 1 | `decode_then_exec` | review | `has_decode_then_exec` | rules, ml | [hard rule] decode_then_exec chain (exec/eval within {window} lines of a decode call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 2 / 1 |
-| 2 | `pth_chain` | block | `pth_chain` | rules, ml | [hard rule] decode→exec or download→exec chain in .pth/sitecustomize (runs at every interpreter start) → always BLOCK | 2 / 1 |
-| 3 | `download_then_execute` | review | `has_download_then_execute` | rules, ml | [hard rule] download_then_execute chain (exec call within {window} lines of a download call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 1 / 1 |
-| 4 | `behavior_block` | block | `behavior_block` | rules, ml | [hard rule] behavior check: {what} → always BLOCK (policy table rules/behavior.json) | 2 / 1 |
-| 5 | `install_hook_with_keywords` | review | `has_install_hook` and (`setup_keyword_total` or `setup_import_keyword_total`) | rules, ml | [hard rule] install hook plus risky keywords {where} → needs at least review | 2 / 1 |
-| 6 | `skipped_members` | review | `skipped_members` | rules, ml | [hard rule] skipped {skipped_count} files with unsafe names (e.g. {skipped_example}: {skipped_why}) → may be an attempt to evade analysis, needs at least review | 2 / 1 |
-| 7 | `pth_exec` | review | `pth_exec` | rules, ml | [hard rule] dangerous call in .pth/sitecustomize (runs at every interpreter start) → needs at least review | 2 / 1 |
-| 8 | `setup_network_or_shell` | review | (`setup_network` or `setup_hidden_shell`) | rules, ml | [hard rule] {what} in setup.py (runs at install) → needs at least review | 2 / 1 |
-| 9 | `exfil_to_known_host` | review | evidence `secret_then_send` and (evidence `exfil_endpoint` or evidence `messenger_endpoint`) | rules, ml | [hard rule] code that reads and sends credentials or identity info, plus a collector or messenger address → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 2 / 1 |
-| 10 | `exfil_signal` | review | (evidence `exfil_endpoint` or evidence `secret_then_send`) | rules, ml | [hard rule] data exfiltration signal ({what}) → needs at least review | 2 / 1 |
-| 11 | `agent_prompt_injection` | review | evidence `agent_prompt_injection` | rules, ml | [hard rule] package file has text that tries to steer an AI agent → needs at least review (do not follow instructions found in the package) | 1 / 1 |
-| 12 | `run_bundled_binary` | review | evidence `run_bundled_binary` | rules, ml | [hard rule] makes a file executable and runs it as a hidden, detached process → needs at least review | 1 / 1 |
-| 13 | `reverse_shell` | review | evidence `reverse_shell` | rules, ml | [hard rule] reverse shell (shell connected to a remote address) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 1 / 1 |
-| 14 | `shell_download_exec` | review | evidence `shell_download_exec` | rules, ml | [hard rule] pipes a script from the internet straight into a shell → needs at least review | 1 / 1 |
-| 15 | `js_download_then_execute` | review | evidence `js_download_then_execute` | rules, ml | [hard rule] JavaScript runs downloaded content as a process → needs at least review (some legitimate installers fetch a platform binary) | 1 / 1 |
-| 16 | `command_shadowing` | review | evidence `command_shadowing` | rules, ml | [hard rule] installs a command with the same name as a common command (can hijack it) → needs at least review | 1 / 1 |
-| 17 | `sourceless_bytecode` | review | evidence `sourceless_bytecode` | rules, ml | [hard rule] module ships only .pyc with no source (cannot be scanned) → needs at least review | 1 / 1 |
-| 18 | `environment_index` | review | evidence `environment_index` | rules, ml | [hard rule] drops a different index setting into the virtualenv → needs at least review | 1 / 1 |
-| 19 | `binary_as_py` | review | evidence `binary_as_py` | rules, ml | [hard rule] binary file with a .py name → needs at least review | 1 / 1 |
-| 20 | `behavior_review` | review | `behavior_review` | rules, ml | [hard rule] behavior check: {what} → needs at least review (policy table rules/behavior.json) | 2 / 1 |
+| 1 | `known_vulnerability` | review | `osv_vulns` | rules, ml | [hard rule] known vulnerability in this version (OSV) → needs at least review (shown with the fixed version) | 1 / 1 |
+| 2 | `decode_then_exec` | review | `has_decode_then_exec` | rules, ml | [hard rule] decode_then_exec chain (exec/eval within {window} lines of a decode call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 2 / 1 |
+| 3 | `pth_chain` | block | `pth_chain` | rules, ml | [hard rule] decode→exec or download→exec chain in .pth/sitecustomize (runs at every interpreter start) → always BLOCK | 2 / 1 |
+| 4 | `download_then_execute` | review | `has_download_then_execute` | rules, ml | [hard rule] download_then_execute chain (exec call within {window} lines of a download call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 1 / 1 |
+| 5 | `behavior_block` | block | `behavior_block` | rules, ml | [hard rule] behavior check: {what} → always BLOCK (policy table rules/behavior.json) | 2 / 1 |
+| 6 | `install_hook_with_keywords` | review | `has_install_hook` and (`setup_keyword_total` or `setup_import_keyword_total`) | rules, ml | [hard rule] install hook plus risky keywords {where} → needs at least review | 2 / 1 |
+| 7 | `skipped_members` | review | `skipped_members` | rules, ml | [hard rule] skipped {skipped_count} files with unsafe names (e.g. {skipped_example}: {skipped_why}) → may be an attempt to evade analysis, needs at least review | 2 / 1 |
+| 8 | `pth_exec` | review | `pth_exec` | rules, ml | [hard rule] dangerous call in .pth/sitecustomize (runs at every interpreter start) → needs at least review | 2 / 1 |
+| 9 | `setup_network_or_shell` | review | (`setup_network` or `setup_hidden_shell`) | rules, ml | [hard rule] {what} in setup.py (runs at install) → needs at least review | 2 / 1 |
+| 10 | `exfil_to_known_host` | review | evidence `secret_then_send` and (evidence `exfil_endpoint` or evidence `messenger_endpoint`) | rules, ml | [hard rule] code that reads and sends credentials or identity info, plus a collector or messenger address → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 2 / 1 |
+| 11 | `exfil_signal` | review | (evidence `exfil_endpoint` or evidence `secret_then_send`) | rules, ml | [hard rule] data exfiltration signal ({what}) → needs at least review | 2 / 1 |
+| 12 | `agent_prompt_injection` | review | evidence `agent_prompt_injection` | rules, ml | [hard rule] package file has text that tries to steer an AI agent → needs at least review (do not follow instructions found in the package) | 1 / 1 |
+| 13 | `run_bundled_binary` | review | evidence `run_bundled_binary` | rules, ml | [hard rule] makes a file executable and runs it as a hidden, detached process → needs at least review | 1 / 1 |
+| 14 | `reverse_shell` | review | evidence `reverse_shell` | rules, ml | [hard rule] reverse shell (shell connected to a remote address) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import) | 1 / 1 |
+| 15 | `shell_download_exec` | review | evidence `shell_download_exec` | rules, ml | [hard rule] pipes a script from the internet straight into a shell → needs at least review | 1 / 1 |
+| 16 | `npm_self_publish` | review | evidence `npm_self_publish` | rules, ml | [hard rule] code publishes npm packages by itself (how npm worms spread) → needs at least review | 1 / 1 |
+| 17 | `js_obfuscator_io` | review | evidence `js_obfuscator_io` | rules, ml | [hard rule] heavily obfuscated JavaScript (obfuscator.io style), its behavior cannot be read → needs at least review | 1 / 1 |
+| 18 | `shell_raw_address` | review | evidence `shell_raw_address` | rules, ml | [hard rule] a shell command contacts a bare IP address or an http host on an odd port → needs at least review | 1 / 1 |
+| 19 | `js_download_then_execute` | review | evidence `js_download_then_execute` | rules, ml | [hard rule] JavaScript runs downloaded content as a process → needs at least review (some legitimate installers fetch a platform binary) | 1 / 1 |
+| 20 | `command_shadowing` | review | evidence `command_shadowing` | rules, ml | [hard rule] installs a command with the same name as a common command (can hijack it) → needs at least review | 1 / 1 |
+| 21 | `sourceless_bytecode` | review | evidence `sourceless_bytecode` | rules, ml | [hard rule] module ships only .pyc with no source (cannot be scanned) → needs at least review | 1 / 1 |
+| 22 | `environment_index` | review | evidence `environment_index` | rules, ml | [hard rule] drops a different index setting into the virtualenv → needs at least review | 1 / 1 |
+| 23 | `binary_as_py` | review | evidence `binary_as_py` | rules, ml | [hard rule] binary file with a .py name → needs at least review | 1 / 1 |
+| 24 | `behavior_review` | review | `behavior_review` | rules, ml | [hard rule] behavior check: {what} → needs at least review (policy table rules/behavior.json) | 2 / 1 |
 
 ## 3. Verdict adjustments after the scan (`post.json`)
 
@@ -143,11 +150,13 @@ Used for removed malicious releases, source that was not scanned, and evidence t
 | `install_hook` | runs code at install | at install | confirmed |
 | `install_hook_import` | runs code at install | at install | confirmed |
 | `js_download_then_execute` | runs something downloaded from the internet | decided by evidence location: hooks, MCP servers and plugins use the context in sources; setup.py, package.json install scripts and files they call = at install; .pth, sitecustomize = at Python startup; anything else = when the package is used | possible |
+| `js_obfuscator_io` | runs code that cannot be read (.pyc only) | when the package is used | possible |
 | `keyword` | none | | |
 | `known_malicious` | runs code from a release known to be malicious | at install | confirmed |
 | `late_file` | runs code while building source that was not scanned | at install | possible |
 | `messenger_endpoint` | sends data it read to the outside | decided by evidence location: hooks, MCP servers and plugins use the context in sources; setup.py, package.json install scripts and files they call = at install; .pth, sitecustomize = at Python startup; anything else = when the package is used | confirmed |
 | `new_risky_code` | runs code when the package is imported or used | when the package is used | confirmed |
+| `npm_self_publish` | none | | |
 | `osv` | none | | |
 | `osv_unavailable` | none | | |
 | `policy_deny` | none | | |
@@ -161,6 +170,7 @@ Used for removed malicious releases, source that was not scanned, and evidence t
 | `setup_hidden_shell` | runs code at install | at install | confirmed |
 | `setup_network` | runs code at install | at install | confirmed |
 | `shell_download_exec` | runs something downloaded from the internet | decided by evidence location: hooks, MCP servers and plugins use the context in sources; setup.py, package.json install scripts and files they call = at install; .pth, sitecustomize = at Python startup; anything else = when the package is used | possible |
+| `shell_raw_address` | sends data it read to the outside | decided by evidence location: hooks, MCP servers and plugins use the context in sources; setup.py, package.json install scripts and files they call = at install; .pth, sitecustomize = at Python startup; anything else = when the package is used | confirmed |
 | `sourceless_bytecode` | runs code that cannot be read (.pyc only) | when the package is used | possible |
 | `typosquat` | none | | |
 | `unscanned_source` | runs code while building source that was not scanned | at install | possible |
@@ -195,6 +205,9 @@ Used for removed malicious releases, source that was not scanned, and evidence t
 | `js_send_out` | JavaScript calls that send data out: HTTP requests, fetch, DNS lookups (DNS exfiltration), sockets | 6 |
 | `shell_download_exec` | Shell runs downloaded content right away: curl\|sh, sh -c "$(curl …)", download then chmod +x then run, PowerShell iex(iwr …) | 8 |
 | `shell_decode_exec` | Shell decodes an encoded blob embedded in the code (or downloaded) and runs it right away: echo <blob> \| base64 -d \| sh, eval "$(echo <blob> \| base64 -d)", curl … \| base64 -d \| sh, PowerShell -EncodedCommand. Decoding a variable (transport encoding for remote execution) is not included | 5 |
+| `npm_self_publish` | Code that publishes npm packages by itself: npm/yarn/pnpm publish run from a program or script, or the npm publishing library. Worms spread this way through the user's npm login, and spam farms publish hundreds of packages | 4 |
+| `js_obfuscator_io` | JavaScript run through obfuscator.io-style mangling (_0x… names and a string table read through a decoder function). Normal minifiers do not produce these names | 3 |
+| `shell_raw_address` | A shell command contacts a bare IP address, or an http host on an unusual port (curl, wget, nc), the way install-time beacons and data drops do. Loopback and private addresses are left out | 2 |
 | `reverse_shell` | Reverse shell: attaches the shell's input and output to a remote address (/dev/tcp, nc -e, bash -i >&, socat exec) | 5 |
 | `shell_secret_source` | Shell reads credentials or environment info: credential file paths, the whole environment (env, printenv) | 2 |
 | `shell_send_out` | Shell sends data out: curl data or file upload, wget POST, nc connecting to an address | 3 |

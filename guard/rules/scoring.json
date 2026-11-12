@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "about": "Verdict: subscores -> weighted sum -> hard rules (top to bottom; the first BLOCK that matches ends it) -> thresholds. The score alone never blocks: at or above review it is a REVIEW. BLOCK comes only from a known malicious release (post.json), the deny list, or a hard rule for dangerous code that runs at install, interpreter start or import. If you change a value, re-measure with the tests and with benign and malicious samples.",
+  "about": "Verdict: hard rules (top to bottom; the first BLOCK that matches ends it, a review rule makes it at least a REVIEW) and the ML model's review. Subscores and their weighted sum are the score shown with the verdict; the score decides nothing. BLOCK comes only from a known malicious release (post.json), the deny list, or a hard rule for dangerous code that runs at install, interpreter start or import. If you change a value, re-measure with the tests and with benign and malicious samples.",
   "thresholds": {
     "block": 0.6,
     "review": 0.25,
@@ -51,6 +51,13 @@
     }
   },
   "hard_rules": [
+    {
+      "id": "known_vulnerability",
+      "when": {"field": "osv_vulns"},
+      "action": "review",
+      "reason": "[hard rule] known vulnerability in this version (OSV) → needs at least review (shown with the fixed version)",
+      "modes": ["rules", "ml"]
+    },
     {
       "id": "decode_then_exec",
       "when": {"field": "has_decode_then_exec"},
@@ -156,6 +163,27 @@
       "when": {"evidence": "shell_download_exec"},
       "action": "review",
       "reason": "[hard rule] pipes a script from the internet straight into a shell → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "npm_self_publish",
+      "when": {"evidence": "npm_self_publish"},
+      "action": "review",
+      "reason": "[hard rule] code publishes npm packages by itself (how npm worms spread) → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "js_obfuscator_io",
+      "when": {"evidence": "js_obfuscator_io"},
+      "action": "review",
+      "reason": "[hard rule] heavily obfuscated JavaScript (obfuscator.io style), its behavior cannot be read → needs at least review",
+      "modes": ["rules", "ml"]
+    },
+    {
+      "id": "shell_raw_address",
+      "when": {"evidence": "shell_raw_address"},
+      "action": "review",
+      "reason": "[hard rule] a shell command contacts a bare IP address or an http host on an odd port → needs at least review",
       "modes": ["rules", "ml"]
     },
     {

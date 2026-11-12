@@ -6,7 +6,7 @@ Everything the guard looks for in package files, and how it reaches a verdict, l
 |---|---|
 | `signals.json` | What to look for: the pattern dictionary (dangerous keywords, decode / exec / download calls, setup.py patterns, dangerous calls in `.pth` files, long encoded blobs), what counts as a test or dev folder, alias-resolution targets, and exceptions for chains inside strings |
 | `rules.json` | Where and how to look, and what evidence to record. Applied top to bottom; this order is the order in which evidence accumulates |
-| `scoring.json` | The verdict: weights, the review threshold (the `block` threshold only scales the score shown; the score alone never blocks), reference values for subscores, hard rules (order, condition, block/review, reason text), and the weight of the ML score |
+| `scoring.json` | The verdict: hard rules (order, condition, block/review, reason text). Also the weights, thresholds and reference values of the score shown with the verdict (the score decides nothing on its own), and the weight of the ML score in it |
 | `post.json` | Verdict adjustments after the scan (`post_rules.py`): known malicious version, risky code new in this version, files added later, OSV unreachable, name impersonation, new package. Also the patterns and reference values used to compare against the previous version (`version_diff.py`) |
 | `behavior.json` | The policy table for the behavior check (`guard/behavior`): behavior (finding) x execution time (auto = install, interpreter start, import; call) -> block / review / null, the vocabulary used to classify recovered values (credential and auto-run paths, collection and messenger addresses, build tools), and time and size limits. The analyzer builds behavior facts from recovered values and data flow, not from text patterns, and this table decides the verdict. The `scoring.json` hard rules `behavior_block` / `behavior_review` feed the result into the verdict |
 
@@ -34,7 +34,7 @@ A module is `{"schema": 1, "name": ..., "about": ...}` plus any of the keys belo
 | `hard_rules` | `[hard rule]`: add a `scoring.json` hard rule (at the end) or replace one with the same id |
 | `post_rules` | `[rule]`: add a `post.json` verdict adjustment (at the end) or replace one with the same id |
 | `findings` | `{behavior: {auto, call, label, text, phases}}`: change an existing behavior in the behavior policy (`behavior.json`). New behaviors cannot be added, because the analyzer has to produce them |
-| `set` | `{"<file>.<key>.<key>": value}`: change a single value. Example: `"scoring.thresholds.review": 0.2` |
+| `set` | `{"<file>.<key>.<key>": value}`: change a single value. Example: `"post.fresh_release.hours": 48` |
 | `add` | `{"<file>.<key>.<key>": [..]}`: append to a list. Example: `"scoring.subscores.typosquat.popular_names": ["langchain"]` |
 | `disable` | `{"rules" \| "hard_rules" \| "post_rules" \| "findings": [id]}`: turn off base entries |
 | `examples` | `{"static" \| "hard" \| "post": {id: [example]}}`: examples for this module. Same format as `examples/` |

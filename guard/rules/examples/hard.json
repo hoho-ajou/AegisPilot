@@ -2,6 +2,10 @@
   "schema": 1,
   "about": "Examples for the scoring.json hard rules. features are scan result (ScanFeatures) values. mode: rules (default, no ML result) or ml. If verdict is given, the final verdict is checked too. Run: python3 guard/rule_check.py",
   "examples": {
+    "known_vulnerability": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "A LOW vulnerability is a REVIEW too", "features": {"osv_max_severity": "LOW", "osv_vulns": [{"id": "GHSA-x"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No OSV record", "features": {"osv_vulns": []}}
+    ],
     "decode_then_exec": [
       {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has a decode→exec chain (a text pattern, not tied to when it runs: BLOCK only through the behavior check)", "features": {"has_decode_then_exec": true}},
       {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"has_decode_then_exec": true}},
@@ -74,6 +78,18 @@
     ],
     "reverse_shell": [
       {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence (the behavior check blocks a remote shell that runs by itself)", "features": {"evidence": [{"rule": "reverse_shell"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "npm_self_publish": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "npm_self_publish"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "js_obfuscator_io": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "js_obfuscator_io"}]}},
+      {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
+    ],
+    "shell_raw_address": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has evidence", "features": {"evidence": [{"rule": "shell_raw_address"}]}},
       {"expect": "miss", "verdict": "ALLOW", "why": "No evidence", "features": {}}
     ],
     "shell_download_exec": [
