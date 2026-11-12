@@ -70,10 +70,10 @@ class RuleExamples(unittest.TestCase):
 
     def test_an_example_for_a_removed_rule_is_reported(self):
         d = copy_rules()
-        edit(d / "post.json", lambda p: p.update(rules=[r for r in p["rules"] if r["id"] != "new_package"]))
+        edit(d / "post.json", lambda p: p.update(rules=[r for r in p["rules"] if r["id"] != "late_file"]))
         p = check(rules=d)
         self.assertEqual(p.returncode, 1)
-        self.assertIn("post/new_package: example for a rule that is not in the rule files", p.stdout)
+        self.assertIn("post/late_file: example for a rule that is not in the rule files", p.stdout)
 
 
 if __name__ == "__main__":

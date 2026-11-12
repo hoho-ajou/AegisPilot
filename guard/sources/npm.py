@@ -43,6 +43,34 @@ def metadata(name: str) -> dict:
         return json.loads(resp.read())
 
 
+FULL_DOC_MAX_BYTES = 64 * 1024 * 1024
+
+
+def release_age_hours(name: str, version: str, meta: dict, now=None) -> float | None:
+    """Hours since `version` was published, None if unknown. The abbreviated document has no per-version times, only
+    when the package last changed (`modified`): older than a day means every version is too. Only a package changed
+    within the last day costs the full document (its `time` map)."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+
+    def hours(t):
+        try:
+            when = datetime.fromisoformat(str(t).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, (now - when).total_seconds() / 3600)
+
+    modified = hours(meta.get("modified"))
+    if modified is not None and modified >= 24:
+        return modified                                   # a lower bound: the version is at least this old
+    url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
+        body = resp.read(FULL_DOC_MAX_BYTES + 1)
+    if len(body) > FULL_DOC_MAX_BYTES:
+        return None
+    return hours((json.loads(body).get("time") or {}).get(version))
+
+
 # --------------------------------------------------------------------------------------------- semver (npm's subset)
 
 _VER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")

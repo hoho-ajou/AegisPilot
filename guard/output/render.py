@@ -563,7 +563,7 @@ def auto_reason(rec: dict, others: list | None = None) -> str:
                    f"in a table format such as [tool.poetry.dependencies] or Pipfile, write {name} = \"{ver}\". "
                    "If there is a lock file (uv.lock, poetry.lock, pdm.lock, Pipfile.lock), after the edit first run that tool's lock update command (uv lock, poetry lock, pdm lock, pipenv lock), then continue the install.")
     blocked = str(rec.get("verdict")) == "BLOCK"
-    head = ("BLOCK — auto mode: stopped before running because of the strongest kind of risk evidence (malicious code pattern, critical vulnerability or deny list). Do not ask a person; decide from the evidence below."
+    head = ("BLOCK — auto mode: stopped before running because of the strongest kind of risk evidence (a release known to be malicious, dangerous code that runs by itself, or the deny list). Do not ask a person; decide from the evidence below."
             if blocked else "REVIEW — auto mode: stopped before running because of risk signals. Do not ask a person; decide from the evidence below.")
     data = [f"package={name}", f"version={_plain(rec.get('version') or '', 30)}", f"case={case}", f"verdict={'BLOCK' if blocked else 'REVIEW'}"]
     for key in ("severity", "fix_version", "typosquat_of"):

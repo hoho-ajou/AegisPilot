@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 import time
 
-from checks.base import POST_LABELS, Check, Outcome, internal_package, post_rules_into
+from checks.base import POST_LABELS, Check, Outcome, _hours_text, internal_package, post_rules_into
 from review_report import clean, package_record
 
 VDIFF_MAX_PACKAGES = 20     # look-backs started per command (each downloads the release, and the previous one if needed)
@@ -113,6 +113,7 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
                 notes.append(f"OSV batch lookup of transitive dependencies failed: {type(e).__name__}")
         todo = [r for r in found if (r["name"], r.get("version")) in malicious]
         recent = [r for r in found if r.get("recent") and r not in todo]
+        recent.sort(key=lambda r: r.get("uploaded_at") or "", reverse=True)      # the newest first (the day-old rule)
         if len(recent) > cfg["max_scans"]:
             notes.append(f"only {cfg['max_scans']} of {len(recent)} latest-version dependencies checked")
             recent = recent[:cfg["max_scans"]]
@@ -130,8 +131,9 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
             if fired:
                 rec["verdict"] = new_verdict
                 label = "known malicious version" if fired["rule"] == "known_malicious" else POST_LABELS.get(fired["rule"], fired["rule"])
+                where = ", ".join(fired.get("ids", [])) or (f"published {_hours_text(fired['hours'])} ago" if "hours" in fired else "dependency")
                 rec["evidence"] = [{"rule": fired["rule"], "label": label,
-                                    "location": ", ".join(fired.get("ids", [])) or "dependency", "snippet": "", "count": 1}] + \
+                                    "location": where, "snippet": "", "count": 1}] + \
                                   [e for e in rec["evidence"] if e.get("rule") != "score"]
                 rec["headline"] = label
                 if fired["rule"] == "known_malicious":

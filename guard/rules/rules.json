@@ -321,6 +321,36 @@
       "report": {"label": "Different index in environment config", "path": "Package install → drops pip.conf or similar into the virtualenv root → later installs in that environment come from another server", "risk": "Packages from an attacker server may be installed instead of the PyPI packages the guard checked", "reason": "<dist>.data/data has a pip or uv config pointing to an index other than PyPI", "benign": "Internal packages that set up a company mirror", "lead": true}
     },
     {
+      "id": "npm_self_publish",
+      "title": "Publishes npm packages by itself (npm publish from code)",
+      "detector": "first_line",
+      "signal": "npm_self_publish",
+      "text": "original",
+      "files": "code",
+      "lang": ["js", "shell"],
+      "report": {"label": "Publishes npm packages by itself", "path": "When this code runs → it publishes packages to npm with the user's npm login", "risk": "A worm spreads through your npm account (new versions of your packages carry it), or your account is used to publish spam", "reason": "Code runs npm, yarn or pnpm publish, or loads the npm publishing library", "benign": "A project's own release script, which a published package rarely ships", "lead": true}
+    },
+    {
+      "id": "js_obfuscator_io",
+      "title": "JavaScript: obfuscator.io-style mangling (_0x names and a string table)",
+      "detector": "first_line",
+      "signal": "js_obfuscator_io",
+      "text": "original",
+      "files": "code",
+      "lang": "js",
+      "report": {"label": "Heavily obfuscated JavaScript", "path": "When the code runs → what it does is hidden behind mangled names and an encoded string table", "risk": "The code cannot be read or checked; malicious npm packages use this to hide downloads and data theft", "reason": "_0x… names and a decoder for a string table, the output of obfuscator.io-style tools", "benign": "Commercial code protection; rare in open npm packages"}
+    },
+    {
+      "id": "shell_raw_address",
+      "title": "Shell: contacts a bare IP address or an http host on an unusual port",
+      "detector": "first_line",
+      "signal": "shell_raw_address",
+      "text": "original",
+      "files": "code",
+      "lang": "shell",
+      "report": {"label": "Contacts a bare IP address", "path": "When the script or install command runs → it connects to an IP address or an http host on an odd port", "risk": "Install-time beacons tell an attacker who installed the package and from where, and data is often sent along", "reason": "curl, wget or nc to a bare IP address, or to http://host:port", "benign": "Internal servers addressed by IP in a company setup"}
+    },
+    {
       "id": "install_hook_import",
       "title": "Install hook imports a local module with a dangerous call",
       "detector": "setup_local_imports",

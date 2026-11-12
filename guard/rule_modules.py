@@ -18,7 +18,7 @@ A module ({"schema": 1, "name": ..., "about": ..., then any of}):
   "hard_rules": [hard rule]                    the same for scoring.json hard_rules (a new one is tried last)
   "post_rules": [rule]                         the same for post.json rules (a new one is tried last)
   "findings":   {finding: {auto, call, ...}}   change the behavior policy (rules/behavior.json) of an existing finding
-  "set":        {"<file>.<key>.<key>": value}  set one value, e.g. "scoring.thresholds.review": 0.2
+  "set":        {"<file>.<key>.<key>": value}  set one value, e.g. "post.fresh_release.hours": 48
   "add":        {"<file>.<key>.<key>": [..]}   extend a list, e.g. "scoring.subscores.typosquat.popular_names"
   "disable":    {"rules"|"hard_rules"|"post_rules"|"findings": [id]}   switch base entries off
   "examples":   {"static"|"hard"|"post": {id: [case]}}   the module's own examples (rule_check --modules runs them)

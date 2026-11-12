@@ -2,7 +2,7 @@
 
 AegisPilot is a Claude Code plugin that checks what your coding agent is about to install or connect, before it runs. When the agent runs `pip install`, `npm install`, a `git+https://` or URL install, or changes a settings file to add an MCP server, a plugin or a hook, AegisPilot downloads the package and reads its code without executing it. It then allows the action, asks, or blocks it, and explains why.
 
-> **Test release.** 0.1.1 is a test release (beta), not a stable release yet. Rules, messages and settings may still change. A stable release will be marked as such. Please tell us what goes wrong: see [Feedback](#feedback).
+> **Test release.** 0.1.2 is a test release (beta), not a stable release yet. Rules, messages and settings may still change. A stable release will be marked as such. Please tell us what goes wrong: see [Feedback](#feedback).
 
 ## Install
 
@@ -27,28 +27,29 @@ Include the decision id from the message (for example `decision id D57eb`) if th
 
 ## What you see
 
-When the agent runs `pip install pyyaml==5.3.1`, the command is stopped and you see (shortened):
+When the agent installs a release that OSV records as malicious, the command is stopped and you see (shortened):
 
 ```
-[AegisPilot BLOCK] pyyaml 5.3.1
-Reason    1 CRITICAL vulnerability GHSA-8q59-q68h-6hv4
-          (CVE-2020-14343, CWE-20)
-Impact    remote (network) · no login needed · high
-          confidentiality, integrity, availability impact
-Evidence  setup.py:171 install hook (no dangerous call)
-          lib/yaml/constructor.py:538 uses a dangerous API
-Fix       upgrade to pyyaml>=5.4 (OSV fixed version)
-Limits    older dependencies are checked against OSV only;
-          native binaries are not scanned
+[AegisPilot BLOCK] ctx 0.2.2
+Reason    known malicious version: OSV records this release
+          as malicious
+Impact    a malicious version uploaded from a hijacked
+          account (supply chain attack) may be installed
+Evidence  GHSA-67r3-h899-9w95, PYSEC-2022-199 known
+          malicious version
+Fix       check that the package is needed; if not, do not
+          install it
 ```
 
-The agent then asks you whether to switch to the fixed version. Type `/aegis` in Claude Code to get any decision explained.
+A known vulnerability is a REVIEW, not a BLOCK: for `pip install pyyaml==5.3.1` (CVE-2020-14343, CRITICAL) Claude Code asks you first, and the card shows the fixed version (`pyyaml>=5.4`). Type `/aegis` in Claude Code to get any decision explained.
 
 ## Verdicts
 
-- **ALLOW**: no known risk signal was found. The command runs and nothing is shown.
-- **REVIEW**: a suspicious signal was found, or part of the install could not be checked. Claude Code asks you before the command runs.
-- **BLOCK**: a critical vulnerability, a known malicious release, or install-time code that runs downloaded or hidden code, sends credentials out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped.
+- **BLOCK**: only three things: a release OSV records as malicious, a package on your deny list, or code that runs by itself (at install, at Python start, at import, or as a hook or MCP server the agent starts) and runs downloaded or hidden code, sends credentials or data out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped.
+- **REVIEW**: a rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, a version published less than 24 hours ago, an ML score at or above its review threshold. Or part of the install could not be checked. Claude Code asks you before the command runs.
+- **ALLOW**: neither of the above. The command runs and nothing is shown. ALLOW means no evidence of a problem was found, not that the package is verified safe.
+
+BLOCK and REVIEW differ in what is certain, not in how bad it could be: BLOCK is for evidence of malice, REVIEW for what needs your context (a vulnerability in a part you may not use, a name you may have meant) or could not be checked. Both come with the evidence.
 
 ## Modes
 

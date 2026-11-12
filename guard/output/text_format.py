@@ -33,12 +33,12 @@ SHORT = {"decode_then_exec": "decode-then-exec code", "download_then_execute": "
          "pth_exec": "code run at startup", "setup_hidden_shell": "hidden shell at install", "setup_network": "network call at install",
          "install_hook_import": "install hook loads risky module", "install_hook": "install hook", "high_entropy": "obfuscated block",
          "keyword": "uses a dangerous API", "reputation": "weak trust signals", "score": "combined risk signals",
-         "new_package": "newly registered package", "policy_deny": "denied by policy", "known_malicious": "known malicious version", "osv_unavailable": "vuln DB lookup failed", "new_risky_code": "new risky code", "late_file": "recently added file"}
+         "new_package": "newly registered package", "policy_deny": "denied by policy", "known_malicious": "known malicious version", "osv_unavailable": "vuln DB lookup failed", "new_risky_code": "new risky code", "late_file": "recently added file", "fresh_release": "version under a day old"}
 LONG = {"decode_then_exec": "decodes code and runs it right away (within 8 lines)", "download_then_execute": "runs code it downloaded (within 8 lines)",
         "pth_chain": "dangerous exec chain in a file that runs every time Python starts", "pth_exec": "dangerous call in a file that runs every time Python starts",
         "setup_hidden_shell": "setup.py runs a hidden shell (powershell etc.)", "setup_network": "setup.py connects to the network during install",
         "install_hook_import": "install hook loads a module with dangerous calls", "install_hook": "has a custom install hook",
-        "high_entropy": "has a long encoded block that looks obfuscated", "keyword": "calls a dangerous API", "reputation": "weak trust signals (new, no description, etc.)", "known_malicious": "listed in OSV as a version that shipped malicious code (hijacked or malicious release)", "new_package": "first registered on PyPI less than 30 days ago (squatted made-up name or new malware possible)", "policy_deny": "on the deny list of the organization or project policy", "osv_unavailable": "could not reach OSV (known vulnerability and malicious version DB), so known risks were not checked", "new_risky_code": "code not in the previous version runs commands, network or binaries at import or install (possibly a hijacked release)", "late_file": "an install file was added recently to an old version (a hijacked account slipping a file into an existing release)"}
+        "high_entropy": "has a long encoded block that looks obfuscated", "keyword": "calls a dangerous API", "reputation": "weak trust signals (new, no description, etc.)", "known_malicious": "listed in OSV as a version that shipped malicious code (hijacked or malicious release)", "new_package": "first registered on PyPI less than 30 days ago (squatted made-up name or new malware possible)", "policy_deny": "on the deny list of the organization or project policy", "osv_unavailable": "could not reach OSV (known vulnerability and malicious version DB), so known risks were not checked", "new_risky_code": "code not in the previous version runs commands, network or binaries at import or install (possibly a hijacked release)", "late_file": "an install file was added recently to an old version (a hijacked account slipping a file into an existing release)", "fresh_release": "the latest version, published within a day: hijacked releases are usually caught within hours, so it is held for now (supply chain attack risk)"}
 BASE_LIMIT = "older dependencies are checked against OSV only; native binaries are not scanned"
 
 
@@ -95,7 +95,7 @@ def _lead_rule(rec: dict) -> str:
     for r in (*_BLOCK_CODE_RULES, *_rr.LEAD_FILE_RULES):
         if r in rules:
             return r
-    for r in ("known_malicious", "policy_deny", "new_risky_code", "late_file", "osv_unavailable", "new_package", "pth_exec", "setup_hidden_shell", "setup_network", "install_hook_import", "install_hook", "high_entropy", "keyword", "reputation"):
+    for r in ("known_malicious", "policy_deny", "new_risky_code", "late_file", "fresh_release", "osv_unavailable", "new_package", "pth_exec", "setup_hidden_shell", "setup_network", "install_hook_import", "install_hook", "high_entropy", "keyword", "reputation"):
         if r in rules:
             return r
     return "score"
@@ -361,6 +361,10 @@ def build_rows(rec: dict, report_path: str | None) -> tuple[str, list[tuple[str,
     elif case == "fetch":
         why = _plain((rec.get("coverage") or {}).get("failure") or _evidence(rec, "fetch_error").get("snippet") or "unknown cause", 100)
         rows.append(("Reason", f"not scanned: {why}"))
+    elif rec.get("malicious_ids"):
+        rows.append(("Reason", "known malicious version: OSV records this release as malicious"))
+        if _rr.RULES.get(lead, {}).get("risk"):
+            rows.append(("Impact", _rr.RULES[lead]["risk"]))
     else:
         labels = [e.get("label") for e in rec.get("evidence") or [] if e.get("rule") not in ("score",)][:4]
         rows.append(("Reason", "several weak risk signals: " + ", ".join(_plain(l, 20) for l in labels if l) if labels else _long(lead)))

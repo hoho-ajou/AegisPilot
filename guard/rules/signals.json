@@ -131,6 +131,21 @@
       "regex": ["\\b(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\bbase64\\s+(-d|--decode|-D)\\s*<<<\\s*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\b(curl|wget)\\b[^\\n]{0,1000}\\|\\s*base64\\s+(-d|--decode|-D)\\b[^;&\\n]{0,1000}\\|\\s*(sudo\\s+)?((ba|z|da|k)?sh|python[\\d.]*|node|perl|ruby|php)\\b", "\\beval\\s+[\"']?\\$\\(\\s*(echo|printf)\\s+(-\\w+\\s+)*[\"']?[A-Za-z0-9+/=]{12,}[\"']?\\s*\\|\\s*base64\\s+(-d|--decode|-D)\\b", {"pattern": "\\s-e(nc|ncodedcommand)?\\s+[A-Za-z0-9+/=]{40,}", "ignorecase": true}],
       "quick": ["base64", "-e"]
     },
+    "npm_self_publish": {
+      "description": "Code that publishes npm packages by itself: npm/yarn/pnpm publish run from a program or script, or the npm publishing library. Worms spread this way through the user's npm login, and spam farms publish hundreds of packages",
+      "regex": ["\\b(exec|execSync|spawn|spawnSync|execFile|execFileSync|execa)\\s*\\(\\s*[`'\"][^`'\"\\n]{0,200}\\b(npm|yarn|pnpm)\\s+publish\\b", "\\b(spawn|spawnSync|execFile|execFileSync|execa)\\s*\\(\\s*[`'\"](npm|yarn|pnpm)[`'\"]\\s*,\\s*\\[\\s*[`'\"]publish[`'\"]", "require\\s*\\(\\s*[`'\"]libnpmpublish[`'\"]\\s*\\)|from\\s+[`'\"]libnpmpublish[`'\"]", "(?m)(^|[;&|(])\\s*(sudo\\s+)?(npm|yarn|pnpm)\\s+publish\\b"],
+      "quick": ["publish"]
+    },
+    "js_obfuscator_io": {
+      "description": "JavaScript run through obfuscator.io-style mangling (_0x… names and a string table read through a decoder function). Normal minifiers do not produce these names",
+      "regex": ["\\bfunction\\s+_0x[0-9a-f]{4,6}\\s*\\(\\s*_0x[0-9a-f]{4,6}\\s*,", "\\b(const|var|let)\\s+_0x[0-9a-f]{4,6}\\s*=\\s*_0x[0-9a-f]{4,6}\\s*[;,]", "\\b_0x[0-9a-f]{4,6}\\s*=\\s*_0x[0-9a-f]{4,6}\\s*-\\s*0x[0-9a-f]+"],
+      "quick": ["_0x"]
+    },
+    "shell_raw_address": {
+      "description": "A shell command contacts a bare IP address, or an http host on an unusual port (curl, wget, nc), the way install-time beacons and data drops do. Loopback and private addresses are left out",
+      "regex": ["\\b(curl|wget|nc|ncat|netcat)\\b[^\\n]{0,300}?(?<=[/\\s\"'@=])(?!127\\.|10\\.|192\\.168\\.|0\\.0\\.0\\.0)(\\d{1,3}\\.){3}\\d{1,3}(?=[:/\\s\"')]|$)", "\\b(curl|wget)\\b[^\\n]{0,300}?\\bhttp://(?!localhost\\b|127\\.|\\[::1\\])[\\w.-]+:(?!80\\b)\\d{2,5}\\b"],
+      "quick": ["curl", "wget", "nc"]
+    },
     "reverse_shell": {
       "description": "Reverse shell: attaches the shell's input and output to a remote address (/dev/tcp, nc -e, bash -i >&, socat exec)",
       "regex": ["/dev/(tcp|udp)/[\\w.-]+/\\d+", "\\bnc(at)?\\b[^\\n;|&]{0,1000}\\s-[a-z]*[ec]\\s+/bin/(ba)?sh\\b", "\\b(ba)?sh\\s+-i\\s*[<>]&", "\\bsocat\\b[^\\n]{0,1000}\\bexec:", "\\bmkfifo\\s+/\\S+[^\\n]*\\|\\s*nc(at)?\\s+[\\w.-]+\\s+\\d{2,5}\\b"],

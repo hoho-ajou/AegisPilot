@@ -22,7 +22,9 @@ are in guard/rules/post.json. This module only knows how to check each one. A ru
                 previous release already had it, a binary search finds when it first appeared (version_diff.py).
   late_file     the file pip installs was added to this (old) release recently, long after the release came out:
                 a stolen token can add a wheel to an existing version even though it cannot replace one.
-  new_package   the project was first published less than NEW_PACKAGE_DAYS ago. Slopsquatting (an attacker registers
+  fresh_release the version being installed (or a dependency's) was published less than `hours` ago: hijacked
+                releases (a stolen maintainer token) are usually caught within hours to a day, before OSV lists them.
+  new_package   (off by default) the project was first published less than NEW_PACKAGE_DAYS ago. Slopsquatting (an attacker registers
                 a name AI models invent) and most freshly made malicious packages look exactly like this, while the code
                 can look clean. Measured 2026-10-15: projects younger than 30 days
                 among popular 63 / top-1000 / random 450 of the top 8000 / long-tail 100: 0% / 0% / 0% / 0%. The same
@@ -129,6 +131,9 @@ def _fires(rule_id: str, result, version, osv_ok: bool, vdiff, late) -> dict | N
     if rule_id == "typosquat":
         squat = typosquat_of(result)
         return {"of": squat} if squat else None
+    if rule_id == "fresh_release":
+        hours = getattr(getattr(result, "features", None), "release_age_hours", None)
+        return {"hours": round(hours, 1)} if hours is not None and hours < RULES.fresh_release_hours else None
     if rule_id == "new_package":
         days = new_package_days(result)
         return {"days": days} if days is not None else None

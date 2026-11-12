@@ -79,6 +79,13 @@ RULES: dict[str, dict[str, str]] = {
         "reason": "OSV malicious package record (MAL-) or an advisory for hijacked or malicious code",
         "benign_cases": "none (do not use this version)",
     },
+    "fresh_release": {
+        "label": "latest version, published within a day",
+        "path": "the version pip or npm would install came out in the last 24 hours → no one has had time to look at it yet",
+        "risk": "a release from a hijacked account (stolen token) is usually caught and pulled within hours to a day; until then it looks like a normal update",
+        "reason": "the version being installed was first published less than 24 hours ago (rules/post.json fresh_release)",
+        "benign_cases": "most new versions are honest; waiting a day or pinning the previous version avoids the risk",
+    },
     "late_file": {
         "label": "file recently added to an old version",
         "path": "an install file was recently added to a version released long ago → pip installs this new file",
@@ -315,7 +322,7 @@ def _findings(result) -> list[dict]:
     order = [r for r in beh if behavior_rank[r] == 0] + order[:3] + [r for r in beh if behavior_rank[r] == 1] + \
         order[3:-1] + [r for r in beh if behavior_rank[r] == 2] + order[-1:]
     if f.osv_max_severity == "CRITICAL" and "osv" in found:
-        order.remove("osv")          # the CRITICAL hard rule is what BLOCKs - lead with it
+        order.remove("osv")          # a CRITICAL vulnerability leads the evidence
         order.insert(0, "osv")
     out = [found[r] for r in order if r in found]
     if not out:

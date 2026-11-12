@@ -16,7 +16,7 @@ os.environ["AEGIS_ML"] = "1"; assert not SP._use_processes(items); os.environ["A
 
 by_threads = [v.verdict for v in scan_engine.scan_packages(items)]
 by_procs = [v.verdict for v in SP.scan_packages(items)]
-assert by_procs == by_threads and by_procs[3] == "BLOCK", (by_procs, by_threads)        # same verdicts, same order
+assert by_procs == by_threads and by_procs[3] == "NEEDS_HUMAN_REVIEW", (by_procs, by_threads)   # same verdicts, same order (pyyaml 5.3.1: a CRITICAL CVE is a REVIEW)
 
 t = time.time()
 cut = SP.scan_packages(items, budget=0.05)

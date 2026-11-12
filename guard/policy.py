@@ -13,7 +13,7 @@ Two files, read on every install decision:
 Rules (kept deliberately one-way):
   - deny matches by name (and "versions": "*" or a list of exact versions): the package is BLOCKed whatever the scan says.
   - allow needs the exact name AND version, must not be expired, and can only turn a REVIEW into ALLOW. It never lowers a
-    BLOCK (critical vulnerabilities, download-and-execute, ...): a list entry is a person's earlier judgement about that
+    BLOCK (known malicious releases, download-and-execute at install, ...): a list entry is a person's earlier judgement about that
     exact release, not a reason to install something the guard found dangerous.
   - system entries win over project entries; deny wins over allow.
 The decision and its source are written into the record ("policy"), so reports show who allowed or denied what.

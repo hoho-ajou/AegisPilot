@@ -24,6 +24,12 @@
        "late": {"file": "pkg-1.0-py3-none-any.whl", "release_date": "2021-01-01", "added_days_after": 1500, "added_days_ago": 3, "safe_version": "0.9"}},
       {"expect": "miss", "why": "No files added later", "late": null}
     ],
+    "fresh_release": [
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Version published 3 hours ago", "features": {"release_age_hours": 3}},
+      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Already a REVIEW, still marked as a day-old version", "scan_verdict": "NEEDS_HUMAN_REVIEW", "features": {"release_age_hours": 23.9}},
+      {"expect": "miss", "why": "Version published 24 hours ago or more", "features": {"release_age_hours": 24}},
+      {"expect": "miss", "why": "Publish time unknown", "features": {"release_age_hours": null}}
+    ],
     "osv_unavailable": [
       {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "OSV unreachable + ALLOW with no other evidence", "osv_ok": false},
       {"expect": "miss", "why": "OSV reachable", "osv_ok": true},
@@ -40,11 +46,6 @@
        "features": {"min_edit_distance": 1, "closest_popular_name": "typing_extensions", "package_age_days": 3}},
       {"expect": "miss", "why": "Short names allow only a one-letter difference", "name": "sixx",
        "features": {"min_edit_distance": 2, "closest_popular_name": "six", "package_age_days": 3}}
-    ],
-    "new_package": [
-      {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "First registered 3 days ago", "features": {"package_age_days": 3}},
-      {"expect": "miss", "why": "Project older than 30 days", "features": {"package_age_days": 30.5}},
-      {"expect": "miss", "why": "Registration date unknown", "features": {"package_age_days": null}}
     ]
   }
 }

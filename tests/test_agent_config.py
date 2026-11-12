@@ -75,7 +75,8 @@ try:
         (plug / "skills").mkdir()
         (plug / "skills" / "run.sh").write_text("#!/bin/sh\necho ZWNobyBoaQ== | base64 -d | sh\n")
         dec = guard_core.check_file_write(str(cfg), cfg.read_text() + '[plugins."tool@acme"]\nenabled = true\n', d)
-        assert dec.action == "refuse" or "BLOCK" in dec.reason, dec                              # enabling a Codex plugin
+        assert dec.action == "confirm" and "decode-then-exec" in dec.reason, dec                  # enabling a Codex plugin: a
+        # skill script runs only when the agent uses the skill, so it is a REVIEW (BLOCK is for code run by itself)
 finally:
     se.ECOSYSTEM_SCANNERS["npm"], guard_core.check_integrity = orig[0], orig[1]
     os.environ.clear()

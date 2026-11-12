@@ -44,7 +44,7 @@ Use this when you cannot use plugins, or for Codex CLI.
 1. Clone a release tag. A release tag contains the checksum list the integrity check uses; the default branch does not.
 
    ```bash
-   git clone --branch v0.1.1 https://github.com/hoho-ajou/AegisPilot.git ~/AegisPilot
+   git clone --branch v0.1.2 https://github.com/hoho-ajou/AegisPilot.git ~/AegisPilot
    ```
 
 2. Optional: check that the guard decides as expected. This changes no settings and needs network access to PyPI and OSV.
@@ -87,7 +87,7 @@ A system install puts the guard where the agent cannot change it. An agent runs 
 Run it from a fresh download that only root can change. The command runs that folder's code as root, so a folder you (or a program running as you) can write could have been changed together with its checksums and its checks. This downloads the release into a new root-owned folder and installs from there:
 
 ```bash
-sudo sh -c 'd=$(mktemp -d) && git -c advice.detachedHead=false clone -q --depth 1 --branch v0.1.1 https://github.com/hoho-ajou/AegisPilot "$d" && python3 -I "$d/guard/guard_cli.py" system-install'
+sudo sh -c 'd=$(mktemp -d) && git -c advice.detachedHead=false clone -q --depth 1 --branch v0.1.2 https://github.com/hoho-ajou/AegisPilot "$d" && python3 -I "$d/guard/guard_cli.py" system-install'
 ```
 
 Add options such as `--managed-hooks-only` after `system-install`. From a folder that is not root-owned, or that other users can write (a clone in your home folder, the plugin folder), the command refuses and prints this command; `--from-user-folder` overrides that when you know the folder is unchanged. Either way, a guard whose files differ from its own checksums is not installed.

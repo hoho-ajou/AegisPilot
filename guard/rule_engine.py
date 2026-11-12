@@ -27,7 +27,7 @@ import switches  # noqa: E402  (AEGIS_RULES_DIR: a built guard reads it from the
 RULES_DIR = Path(switches.get("AEGIS_RULES_DIR") or str(Path(__file__).resolve().parent / "rules"))
 DETECTORS = {"startup", "keyword_count", "chain", "entropy_blocks", "first_line", "setup_local_imports", "placement"}
 PLACEMENT_CHECKS = {"command_shadowing", "sourceless_bytecode", "environment_index"}
-POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "osv_unavailable", "typosquat", "new_package"}
+POST_CHECKS = {"known_malicious", "new_risky_code", "late_file", "fresh_release", "osv_unavailable", "typosquat", "new_package"}   # new_package: off by default (age alone is not a reason)
 VERDICTS = {"ALLOW", "NEEDS_HUMAN_REVIEW", "BLOCK"}
 FILES = ("signals", "rules", "scoring", "post")
 
@@ -219,6 +219,7 @@ class Ruleset:
             self.malicious_max_ids = int(km["max_ids"])
             self.typosquat_established_days = int(post["typosquat"]["established_days"])
             self.new_package_days = int(post["new_package"]["days"])
+            self.fresh_release_hours = float(post["fresh_release"]["hours"])
             pr = post["osv_probe"]
             self.osv_probe = (str(pr["name"]), str(pr["version"]))
             self.osv_probe_timeout = float(pr["timeout_seconds"])
@@ -1152,24 +1153,39 @@ def _typosquat_sub(rs: Ruleset, features, reasons: list) -> float:
     return 0.0
 
 
+def distinct_vulns(vulns: list) -> int:
+    """How many vulnerabilities, not records: OSV often lists one flaw twice (GHSA-… and PYSEC-… with the same CVE)."""
+    groups: list[set] = []
+    for v in vulns or []:
+        ids = {str(v.get("id", ""))} | {str(a) for a in (v.get("aliases") or [])}
+        ids.discard("")
+        hit = [g for g in groups if g & ids]
+        for g in hit:
+            ids |= g
+            groups.remove(g)
+        groups.append(ids)
+    return len(groups)
+
+
 def _vuln_sub(rs: Ruleset, features, reasons: list) -> float:
     if features.osv_vulns:
-        reasons.append(rs.sub["vuln"]["reason"].format(n_vulns=len(features.osv_vulns),
+        reasons.append(rs.sub["vuln"]["reason"].format(n_vulns=distinct_vulns(features.osv_vulns),
                                                        osv_max_severity=features.osv_max_severity))
         return 1.0
     return 0.0
 
 
-def _classify(rs: Ruleset, total: float) -> str:
-    if total >= rs.block_threshold:
-        return "BLOCK"
-    if total >= rs.review_threshold:
-        return "NEEDS_HUMAN_REVIEW"
-    return "ALLOW"
+def _classify(flagged: bool) -> str:
+    # The score decides nothing: it is shown, not used. A REVIEW needs a review rule (a hard rule of scoring.json, the
+    # behavior table) or the ML model's review; a BLOCK comes only from a known malicious release, the deny list or a
+    # block hard rule (dangerous code that runs at install, interpreter start or import).
+    return "NEEDS_HUMAN_REVIEW" if flagged else "ALLOW"
 
 
 def _apply_hard_rules(rs: Ruleset, mode: str, features, total: float, reasons: list):
-    """Returns (verdict, score, reasons) if a BLOCK rule fired, else (None, total, reasons) with review floors applied."""
+    """("BLOCK", score, reasons) if a block rule fired; else ("NEEDS_HUMAN_REVIEW" if a review rule fired, else None,
+    total with the review floor applied, reasons)."""
+    review = None
     for h in rs.hard_rules:
         if mode not in h.get("modes", ["rules", "ml"]) or not _cond(h["when"], features):
             continue
@@ -1177,8 +1193,9 @@ def _apply_hard_rules(rs: Ruleset, mode: str, features, total: float, reasons: l
             score = total if h.get("score") == "total" else max(total, rs.block_threshold)
             return "BLOCK", round(score, 3), reasons + [_reason(rs, h, features)]
         total = max(total, rs.review_floor)
+        review = "NEEDS_HUMAN_REVIEW"
         reasons.append(_reason(rs, h, features))
-    return None, total, reasons
+    return review, total, reasons
 
 
 def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:
@@ -1220,23 +1237,23 @@ def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:
 
     total = sum(rs.weights[k] * sub[k] for k in rs.weights)
     verdict, score, reasons = _apply_hard_rules(rs, "rules", features, total, reasons)
-    if verdict:
+    if verdict == "BLOCK":
         return verdict, score, reasons
-    total = score
+    total, flagged = score, verdict is not None
 
     # [ML] this path runs when ML gave no usable result; an alert can only raise to REVIEW, never BLOCK
     ml = features.ml
     if ml and ml.get("ok"):
         if ml_level(ml) == "review":
-            total = max(total, rs.review_floor)
+            total, flagged = max(total, rs.review_floor), True
         reasons += ml_reasons(ml)
     elif ml and not ml.get("disabled") and not ml.get("not_installed"):
         reasons.append(f"[ML] no verdict ({ml.get('error')})")
     if ml and ml.get("ok") and not ml.get("code_analyzed") and "ArchiveLimitError" in str(ml.get("code_source")):
-        total = max(total, rs.review_floor)
+        total, flagged = max(total, rs.review_floor), True
         reasons.append("[ML] could not read the code: archive over the size limit (possible zip bomb) → needs at least review")
 
-    return _classify(rs, total), round(total, 3), reasons
+    return _classify(flagged), round(total, 3), reasons
 
 
 def ml_level(ml: dict) -> str:
@@ -1296,6 +1313,6 @@ def score_ml(rs: Ruleset, features) -> tuple[str, float, list]:
     reasons += ml_reasons(ml)
     total = sum(rs.weights[k] * sub[k] for k in rs.ml_subscores) + rs.ml_weight * sub["ml"]
     verdict, score, reasons = _apply_hard_rules(rs, "ml", features, total, reasons)
-    if verdict:
+    if verdict == "BLOCK":
         return verdict, score, reasons
-    return _classify(rs, score), round(score, 3), reasons
+    return _classify(verdict is not None or ml_level(ml) == "review"), round(score, 3), reasons

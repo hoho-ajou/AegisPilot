@@ -16,7 +16,8 @@ from typing import Callable
 from review_report import clean, package_record, unscanned_record
 
 POST_LABELS = {"new_package": "newly registered package", "typosquat": "possible typosquatting", "osv_unavailable": "vulnerability DB lookup failed",
-               "new_risky_code": "risky code new in this version", "late_file": "file recently added to an old version"}
+               "new_risky_code": "risky code new in this version", "late_file": "file recently added to an old version",
+               "fresh_release": "latest version, published within a day (supply chain attack risk)"}
 
 
 @dataclass
@@ -106,6 +107,17 @@ class Context:
         return policy_into(rec, self.pol, self.policy_decide, name, version, verdict)
 
 
+FRESH_LABEL = POST_LABELS["fresh_release"]
+
+
+def _hours_text(h) -> str:
+    try:
+        h = float(h)
+    except (TypeError, ValueError):
+        return "less than a day"
+    return "less than an hour" if h < 1 else f"{int(h)} hour{'s' if int(h) != 1 else ''}"
+
+
 def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> None:
     """The rules applied after the scan (post_rules.py, only ever ALLOW -> REVIEW) and their evidence in the record."""
     try:                                       # rules applied after the scan (post_rules.py): only ever ALLOW -> REVIEW
@@ -114,6 +126,7 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
     except Exception:
         new_verdict, fired = result.verdict, None
     if fired:
+        was = result.verdict
         result.verdict = new_verdict
         rec["verdict"] = new_verdict
         if fired["rule"] == "known_malicious":
@@ -150,6 +163,16 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
             rec["late_file"] = {k: fired.get(k) for k in ("file", "release_date", "added_days_after", "added_days_ago")}
             if fired.get("safe_version"):
                 rec.setdefault("advice", {})["pin_version"] = clean(str(fired["safe_version"]), 40)
+        if fired["rule"] == "fresh_release":
+            ev = {"rule": "fresh_release", "label": FRESH_LABEL, "location": f"published {_hours_text(fired['hours'])} ago",
+                  "snippet": "", "count": 1}
+            others = [e for e in rec["evidence"] if e.get("rule") != "score"]
+            if was == "ALLOW":                            # the release's age is the reason
+                rec["evidence"] = [ev] + others
+                rec["headline"] = FRESH_LABEL
+            else:                                         # already a REVIEW: keep its lead, add the age next to it
+                rec["evidence"] = others[:1] + [ev] + others[1:]
+            rec["release_age_hours"] = fired["hours"]
         if fired["rule"] == "osv_unavailable":
             rec["evidence"] = [{"rule": "osv_unavailable", "label": "vulnerability DB lookup failed", "location": "OSV",
                                 "snippet": "", "count": 1}] + [e for e in rec["evidence"] if e.get("rule") != "score"]
