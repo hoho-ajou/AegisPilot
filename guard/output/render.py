@@ -123,25 +123,6 @@ def ml_why_line(pkg: dict) -> str | None:
     return f"{tag} " + " / ".join(why)
 
 
-def _score100(value) -> float | None:
-    if value is None:
-        return None
-    try:
-        n = float(value)
-    except (TypeError, ValueError):
-        return None
-
-    # scan_engine scores are 0-1: scale them to 0-100
-    if 0 <= n <= 1:
-        n *= 100
-
-    return max(0.0, min(100.0, n))
-
-
-def risk_score(pkg: dict) -> float | None:
-    return _score100(pkg.get("risk_score", pkg.get("score")))
-
-
 def ml_score(pkg: dict) -> float | None:
     # never invent a score: only a score the ML model really produced is used
     candidates = [pkg.get("ml_score")]
@@ -180,13 +161,7 @@ def primary_package(report: dict) -> dict:
         "ALLOW": 1,
     }
 
-    return max(
-        packages,
-        key=lambda p: (
-            priority.get(str(p.get("verdict")), 0),
-            risk_score(p) if risk_score(p) is not None else -1,
-        ),
-    )
+    return max(packages, key=lambda p: priority.get(str(p.get("verdict")), 0))
 
 
 def path_tree(path: str, width: int | None = None) -> list[str]:
@@ -339,7 +314,7 @@ def _split_packages(report: dict) -> tuple[list[dict], list[dict]]:
     with none, the primary package is (a single-package report looks as it always did)."""
     packages = [p for p in report.get("packages") or [] if isinstance(p, dict)]
     flagged = [p for p in packages if str(p.get("verdict")) != "ALLOW"]
-    flagged.sort(key=lambda p: (-_PRIORITY.get(str(p.get("verdict")), 0), -(risk_score(p) if risk_score(p) is not None else -1)))
+    flagged.sort(key=lambda p: -_PRIORITY.get(str(p.get("verdict")), 0))
     shown = flagged or [primary_package(report)]
     return shown, [p for p in packages if str(p.get("verdict")) == "ALLOW" and not any(p is s for s in shown)]
 
@@ -538,7 +513,7 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
             return ("The guard could not scan this package (it may be a temporary error). Try the same command once more. "
                     "If it is stopped again, do not install it and tell the user why in one sentence.")
 
-    return (f"{_JUDGE} Several weak risk signals add up. If needed, continue with another version or a well-known replacement package (the guard checks it again); "
+    return (f"{_JUDGE} Risk signals were found. If needed, continue with another version or a well-known replacement package (the guard checks it again); "
             "otherwise do not install it and tell the user why in one sentence.")
 
 
@@ -711,7 +686,7 @@ def terminal_report(report: dict, width: int | None = None, report_path=None) ->
 
 
 def full_terminal_report(report: dict, width: int | None = None) -> str:
-    """The earlier fixed-format report with every number (Risk Score, ML Score, Policy, Potential Attack Path, Evidence).
+    """The earlier fixed-format report with every number (ML Score, Policy, Potential Attack Path, Evidence).
     `width` = terminal columns (surface.detect()['width'], from COLUMNS); default REPORT_WIDTH."""
     global _active_width
     _active_width = max(30, min(120, int(width))) if width else REPORT_WIDTH
@@ -722,15 +697,9 @@ def full_terminal_report(report: dict, width: int | None = None) -> str:
 
 
 def _package_block(pkg: dict, verdict: str, multi: bool) -> list[str]:
-    rs = risk_score(pkg)
     pkg_verdict = str(pkg.get("verdict") or verdict).replace("NEEDS_HUMAN_REVIEW", "REVIEW") if multi else verdict
     lines = [
         *wrap("Package    : ", _package_text(pkg, multi), " " * 13),
-        (
-            f"Risk Score : {rs:.1f} / 100"
-            if rs is not None
-            else "Risk Score : N/A"
-        ),
         f"ML Score   : {ml_line(pkg)}",
         *(wrap("ML Reasons : ", ml_why_line(pkg), " " * 13) if ml_why_line(pkg) else []),
         *policy_lines(pkg, pkg_verdict),
@@ -878,7 +847,6 @@ def markdown_report(report: dict) -> str:
     multi = len(report.get("packages") or []) > 1
     shown, allowed = _split_packages(report)
     pkg = shown[0]
-    rs = risk_score(pkg)
     did = str(report.get("decision_id") or "")
 
     lines = [
@@ -887,11 +855,6 @@ def markdown_report(report: dict) -> str:
         f"- Package: **{_md_inline(_package_text({**pkg, 'project_install': False}, multi))}**"
         + _md_project_suffix(pkg),
         f"- Decision: **{_md_inline(verdict)}**",
-        (
-            f"- Risk Score: **{rs:.1f} / 100**"
-            if rs is not None
-            else "- Risk Score: **N/A**"
-        ),
         f"- ML Score: **{_md_inline(ml_line(pkg))}**",
         *([f"- ML Reasons: {_md_inline(ml_why_line(pkg))}"] if ml_why_line(pkg) else []),
         *_md_policy(pkg, str(pkg.get("verdict") or verdict).replace("NEEDS_HUMAN_REVIEW", "REVIEW") if multi else verdict),
@@ -938,14 +901,12 @@ def markdown_report(report: dict) -> str:
     if others:
         lines.extend(["", "## Other Flagged Packages"])
         for p in others:
-            prs = risk_score(p)
             pv = str(p.get("verdict") or "").replace("NEEDS_HUMAN_REVIEW", "REVIEW")
             lines.extend([
                 "",
                 f"### {_md_inline(_package_text({**p, 'project_install': False}, multi))}" + _md_project_suffix(p),
                 "",
                 f"- Decision: **{_md_inline(pv)}**",
-                f"- Risk Score: **{prs:.1f} / 100**" if prs is not None else "- Risk Score: **N/A**",
                 f"- ML Score: **{_md_inline(ml_line(p))}**",
                 *([f"- ML Reasons: {_md_inline(ml_why_line(p))}"] if ml_why_line(p) else []),
                 *_md_policy(p, pv),
@@ -962,9 +923,8 @@ def markdown_report(report: dict) -> str:
         "",
         "## Limitations",
         "",
-        "- Risk Score is the AegisPilot scanner score scaled to 0-100. It is not CVSS.",
         "- ML Score is shown as a number only when the ML model really ran; otherwise the reason is given (disabled, unavailable, not run).",
-        "- BLOCK / REVIEW / ALLOW can be set by hard rules, so Risk Score alone does not decide them.",
+        "- BLOCK / REVIEW / ALLOW are set by the rules and the ML review. There is no overall risk score.",
         "- ALLOW does not guarantee safety. It means none of the configured risk signals were found.",
         "",
     ])

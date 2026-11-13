@@ -93,7 +93,8 @@ class ClaudeReason(unittest.TestCase):
         out = M.full_terminal_report({"verdict": "BLOCK", "packages": [{"package": "p", "version": "1", "verdict": "BLOCK", "score": 0.455,
                                  "other_reasons": ["x", "[hard rule] CRITICAL vulnerability → always BLOCK"], "path": "a", "evidence": []}]})
         self.assertIn("Policy     : CRITICAL vulnerability → always BLOCK", out)
-        self.assertIn("45.5 / 100", out)
+        self.assertNotIn("Risk Score", out)          # there is no overall risk score
+        self.assertNotIn("45.5", out)
 
     def test_full_report_shows_policy_entry_and_guard_facts(self):
         deny = {"verdict": "BLOCK", "decision_id": "D1a2b", "packages": [{"package": "six", "version": "1.17.0", "verdict": "BLOCK", "score": 0.006,
@@ -316,7 +317,7 @@ class AutoReason(unittest.TestCase):
                   "coverage": {"analyzed": False}}
         self.assertIn("Try the same command once more", M.auto_reason(failed))
         weak = {"package": "p", "version": "1", "verdict": "NEEDS_HUMAN_REVIEW", "advice": {}, "evidence": [{"rule": "keyword", "label": "x"}]}
-        self.assertIn("Several weak risk signals", M.auto_reason(weak))
+        self.assertIn("Risk signals were found", M.auto_reason(weak))
 
     def test_other_blocked_packages_are_listed_by_validated_name(self):
         out = M.auto_reason(self.REC, [{"package": "evilpkg"}, {"package": "bad; rm -rf /"}])
