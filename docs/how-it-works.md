@@ -55,7 +55,7 @@ Adjustments that need more than the package's own files (`guard/rules/post.json`
 | OSV lists this version as malicious | BLOCK |
 | risky code appears that was not in the previous version | REVIEW |
 | a file was added to an old release recently | REVIEW |
-| the version being installed (or a dependency) was published less than 24 hours ago | REVIEW, marked as a day-old version (supply chain attack risk) |
+| the version being installed (or a dependency) was published less than 24 hours ago | REVIEW, marked as a day-old version (supply chain attack risk); the card names the newest earlier version over a day old (`pkg==1.44.1`, `pkg@2.0.5`) for the agent to install instead |
 | OSV could not be reached | REVIEW |
 | the name is close to a popular package | REVIEW |
 

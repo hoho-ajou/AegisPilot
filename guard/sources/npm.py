@@ -63,12 +63,53 @@ def release_age_hours(name: str, version: str, meta: dict, now=None) -> float | 
     modified = hours(meta.get("modified"))
     if modified is not None and modified >= 24:
         return modified                                   # a lower bound: the version is at least this old
+    times = _publish_times(name)
+    return None if times is None else hours(times.get(version))
+
+
+_TIMES: dict = {}                                       # name -> the full document's `time` map, fetched once per process
+
+
+def _publish_times(name: str) -> dict | None:
+    """The full document's `time` map (version -> publish time), None if it is too big. Fetched once per name."""
+    if name in _TIMES:
+        return _TIMES[name]
     url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
     with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
         body = resp.read(FULL_DOC_MAX_BYTES + 1)
-    if len(body) > FULL_DOC_MAX_BYTES:
+    times = None if len(body) > FULL_DOC_MAX_BYTES else (json.loads(body).get("time") or {})
+    _TIMES[name] = times
+    return times
+
+
+def settled_version(name: str, spec: str | None, version: str, meta: dict, hours: float, now=None) -> str | None:
+    """The newest version below `version` published at least `hours` ago that still fits `spec` (an exact pin or a dist
+    tag counts as "any version"); pre-releases only when `version` is one. None if there is none or times are unknown."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    times = _publish_times(name)
+    cur = parse(version)
+    if not times or cur is None:
         return None
-    return hours((json.loads(body).get("time") or {}).get(version))
+    spec = (spec or "").strip()
+    tags = meta.get("dist-tags") or {}
+    any_version = spec in ("", "*", "latest") or spec in tags or spec.lstrip("=v") == version
+    best = None
+    for v in (meta.get("versions") or {}):
+        p = parse(v)
+        if p is None or _key(p) >= _key(cur) or (p[3] is not None and cur[3] is None):
+            continue
+        try:
+            if not any_version and not satisfies(v, spec):
+                continue
+            when = datetime.fromisoformat(str(times.get(v)).replace("Z", "+00:00"))
+        except (TypeError, ValueError, KeyError):
+            continue
+        if (now - when).total_seconds() / 3600 < hours:
+            continue
+        if best is None or _key(p) > _key(best[1]):
+            best = (v, p)
+    return best[0] if best else None
 
 
 # --------------------------------------------------------------------------------------------- semver (npm's subset)

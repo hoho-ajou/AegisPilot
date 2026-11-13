@@ -173,6 +173,13 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
             else:                                         # already a REVIEW: keep its lead, add the age next to it
                 rec["evidence"] = others[:1] + [ev] + others[1:]
             rec["release_age_hours"] = fired["hours"]
+            f = getattr(result, "features", None)
+            settled = getattr(f, "settled_version", None)
+            if settled:
+                adv = rec.setdefault("advice", {})
+                adv["pin_version"] = clean(str(settled), 40)
+                adv["fresh_requested_exact"] = bool(getattr(f, "requested_exact", False))
+                adv["pin_ecosystem"] = "npm" if (rec.get("ecosystem") or getattr(f, "ecosystem", "pypi")) == "npm" else "pypi"
         if fired["rule"] == "osv_unavailable":
             rec["evidence"] = [{"rule": "osv_unavailable", "label": "vulnerability DB lookup failed", "location": "OSV",
                                 "snippet": "", "count": 1}] + [e for e in rec["evidence"] if e.get("rule") != "score"]
