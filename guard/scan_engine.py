@@ -134,6 +134,7 @@ class ScanFeatures:
     closest_popular_name: str | None = None
 
     osv_vulns: list = field(default_factory=list)
+    analysis_skipped: str | None = None          # why the code was not analyzed (OSV already lists the release as malicious)
     osv_max_severity: str | None = None
 
     maintainer_count: int | None = None
@@ -169,12 +170,25 @@ def fetch_distribution_without_install(name: str, version: str | None, dest_dir:
     return pypi.fetch(name, version, dest_dir, info, meta)
 
 
-def static_analysis(files: list[Path], features: ScanFeatures) -> None:
+OSV_MALICIOUS_SKIP = "OSV lists this release as malicious: code analysis skipped (the verdict is BLOCK either way)"
+
+
+def static_analysis(files: list[Path], features: ScanFeatures, stop=None) -> None:
     """Apply guard/rules/rules.json to the unpacked files (rule_engine.run_static), then the behavior analysis
-    (guard/behavior: rebuilt values and data flow, judged by rules/behavior.json)."""
+    (guard/behavior: rebuilt values and data flow, judged by rules/behavior.json). `stop` (a threading.Event, set when
+    OSV lists the release as malicious) ends the work early: before each stage, and between files of the behavior
+    analysis. Nothing is killed: the analysis returns at the next check."""
+    if stop is not None and stop.is_set():
+        features.analysis_skipped = OSV_MALICIOUS_SKIP
+        return
     rule_engine.run_static(RULESET, files, features)
+    if stop is not None and stop.is_set():
+        features.analysis_skipped = OSV_MALICIOUS_SKIP
+        return
     import behavior
-    behavior.analyze(files, features)
+    behavior.analyze(files, features, stop)
+    if stop is not None and stop.is_set():
+        features.analysis_skipped = OSV_MALICIOUS_SKIP
 
 
 def typosquat_check(name: str, features: ScanFeatures) -> None:
@@ -314,6 +328,17 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
 
     ml_artifact_policy = os.environ.get("AEGIS_ML_ARTIFACT", "model")   # "installed": hand the ML model the file we analyze; "model": it picks its own (sdist first)
     art: dict = {"archive_ready": threading.Event()}
+    stop = threading.Event()                     # set when OSV lists this release as malicious: BLOCK is certain
+
+    def osv_task():
+        vulns = query_osv(name, resolved)
+        try:
+            from post_rules import malicious_ids
+            if malicious_ids(vulns):
+                stop.set()
+        except Exception:
+            pass                                  # unsure: the full analysis runs as before
+        return vulns
     tmp = tempfile.TemporaryDirectory()          # outlives the pool: the ML process may still be reading the archive
 
     def artifact_task():
@@ -322,7 +347,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
             art["files"] = files
             features.artifact, features.artifact_kind = art.get("artifact"), art.get("artifact_kind")
             features.skipped_members = list(art.get("skipped", []))
-            static_analysis(files, features)
+            static_analysis(files, features, stop)
         finally:
             art["archive_ready"].set()           # never leave the ML stage waiting (Range path / failure leave no archive)
 
@@ -334,6 +359,8 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
 
     def ml_task(rel_f):
         rel = rel_f.result()
+        if stop.is_set():
+            return None                           # OSV already decided: no model run
         handoff = {"proj": meta, "rel": rel, "artifact": None}
         if ml_artifact_policy == "installed":
             art["archive_ready"].wait(60)
@@ -346,7 +373,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
             art_f = pool.submit(artifact_task)
             rel_f = pool.submit(rel_task)
             deps_f = pool.submit(deps_task, rel_f)
-            osv_f = pool.submit(query_osv, name, resolved)
+            osv_f = pool.submit(osv_task)
             ml_f = pool.submit(ml_task, rel_f)
             try:
                 art_f.result()
@@ -466,6 +493,14 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
         features.osv_vulns = osv_f.result()
         features.osv_max_severity = _severity_rank(features.osv_vulns)
+        try:
+            from post_rules import malicious_ids
+            if malicious_ids(features.osv_vulns):
+                features.analysis_skipped = OSV_MALICIOUS_SKIP
+                features.fetch_ok = True
+                return compute_verdict(features)   # BLOCK comes from the known_malicious post rule
+        except Exception:
+            pass
         return scan_files(files, features)
 
 

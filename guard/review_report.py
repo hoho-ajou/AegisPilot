@@ -572,6 +572,8 @@ def _coverage_notes(f) -> dict:
         notes["notes"].append(f"skipped {skipped} file(s) with unsafe names")
     if getattr(f, "deps_error", None):
         notes["notes"].append("could not fetch the dependency list")
+    if getattr(f, "analysis_skipped", None):
+        notes["notes"].append("code not analyzed: OSV already lists this release as malicious")
     return notes
 
 

@@ -476,7 +476,7 @@ def _read(path: Path, limit: int) -> str | None:
         return None
 
 
-def analyze_files(files: list[Path], features, deadline: float | None = None) -> Context:
+def analyze_files(files: list[Path], features, deadline: float | None = None, stop=None) -> Context:
     """Run the front ends over the package files; returns the Context with the facts. Never raises."""
     from . import js, python
     ctx = Context(deadline)
@@ -496,6 +496,8 @@ def analyze_files(files: list[Path], features, deadline: float | None = None) ->
     ctx.held = {rel for _p, rel, _l, _ph in held}
     ctx.modules = _module_index(planned + held)
     for n, (path, rel, lang, phase) in enumerate(planned):
+        if stop is not None and stop.is_set():          # OSV already lists the release as malicious: stop quietly
+            break
         over = n >= int(lim["max_files"])
         if over or time.monotonic() > ctx.deadline:
             why = f"only the first {lim['max_files']} files analyzed" if over else f"time limit ({lim['seconds']}s)"
@@ -534,13 +536,13 @@ def analyze_files(files: list[Path], features, deadline: float | None = None) ->
     return ctx
 
 
-def analyze(files: list[Path], features) -> None:
+def analyze(files: list[Path], features, stop=None) -> None:
     """Behavior facts of the unpacked package into `features`: evidence (rule = finding id, with phase and label),
     behavior_block / behavior_review from the policy table, behavior_not_analyzed for files over a limit."""
     import rule_engine
     rs = rule_engine.current()
     try:
-        ctx = analyze_files(files, features)
+        ctx = analyze_files(files, features, stop=stop)
     except Exception as e:                                   # noqa: BLE001
         features.behavior_not_analyzed = [("*", f"analysis failed: {type(e).__name__}")]
         return

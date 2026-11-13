@@ -95,7 +95,7 @@ Checked top to bottom; only the first rule that matches and whose 'applies to' i
 
 | # | id | what | applies to | result | examples |
 |---|---|---|---|---|---|
-| 1 | `known_malicious` | Release that OSV records as malicious (including releases removed from PyPI) | all | block | 2 / 2 |
+| 1 | `known_malicious` | Release that OSV records as malicious (including releases removed from PyPI) | all | block | 3 / 2 |
 | 2 | `new_risky_code` | This release adds risky code the previous release did not have | allow, review | review | 1 / 2 |
 | 3 | `late_file` | A file that will be installed was recently added to an old release | allow, review | review | 1 / 1 |
 | 4 | `fresh_release` | The version being installed was published within the last day (a hijacked release does its damage in its first hours) | allow, review | review | 2 / 2 |
