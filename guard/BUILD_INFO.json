@@ -1,0 +1,12 @@
+{
+ "channel": "release",
+ "commit": "27224582ef6008fee3b7d90668096caf19b991e3",
+ "branch": "main",
+ "dirty": false,
+ "built_at": "2026-11-13T01:32:56+0000",
+ "layout": "plugin",
+ "version": "0.1.2",
+ "source": "https://github.com/hoho-ajou/AegisPilot",
+ "ref": "v0.1.2",
+ "path": "guard"
+}
