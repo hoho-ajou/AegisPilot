@@ -32,7 +32,7 @@ _NOT_EVIDENCE = {"osv", "typosquat", "unscanned_source", "fetch_error", "score",
 SHORT = {"decode_then_exec": "decode-then-exec code", "download_then_execute": "download-then-run code", "pth_chain": "startup exec chain",
          "pth_exec": "code run at startup", "setup_hidden_shell": "hidden shell at install", "setup_network": "network call at install",
          "install_hook_import": "install hook loads risky module", "install_hook": "install hook", "high_entropy": "obfuscated block",
-         "keyword": "uses a dangerous API", "reputation": "weak trust signals", "score": "combined risk signals",
+         "keyword": "uses a dangerous API", "reputation": "weak trust signals", "score": "risk signals",
          "new_package": "newly registered package", "policy_deny": "denied by policy", "known_malicious": "known malicious version", "osv_unavailable": "vuln DB lookup failed", "new_risky_code": "new risky code", "late_file": "recently added file", "fresh_release": "version under a day old"}
 LONG = {"decode_then_exec": "decodes code and runs it right away (within 8 lines)", "download_then_execute": "runs code it downloaded (within 8 lines)",
         "pth_chain": "dangerous exec chain in a file that runs every time Python starts", "pth_exec": "dangerous call in a file that runs every time Python starts",
@@ -367,7 +367,7 @@ def build_rows(rec: dict, report_path: str | None) -> tuple[str, list[tuple[str,
             rows.append(("Impact", _rr.RULES[lead]["risk"]))
     else:
         labels = [e.get("label") for e in rec.get("evidence") or [] if e.get("rule") not in ("score",)][:4]
-        rows.append(("Reason", "several weak risk signals: " + ", ".join(_plain(l, 20) for l in labels if l) if labels else _long(lead)))
+        rows.append(("Reason", "risk signals: " + ", ".join(_plain(l, 20) for l in labels if l) if labels else _long(lead)))
         if _rr.RULES.get(lead, {}).get("risk"):
             rows.append(("Impact", _rr.RULES[lead]["risk"]))
     if case != "unscanned":

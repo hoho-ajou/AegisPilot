@@ -9,7 +9,7 @@ command or file edit
   -> parse          what would be installed or connected
   -> fetch          download the files, unpack without running anything
   -> analyze        static rules + behavior check + OSV
-  -> verdict        hard rules and the ML review (the score is shown only)
+  -> verdict        hard rules and the ML review
   -> post rules     adjustments that need the package's history
   -> lists          allow and deny lists
   -> verdict        ALLOW, REVIEW or BLOCK
@@ -40,9 +40,9 @@ Dependencies pulled in by the package are resolved from registry metadata alone:
 - **Behavior check** (below) decides what the code does and when.
 - **OSV** (`api.osv.dev`) is asked for known vulnerabilities and malicious-package reports for the exact version.
 
-### 4. Score
+### 4. Verdict
 
-The verdict comes from hard rules (`guard/rules/scoring.json`), read top to bottom. Most of them make it a REVIEW: a known vulnerability of any severity, a decode-then-execute or download-then-execute text pattern, read-and-send code with a collector address, code that publishes npm packages by itself, heavily obfuscated JavaScript, a shell command that contacts a bare IP address. Two block: the behavior check's BLOCK facts (dangerous code that runs by itself, see below) and a decode or download chain in a `.pth` file, which runs at every Python start. The ML model, when installed, can add a REVIEW. Evidence is also weighted into a score, which is shown with the verdict to say how much was found; the score decides nothing on its own.
+The verdict comes from hard rules (`guard/rules/scoring.json`), read top to bottom. Most of them make it a REVIEW: a known vulnerability of any severity, a decode-then-execute or download-then-execute text pattern, read-and-send code with a collector address, code that publishes npm packages by itself, heavily obfuscated JavaScript, a shell command that contacts a bare IP address. Two block: the behavior check's BLOCK facts (dangerous code that runs by itself, see below) and a decode or download chain in a `.pth` file, which runs at every Python start. The ML model, when installed, can add a REVIEW. There is no overall risk score: each rule that fires is listed as a reason.
 
 So a BLOCK always has one of three reasons: a release OSV records as malicious (step 5), a deny-list entry (step 6), or dangerous code that runs by itself.
 

@@ -62,7 +62,7 @@ When the user asks whether a PyPI package is safe, or before you install a packa
 python3 -I "${CLAUDE_PLUGIN_ROOT}/guard_cli.py" scan <package_name> [version]
 ```
 
-It prints JSON with `verdict`, `score` and `reasons`.
+It prints JSON with `verdict` and `reasons`.
 - `ALLOW`: no known red flags. This is not a guarantee of safety.
 - `NEEDS_HUMAN_REVIEW`: tell the user the reasons and let them decide before installing.
 - `BLOCK`: do not install. Show the reasons and ask the user how to proceed.

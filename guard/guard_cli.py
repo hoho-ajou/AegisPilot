@@ -399,7 +399,7 @@ if __name__ == "__main__":
         import review_report
         from output import render
         ml = review_report._ml_fields(v.features)              # the same line as the report: score and level, or why none
-        print(json.dumps({"package": sys.argv[2], "verdict": v.verdict, "score": v.score, "reasons": v.reasons,
+        print(json.dumps({"package": sys.argv[2], "verdict": v.verdict, "reasons": v.reasons,
                           "ml": render.ml_line(ml), **({"ml_reasons": render.ml_why_line(ml)} if render.ml_why_line(ml) else {})},
                          ensure_ascii=False, indent=2))
     elif cmd in ("ml-install", "ml-uninstall"):
