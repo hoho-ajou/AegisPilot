@@ -287,6 +287,28 @@ def _hours_since(t: str | None, now: datetime | None = None) -> float | None:
     return max(0.0, ((now or datetime.now(timezone.utc)) - when).total_seconds() / 3600)
 
 
+def pypi_version_for_range(meta: dict, spec: str) -> str | None:
+    """The version pip picks for a range (`<2.30`, `~=2.28.0`, `==4.*`): the highest release that matches, has files and
+    is not yanked; a pre-release only when the range names one. None: no match, or a
+    range this cannot read (the caller keeps the latest)."""
+    try:
+        from _vendor.packaging.specifiers import SpecifierSet
+        from _vendor.packaging.version import InvalidVersion, Version
+        rng = SpecifierSet(spec.split(";", 1)[0].strip())
+    except Exception:
+        return None
+    found = []
+    for v, files in (meta.get("releases") or {}).items():
+        if not files or all(f.get("yanked") for f in files):
+            continue
+        try:
+            found.append(Version(v))
+        except InvalidVersion:
+            continue
+    picked = list(rng.filter(found))
+    return str(max(picked)) if picked else None
+
+
 def pypi_release_age_hours(meta: dict, version: str | None, now: datetime | None = None) -> float | None:
     """Hours since the first file of this version was uploaded to PyPI (yanked files ignored), None if unknown."""
     files = [f for f in (meta.get("releases") or {}).get(version or "") or [] if not f.get("yanked")]

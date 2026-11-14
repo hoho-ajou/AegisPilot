@@ -51,8 +51,39 @@ def _look_back(packages) -> tuple[dict, dict, dict, list]:
     return vdiff_box, late_box, vfeat_box, threads
 
 
+RANGE_WAIT_SECONDS = 20
+
+
+def _pin_ranges(parsed) -> None:
+    """`pip install "requests<2.30"` installs the highest matching release, not the latest: scan that one. The PyPI
+    lookups run side by side; a range that cannot be read or matched keeps the latest (as before)."""
+    from install_parse import _norm
+    todo = [(i, n, parsed.specs.get(_norm(n), "")) for i, (n, v) in enumerate(parsed.packages) if v is None]
+    todo = [(i, n, spec) for i, n, spec in todo if spec.strip()]
+    if not todo:
+        return
+    from concurrent.futures import ThreadPoolExecutor, wait
+    import scan_engine
+    from sources import pypi as _pypi
+
+    def pick(name, spec):
+        return scan_engine.pypi_version_for_range(_pypi.metadata(name), spec)
+    with ThreadPoolExecutor(max_workers=min(8, len(todo))) as pool:
+        futs = {pool.submit(pick, n, spec): i for i, n, spec in todo}
+        done, _ = wait(futs, timeout=RANGE_WAIT_SECONDS)
+        for f in done:
+            try:
+                v = f.result()
+            except Exception:
+                continue
+            if v:
+                i = futs[f]
+                parsed.packages[i] = (parsed.packages[i][0], v)
+
+
 def run(ctx) -> Outcome:
     parsed, out = ctx.parsed, Outcome()
+    _pin_ranges(parsed)
     ctx.start_osv()                                     # beside the scan, waited for after it
     vdiff_box, late_box, vfeat_box, threads = _look_back(parsed.packages)
     try:
