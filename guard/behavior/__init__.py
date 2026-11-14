@@ -327,6 +327,7 @@ def _plan(files: list[Path], features, ctx: Context | None = None) -> tuple[list
     install_setups = rule_engine.install_time_setups(rs, files)
     install_files = [str(f).replace("\\", "/") for f in (getattr(features, "install_time_files", None) or [])]
     out, held = [], []
+    js_loaded = _js_loaded(files, rule_engine) if getattr(features, "ecosystem", None) == "npm" else None
     for path in files:
         try:
             if not path.is_file():
@@ -363,6 +364,8 @@ def _plan(files: list[Path], features, ctx: Context | None = None) -> tuple[list
             phase = "install"
         else:
             phase = "import" if lang == "js" else "command"
+            if lang == "js" and js_loaded is not None and rel not in js_loaded[0]:
+                phase = "command" if rel in js_loaded[1] else "call"   # runs only when asked for by path or as a command
         if phase in ("import", "command") and (rule_engine.is_test_path(rs, path)
                                                or rule_engine.is_dev_path(rs, path, set(dev_names) if dev_names else None)):
             held.append((path, rel, lang, phase))
@@ -384,6 +387,20 @@ def _plan(files: list[Path], features, ctx: Context | None = None) -> tuple[list
     # the file-count limit are ones only an explicit import of that very module runs
     out.sort(key=lambda x: (order.get(x[3], 9), not import_root(x[1]), x[1].count("/"), x[1]))
     return out, held
+
+
+def _js_loaded(files: list[Path], rule_engine) -> tuple[set[str], set[str]] | None:
+    """npm: (files that run when the package is loaded, bin files) - see js_entry; None when that cannot be told."""
+    from . import js_entry
+    by_rel = {}
+    for path in files:
+        if path.name.startswith("package.json#"):
+            continue
+        by_rel.setdefault(rule_engine.package_relative(path).replace("\\", "/"), path)
+    try:
+        return js_entry.loaded_files(by_rel)
+    except Exception:
+        return None
 
 
 def import_root(rel: str) -> bool:
