@@ -71,23 +71,35 @@ def pick_version(meta: dict, spec: str) -> str | None:
 
 def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: datetime | None = None,
          deadline: float | None = None) -> tuple[list[dict], list[str]]:
-    """direct: [{"name", "version", "dependencies": [{"name", "spec"}]}] for the packages the command names.
-    Returns (dependencies found: [{"name", "version", "via": [names], "uploaded", "recent"}], notes on limits hit)."""
+    """direct: [{"name", "version", "extras", "dependencies": [{"name", "spec", "extras"}]}] for the packages the command
+    names. Returns (dependencies found: [{"name", "version", "via": [names], "uploaded", "recent"}], notes on limits hit).
+
+    A dependency asked for with extras (`uvicorn[standard]`) brings their dependencies too. A package met again with
+    extras not followed yet (a plain `uvicorn` first, `uvicorn[standard]` later) is opened again for those extras only:
+    it is listed once, its added dependencies are walked like any other."""
     cfg = settings()
     now = now or datetime.now(timezone.utc)
     recent_cut = now - timedelta(days=int(cfg["recent_days"]))
     lock_pins = lock_pins or {}
-    seen = {collect.normalize_name(d["name"]) for d in direct}
-    level = [(dep["name"], dep.get("spec", ""), [d["name"]]) for d in direct for dep in d.get("dependencies") or []]
+    # normalized name -> (version, extras followed so far); the direct packages are already open
+    opened: dict[str, tuple[str | None, set]] = {
+        collect.normalize_name(d["name"]): (d.get("version"), {collect.normalize_extra(e) for e in d.get("extras") or ()})
+        for d in direct}
+    level = [(dep["name"], dep.get("spec", ""), set(dep.get("extras") or ()), [d["name"]])
+             for d in direct for dep in d.get("dependencies") or []]
     found: list[dict] = []
     notes: list[str] = []
     meta_cache: dict = {}
 
+    def meta_of(name):
+        meta = meta_cache.get(name) or fetch_meta(name)
+        meta_cache[name] = meta
+        return meta
+
     def one(item):
-        name, spec, via = item
+        name, spec, extras, via = item
         try:
-            meta = meta_cache.get(name) or fetch_meta(name)
-            meta_cache[name] = meta
+            meta = meta_of(name)
         except Exception as e:
             return {"name": name, "version": None, "via": via, "error": type(e).__name__}
         version = lock_pins.get(collect.normalize_name(name)) or pick_version(meta, spec)
@@ -95,26 +107,43 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
             return {"name": name, "version": None, "via": via, "error": "no matching version"}
         up = _uploaded(meta, version)
         try:
-            deps = collect.fetch_requires(name, version, meta)
+            deps = collect.fetch_requires(name, version, meta, extras=extras)
         except Exception:
             deps = []
         return {"name": collect.normalize_name(name), "version": version, "via": via,
                 "uploaded": up.date().isoformat() if up else None, "uploaded_at": up.isoformat() if up else None, "recent": bool(up and up >= recent_cut),
                 "dependencies": deps}
 
+    def more(item):
+        """A package already open, met with more extras: only the dependencies those extras add."""
+        name, version, extras, via = item
+        try:
+            deps = collect.fetch_requires(name, version, meta_of(name), extras=extras)
+        except Exception:
+            deps = []
+        return {"name": collect.normalize_name(name), "via": via, "dependencies": deps}
+
     with ThreadPoolExecutor(int(cfg["workers"])) as pool:
         for depth in range(1, int(cfg["max_depth"]) + 1):
-            todo = []
-            for name, spec, via in level:
+            todo, again, pending = [], [], {}
+            for name, spec, extras, via in level:
                 key = collect.normalize_name(name)
-                if key in seen:
+                extras = {collect.normalize_extra(e) for e in extras}
+                if key in pending:                       # asked for twice on this level: one lookup with all the extras
+                    todo[pending[key]][2].update(extras)
                     continue
-                seen.add(key)
-                todo.append((name, spec, via))
-            if not todo:
+                if key in opened:
+                    version, done = opened[key]
+                    if version and not extras <= done:
+                        opened[key] = (version, done | extras)
+                        again.append((name, version, done | extras, via))
+                    continue
+                pending[key] = len(todo)
+                todo.append((name, spec, set(extras), via))
+            if not todo and not again:
                 break
             room = int(cfg["max_packages"]) - len(found)
-            if room <= 0:
+            if todo and room <= 0:
                 notes.append(f"more than {cfg['max_packages']} transitive dependencies: the rest were not checked")
                 break
             if len(todo) > room:
@@ -124,9 +153,12 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
                 notes.append("transitive dependencies not fully checked within the time limit")
                 break
             results = list(pool.map(one, todo))
+            for r, (name, _spec, extras, _via) in zip(results, todo):
+                opened[collect.normalize_name(name)] = (r.get("version"), extras)
             found += results
-            level = [(dep["name"], dep.get("spec", ""), r["via"] + [r["name"]])
-                     for r in results if r.get("version") for dep in r.get("dependencies") or []]
+            results += list(pool.map(more, again))
+            level = [(dep["name"], dep.get("spec", ""), set(dep.get("extras") or ()), r["via"] + [r["name"]])
+                     for r in results if r.get("dependencies") for dep in r["dependencies"]]
         else:
             if level:
                 notes.append(f"dependencies deeper than {cfg['max_depth']} levels were not checked")

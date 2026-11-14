@@ -32,7 +32,7 @@ class CollectTests(unittest.TestCase):
 
     def test_latest_requires_read_from_meta_without_network(self):
         meta = {"info": {"version": "2", "requires_dist": ["idna"]}}
-        self.assertEqual(C.fetch_requires("x", "2", meta), [{"name": "idna", "spec": ""}])
+        self.assertEqual(C.fetch_requires("x", "2", meta), [{"name": "idna", "spec": "", "extras": []}])
 
 
 if __name__ == "__main__":

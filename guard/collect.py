@@ -20,30 +20,78 @@ def normalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def parse_requires(requires_dist: list[str] | None) -> list[dict]:
-    """Direct dependencies that apply to a plain install: [{"name", "spec"}], deduplicated, sorted.
-    An entry is dropped when its environment marker is false for THIS interpreter or it only exists behind an
-    extra (`extra == "x"`) - pip installs neither by default. Unparsable entries are kept by name, never lost."""
-    out: dict[str, dict] = {}
+def normalize_extra(extra: str) -> str:
+    """PEP 685: extra names compare like project names (`Dev`, `dev_tools` -> `dev`, `dev-tools`)."""
+    return re.sub(r"[-_.]+", "-", str(extra).strip()).lower()
+
+
+def parse_extras(text: str | None) -> set[str]:
+    """`a, B_c` (the inside of `pkg[...]`) -> {"a", "b-c"}."""
+    return {normalize_extra(e) for e in (text or "").split(",") if e.strip()}
+
+
+def parse_requires(requires_dist: list[str] | None, extras=None, own: str | None = None) -> list[dict]:
+    """The dependencies pip installs: [{"name", "spec", "extras"}], one per name, sorted.
+
+    An entry counts when its environment marker is true for THIS interpreter with no extra or with one of the extras
+    asked for (`pkg[a,b]`). A package may name itself to pull in more of its own extras (`pkg[all]` -> `pkg[a,b]`):
+    those are followed, not listed. Two entries for one name are merged (both ranges apply, the extras add up). Entries
+    that cannot be parsed are kept by name (unless they sit behind an extra that was not asked for), never lost."""
     try:
         from _vendor.packaging.requirements import Requirement
     except Exception:                                            # no packaging: fall back to the leading name
         Requirement = None
+    own_key = normalize_name(own) if own else None
+    wanted = {""} | {normalize_extra(e) for e in (extras or ())}
+    parsed = []
     for raw in requires_dist or []:
         try:
             if Requirement is None:
                 raise ValueError
             req = Requirement(raw)
-            if req.marker is not None and not req.marker.evaluate({"extra": ""}):
-                continue
-            name, spec = normalize_name(req.name), str(req.specifier)
+            parsed.append((normalize_name(req.name), str(req.specifier), {normalize_extra(e) for e in req.extras}, req.marker, raw))
         except Exception:
             m = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", raw)
-            if not m or "extra ==" in raw:
-                continue
-            name, spec = normalize_name(m.group(1)), ""
-        out.setdefault(name, {"name": name, "spec": spec})
+            if m:
+                parsed.append((normalize_name(m.group(1)), "", set(), None, raw))
+
+    def applies(marker, raw) -> bool:
+        if marker is None:
+            if Requirement is not None or "extra" not in raw.split(";", 1)[-1]:
+                return True
+            named = set(re.findall(r"extra\s*==\s*['\"]([^'\"]+)['\"]", raw))
+            return bool({normalize_extra(x) for x in named} & wanted)
+        for extra in wanted:
+            try:
+                if marker.evaluate({"extra": extra}):
+                    return True
+            except Exception:
+                return True                                      # a marker this cannot evaluate: keep the entry
+        return False
+
+    while True:                                                  # own extras can name more own extras
+        more = set()
+        for name, _spec, req_extras, marker, raw in parsed:
+            if own_key and name == own_key and applies(marker, raw):
+                more |= req_extras - wanted
+        if not more:
+            break
+        wanted |= more
+    out: dict[str, dict] = {}
+    for name, spec, req_extras, marker, raw in parsed:
+        if (own_key and name == own_key) or not applies(marker, raw):
+            continue
+        cur = out.setdefault(name, {"name": name, "spec": "", "extras": []})
+        if spec and spec not in cur["spec"].split(","):
+            cur["spec"] = ",".join(x for x in (cur["spec"], spec) if x)
+        cur["extras"] = sorted(set(cur["extras"]) | req_extras)
     return [out[k] for k in sorted(out)]
+
+
+def requirement_text(dep: dict) -> str:
+    """{"name", "spec", "extras"} -> `name[a,b]spec`."""
+    extras = dep.get("extras") or []
+    return f"{dep['name']}{'[' + ','.join(extras) + ']' if extras else ''}{dep.get('spec') or ''}"
 
 
 def fetch_release(name: str, resolved: str | None, meta: dict, timeout: int = 15) -> dict:
@@ -55,10 +103,11 @@ def fetch_release(name: str, resolved: str | None, meta: dict, timeout: int = 15
     return {"info": meta.get("info", {}), "urls": meta.get("urls", [])}
 
 
-def fetch_requires(name: str, resolved: str | None, meta: dict, timeout: int = 15, rel: dict | None = None) -> list[dict]:
-    """requires_dist of the resolved version (from `rel` when the caller already fetched it)."""
+def fetch_requires(name: str, resolved: str | None, meta: dict, timeout: int = 15, rel: dict | None = None,
+                   extras=None) -> list[dict]:
+    """The dependencies of the resolved version with these extras (from `rel` when the caller already fetched it)."""
     rel = rel if rel is not None else fetch_release(name, resolved, meta, timeout)
-    return parse_requires(rel.get("info", {}).get("requires_dist"))
+    return parse_requires(rel.get("info", {}).get("requires_dist"), extras, own=name)
 
 
 def reputation_signals(meta: dict, now: datetime | None = None) -> dict:

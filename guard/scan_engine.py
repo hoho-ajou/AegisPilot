@@ -127,7 +127,8 @@ class ScanFeatures:
     artifact_kind: str | None = None   # "wheel" | "sdist"
     install_time_files: list = field(default_factory=list)   # npm: files the install scripts run (sources/npm.install_time_files)
     skipped_members: list = field(default_factory=list)   # [(name, reason)] members with unsafe names the extractor skipped
-    dependencies: list = field(default_factory=list)   # direct deps that apply to a plain install [{name, spec}]
+    dependencies: list = field(default_factory=list)   # direct deps that apply to a plain install [{name, spec, extras}]
+    requires_dist: list = field(default_factory=list)  # the release's raw Requires-Dist (extras asked for are applied later)
     deps_error: str | None = None
 
     min_edit_distance: int | None = None
@@ -330,7 +331,9 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         return collect.fetch_release(name, resolved, meta)
 
     def deps_task(rel_f):
-        features.dependencies = collect.fetch_requires(name, resolved, meta, rel=rel_f.result())
+        rel = rel_f.result()
+        features.requires_dist = list(rel.get("info", {}).get("requires_dist") or [])
+        features.dependencies = collect.fetch_requires(name, resolved, meta, rel=rel)
 
     def ml_task(rel_f):
         rel = rel_f.result()

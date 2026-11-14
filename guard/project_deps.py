@@ -41,14 +41,25 @@ def _read(path: Path):
     return path.read_text(errors="replace")
 
 
+def _with_extras(name: str, value) -> str:
+    """`{extras = ["socks"]}` in a poetry / Pipfile table -> `name[socks]`."""
+    extras = value.get("extras") if isinstance(value, dict) else None
+    if isinstance(extras, list):
+        extras = [str(e) for e in extras if isinstance(e, str) and re.fullmatch(r"[A-Za-z0-9._-]+", e)]
+        if extras:
+            return f"{name}[{','.join(extras)}]"
+    return name
+
+
 def _poetry_spec(name: str, value) -> str | None:
     """poetry `pyyaml = "5.3.1"` / `{version = "^5.3"}` -> a PEP 508 string (exact only when the value is a plain version)."""
+    if isinstance(value, list):
+        value = value[0] if value and isinstance(value[0], dict) else "*"
     if isinstance(value, dict):
         if any(k in value for k in ("git", "url", "path")):
             return f"{name} @ {value.get('git') or value.get('url') or value.get('path')}"
+        name = _with_extras(name, value)
         value = value.get("version", "*")
-    if isinstance(value, list):
-        value = (value[0] or {}).get("version", "*") if value and isinstance(value[0], dict) else "*"
     v = str(value).strip()
     if re.fullmatch(r"\d[\w.!+-]*", v):
         return f"{name}=={v}"                 # poetry: a bare version is an exact pin
@@ -61,9 +72,32 @@ def _pipfile_spec(name: str, value) -> str:
     if isinstance(value, dict):
         if any(k in value for k in ("git", "file", "path")):
             return f"{name} @ {value.get('git') or value.get('file') or value.get('path')}"
+        name = _with_extras(name, value)
         value = value.get("version", "*")
     v = str(value).strip()
     return f"{name}{v}" if v.startswith("==") else name
+
+
+def _optional(proj: dict, extras, all_groups: bool) -> list[str]:
+    """[project.optional-dependencies] entries pip installs for `.[a,b]` (all of them for a sync-style command). An
+    extra may list the project itself to pull in more of its extras (`all = ["proj[a,b]"]`): followed, not listed."""
+    from collect import normalize_extra, normalize_name, parse_extras
+    optional = {normalize_extra(k): v for k, v in (proj.get("optional-dependencies") or {}).items() if isinstance(v, list)}
+    wanted = set(optional) if all_groups else {normalize_extra(e) for e in (extras or ())}
+    own = normalize_name(str(proj.get("name") or "")) or None
+
+    def own_extras(item: str) -> set[str] | None:
+        m = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?", item)
+        return parse_extras(m.group(2)) if m and own and normalize_name(m.group(1)) == own else None
+    while True:
+        more = set()
+        for extra in list(wanted):
+            for item in optional.get(extra, []):
+                more |= (own_extras(str(item)) or set()) - wanted
+        if not more:
+            break
+        wanted |= more
+    return [str(r) for extra in sorted(wanted) for r in optional.get(extra, []) if own_extras(str(r)) is None]
 
 
 def manifest(project: Path, extras: set[str] | None = None, all_groups: bool = False) -> tuple[list[str], list[str]]:
@@ -78,9 +112,7 @@ def manifest(project: Path, extras: set[str] | None = None, all_groups: bool = F
             if "dependencies" in (proj.get("dynamic") or []):
                 unreadable.append("pyproject.toml: dependencies are dynamic (computed at build time), cannot be known without running code")
             reqs += [str(r) for r in proj.get("dependencies") or []]
-            for extra, items in (proj.get("optional-dependencies") or {}).items():
-                if all_groups or (extras and (extra in extras or "all" in extras)):
-                    reqs += [str(r) for r in items]
+            reqs += _optional(proj, extras, all_groups)
             for group, items in (doc.get("dependency-groups") or {}).items():
                 if all_groups or group == "dev":          # uv installs the dev group by default
                     reqs += [str(r) for r in items if isinstance(r, str)]
@@ -156,8 +188,8 @@ def pipfile_lock_direct(project: Path) -> list[str]:
     return [f"{n}{(i or {}).get('version', '')}" for s in ("default", "develop") for n, i in (doc.get(s) or {}).items()]
 
 
-def wheel_requires(path: Path) -> tuple[list[str], list[str]]:
-    """Requires-Dist of a local wheel (extras-only requirements skipped)."""
+def wheel_requires(path: Path, extras=None) -> tuple[list[str], list[str]]:
+    """Requires-Dist of a local wheel that pip installs (with the extras asked for; markers for this interpreter)."""
     try:
         with zipfile.ZipFile(path) as z:
             meta = next((n for n in z.namelist() if n.endswith(".dist-info/METADATA")), None)
@@ -166,10 +198,7 @@ def wheel_requires(path: Path) -> tuple[list[str], list[str]]:
             text = z.read(meta).decode(errors="replace")
     except (OSError, zipfile.BadZipFile) as e:
         return [], [f"could not read {path.name} ({type(e).__name__})"]
-    reqs = []
-    for line in text.splitlines():
-        if line.startswith("Requires-Dist:"):
-            req = line.split(":", 1)[1].strip()
-            if "extra ==" not in req.split(";", 1)[-1]:
-                reqs.append(req.split(";", 1)[0].strip())
-    return reqs, []
+    from collect import parse_requires, requirement_text
+    lines = [ln.split(":", 1)[1].strip() for ln in text.splitlines() if ln.startswith("Requires-Dist:")]
+    own = next((ln.split(":", 1)[1].strip() for ln in text.splitlines() if ln.startswith("Name:")), None)
+    return [requirement_text(d) for d in parse_requires(lines, extras, own=own)], []
