@@ -178,7 +178,6 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
             if settled:
                 adv = rec.setdefault("advice", {})
                 adv["pin_version"] = clean(str(settled), 40)
-                adv["fresh_requested_exact"] = bool(getattr(f, "requested_exact", False))
                 adv["pin_ecosystem"] = "npm" if (rec.get("ecosystem") or getattr(f, "ecosystem", "pypi")) == "npm" else "pypi"
         if fired["rule"] == "osv_unavailable":
             rec["evidence"] = [{"rule": "osv_unavailable", "label": "vulnerability DB lookup failed", "location": "OSV",

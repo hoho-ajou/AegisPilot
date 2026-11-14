@@ -140,7 +140,6 @@ class ScanFeatures:
     package_age_days: float | None = None
     release_age_hours: float | None = None   # hours since the version being installed was first uploaded (None: unknown)
     settled_version: str | None = None       # when that is under the fresh-release limit: the newest earlier version past it
-    requested_exact: bool = False            # the command named this exact version (else the guard picked the newest)
     has_readme: bool = False
 
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
@@ -342,7 +341,6 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     resolved = version or meta.get("info", {}).get("version")
     features.resolved_version = resolved
     features.release_age_hours = pypi_release_age_hours(meta, resolved)
-    features.requested_exact = bool(version)
     limit = _fresh_hours()
     if features.release_age_hours is not None and features.release_age_hours < limit:
         features.settled_version = pypi_settled_version(meta, resolved, limit)
@@ -488,7 +486,6 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         features.release_age_hours = npm.release_age_hours(name, version, meta)
     except Exception:
         features.release_age_hours = None                 # unknown: the fresh-release rule does not apply
-    features.requested_exact = bool(spec) and spec.strip().lstrip("=v") == version
     limit = _fresh_hours()
     if features.release_age_hours is not None and features.release_age_hours < limit:
         try:

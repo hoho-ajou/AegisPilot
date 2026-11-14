@@ -212,7 +212,7 @@ assert _npm.settled_version("fx", "^2.1.0", "2.1.0", _nm, 24, _now) is None     
 assert _npm.settled_version("fx", "2.1.0", "2.1.0", _nm, 24, _now) == "2.0.5"         # an exact pin: any earlier version
 # the record carries it, and the card / the agent's instruction name the exact command
 _ff = _fresh(3.0)
-_ff.features.settled_version, _ff.features.requested_exact = "1.9", False
+_ff.features.settled_version = "1.9"
 rec = {"package": "pkg", "evidence": [], "verdict": "ALLOW"}
 _base.post_rules_into(rec, _ff, None, True, None, None)
 assert rec["advice"]["pin_version"] == "1.9" and rec["advice"]["pin_ecosystem"] == "pypi", rec["advice"]
@@ -220,13 +220,13 @@ from output import render as _render  # noqa: E402
 assert _render._advice_case(rec) == "fresh"
 assert _render.fix_offers([rec]) == [("pkg", "pkg==1.9")]
 _txt = _render.auto_reason(rec)
-assert "`pkg==1.9`" in _txt and "newest version older than a day" in _txt, _txt
+assert "`pkg==1.9`" in _txt and "newest earlier version that is over a day old" in _txt, _txt
 rec_n = {"package": "fx", "ecosystem": "npm", "evidence": [], "verdict": "ALLOW"}
 _fn = _fresh(3.0)
-_fn.features.settled_version, _fn.features.requested_exact, _fn.features.ecosystem = "2.0.5", True, "npm"
+_fn.features.settled_version, _fn.features.ecosystem = "2.0.5", "npm"
 _base.post_rules_into(rec_n, _fn, "2.1.0", True, None, None)
 assert _render.fresh_pin("fx", rec_n["advice"]) == "fx@2.0.5"
 _txt = _render.auto_reason(rec_n)
-assert "exact version" in _txt and "`fx@2.0.5`" in _txt, _txt
+assert "Install `fx@2.0.5` instead" in _txt, _txt
 assert _render.fresh_pin("fx", {"pin_version": "2.0.5; rm -rf /"}) == ""                 # registry values are validated
 print("post_rules: fresh releases held")

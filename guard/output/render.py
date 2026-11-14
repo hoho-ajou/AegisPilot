@@ -473,14 +473,10 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
                 + "Do not upgrade to the latest version or install the same version another way. ")
     if case == "fresh":
         pin = fresh_pin(name, adv)
-        if adv.get("fresh_requested_exact"):
-            return (f"This exact version of `{name}` was published less than a day ago. Hijacked releases are usually caught and pulled within hours, "
-                    "so a release this new is held. Unless the plan needs this exact version, use the earlier version "
-                    f"`{pin}` instead: change it in the command or the requirements file (do not edit other lines) and continue (the guard checks it again). "
-                    "If this exact version is really needed, do not install it now and tell the user in one sentence to wait a day or to approve it. ")
-        return (f"The newest version of `{name}` was published less than a day ago. Hijacked releases are usually caught and pulled within hours, "
-                f"so install the newest version older than a day instead: `{pin}`. Change the command (or the `{name}` line of the requirements file, "
-                "no other lines) to exactly that and continue (the guard checks it again). Do not install the newest version another way. ")
+        return (f"This version of `{name}` was published less than a day ago. Hijacked releases are usually caught and pulled within hours, "
+                f"so do not install it. Install `{pin}` instead (the newest earlier version that is over a day old): change the command "
+                f"(or the `{name}` line of the requirements file, no other lines) to exactly that and continue (the guard checks it again). "
+                "Do not install this version another way. ")
     if case == "osvdown":
         return ("The guard could not reach the vulnerability DB (OSV), so known vulnerabilities and malicious versions were not checked. The code scan found no problem. "
                 "Run the same install command once more (the guard checks again). If you get the same message again, do not install it, and "
