@@ -63,11 +63,17 @@ def _pin_ranges(parsed) -> None:
     if not todo:
         return
     from concurrent.futures import ThreadPoolExecutor, wait
-    import scan_engine
+    import transitive
     from sources import pypi as _pypi
 
     def pick(name, spec):
-        return scan_engine.pypi_version_for_range(_pypi.metadata(name), spec)
+        rng = spec.split(";", 1)[0].strip()             # an environment marker is not part of the range
+        try:
+            from _vendor.packaging.specifiers import SpecifierSet
+            SpecifierSet(rng)
+        except Exception:
+            return None                                  # a range this cannot read: keep the latest
+        return transitive.pick_version(_pypi.metadata(name), rng)   # the same choice the dependency walk makes
     with ThreadPoolExecutor(max_workers=min(8, len(todo))) as pool:
         futs = {pool.submit(pick, n, spec): i for i, n, spec in todo}
         done, _ = wait(futs, timeout=RANGE_WAIT_SECONDS)
