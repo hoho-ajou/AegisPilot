@@ -19,6 +19,10 @@ _SPEC = r"""(?:'([^'\n]*)'|"([^"\n]*)"|`([^`$\n]*)`)"""
 _STATIC = re.compile(r"""(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s*|\bimport\s+|\bexport\s*\*\s*from\s*)""" + _SPEC)
 _CALL = re.compile(r"""(?<![\w$.])(?:require|import)\s*\(\s*([^\s)])""")
 _READ_LIMIT = 8 * 1024 * 1024
+# a file of the package named as a string: what spawn("node", [f]), fork(f), new Worker(f) or a path built from
+# __dirname runs. Any such string in loaded code counts as loaded too (a file named and not run costs one more read)
+_FILE_LITERAL = re.compile(r"""['"`]((?:\.{0,2}/)?[\w@.\-/]+\.(?:c|m)?js)['"`]""")
+_DIRNAME_JOIN = re.compile(r"""\.(?:join|resolve)\(\s*__dirname\s*((?:,\s*['"`][^'"`\n]+['"`]\s*)+)\)""")
 
 
 def _strings(node, out: list[str]) -> None:
@@ -122,6 +126,15 @@ def loaded_files(files: dict[str, Path], name: str | None = None) -> tuple[set[s
         specs, dynamic = _requests(text)
         if dynamic:
             return None
+        named = [m.group(1) for m in _FILE_LITERAL.finditer(text)]
+        named += ["/".join(re.findall(r"""['"`]([^'"`]+)['"`]""", m.group(1))) for m in _DIRNAME_JOIN.finditer(text)]
+        for lit in named:
+            if "://" in lit:
+                continue
+            target = _resolve(lit if lit.startswith(".") else "./" + lit, posixpath.dirname(rel), files) \
+                or _resolve(lit.lstrip("./"), "", files)
+            if target and target not in seen:
+                todo.append(target)
         for spec in specs:
             if spec.startswith("."):
                 target = _resolve(spec, posixpath.dirname(rel), files)

