@@ -753,7 +753,7 @@ def fetch(name: str, spec: str | None, dest: Path, meta: dict | None = None, inf
     files = extract(raw, root, skipped)
     life = write_lifecycle(files, dest, base)
     if info is not None:
-        info.update(artifact=url.rsplit("/", 1)[-1], artifact_kind="npm", skipped=skipped,
+        info.update(artifact=url.rsplit("/", 1)[-1], artifact_kind="npm", skipped=skipped, root=str(root),
                     scripts={f.name.split("#", 1)[1][:-3]: f.read_text().strip()[:200] for f in life
                              if f.suffix == ".sh" and "~" not in f.name},
                     integrity=dist.get("integrity"))

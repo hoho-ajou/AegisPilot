@@ -15,6 +15,11 @@ Automatic download: when the model files are missing, the first PyPI check downl
 same download and the same hash check as ml-install, with a 30-second limit; a failure is remembered for 6 hours so
 checks do not keep waiting on it, and the verdict is rule-based meanwhile. `ml-uninstall` leaves a marker (<folder>.off)
 so the files are not downloaded again; `ml-install` removes it. AEGIS_ML=0 turns ML off without downloading anything.
+
+Two groups of model files: "pypi" (models.json "models") and "npm" (models.json "npm": its own models and release).
+Each group is downloaded, checked and remembered on its own, on the first check of its ecosystem: a missing or failed
+npm model never takes the PyPI model down, and the other way round. A models.json without an "npm" block has no npm
+model (npm packages are then checked by the rules alone).
 """
 from __future__ import annotations
 
@@ -34,8 +39,31 @@ AUTO_RETRY_SECONDS = 6 * 3600        # after a failed automatic download, rules 
 LOCK_STALE_SECONDS = 300
 
 
+GROUPS = ("pypi", "npm")
+
+
 def spec() -> dict:
     return json.loads((ML_CODE / "models.json").read_text())
+
+
+def group_models(group: str = "pypi", s: dict | None = None) -> dict:
+    """The model files of a group ({} when models.json has none, e.g. no npm model released yet)."""
+    s = s if s is not None else spec()
+    if group == "pypi":
+        return s["models"]
+    return dict(((s.get(group) or {}).get("models")) or {})
+
+
+def group_release_url(group: str = "pypi", s: dict | None = None) -> str:
+    s = s if s is not None else spec()
+    return s["release_url"] if group == "pypi" else (s.get(group) or {}).get("release_url", "")
+
+
+def has_group(group: str) -> bool:
+    try:
+        return bool(group_models(group))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def _sha256(path: Path) -> str:
@@ -46,12 +74,14 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def check_models(folder: Path) -> str | None:
-    """None when every model file in models.json is in `folder` with its SHA-256; otherwise what is wrong."""
+def check_models(folder: Path, group: str = "pypi") -> str | None:
+    """None when every model file of the group in models.json is in `folder` with its SHA-256; otherwise what is wrong."""
     try:
-        models = spec()["models"]
+        models = group_models(group)
     except (OSError, ValueError, KeyError) as e:
         return f"models.json unreadable ({type(e).__name__})"
+    if not models:
+        return f"no {group} model in models.json"
     for m in models.values():
         f = Path(folder) / m["file"]
         if f.is_symlink() or not f.is_file():
@@ -71,12 +101,16 @@ def _fetch(url: str, dest: Path, timeout: int = 120) -> None:
     dest.write_bytes(raw)
 
 
-def install_models(target: Path, source: Path | None = None, log=print, timeout: int = 120) -> None:
-    """Put the model files into target/: from `source` or the release URL, each checked before it is moved in."""
+def install_models(target: Path, source: Path | None = None, log=print, timeout: int = 120, group: str = "pypi") -> None:
+    """Put the model files of a group into target/: from `source` or the release URL, each checked before it is moved
+    in."""
     s = spec()
+    models = group_models(group, s)
+    if not models:
+        raise ValueError(f"no {group} model in models.json")
     target.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
-        for m in s["models"].values():
+        for m in models.values():
             part = Path(tmp) / m["file"]
             if source:
                 src = Path(source) / m["file"]
@@ -85,10 +119,10 @@ def install_models(target: Path, source: Path | None = None, log=print, timeout:
                 shutil.copyfile(src, part)
             else:
                 log(f"  downloading {m['file']} ({m['size'] / 1e6:.1f}MB)")
-                _fetch(s["release_url"] + m["file"], part, timeout)
+                _fetch(group_release_url(group, s) + m["file"], part, timeout)
             if _sha256(part) != m["sha256"]:
                 raise ValueError(f"{m['file']}: SHA-256 differs from models.json, not installed")
-        for m in s["models"].values():
+        for m in models.values():
             os.replace(Path(tmp) / m["file"], target / m["file"])
 
 
@@ -102,31 +136,33 @@ def opted_out(folder: Path) -> bool:
     return opt_out_marker(folder).exists()
 
 
-def _auto_state(folder: Path) -> Path:
-    return Path(folder) / ".auto_failed"
+def _auto_state(folder: Path, group: str = "pypi") -> Path:
+    return Path(folder) / (".auto_failed" if group == "pypi" else f".auto_failed_{group}")
 
 
-def last_auto_failure(folder: Path) -> tuple[float, str] | None:
+def last_auto_failure(folder: Path, group: str = "pypi") -> tuple[float, str] | None:
     try:
-        d = json.loads(_auto_state(folder).read_text())
+        d = json.loads(_auto_state(folder, group).read_text())
         return float(d["at"]), str(d.get("error", ""))
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
-def auto_install(folder: Path, now: float | None = None) -> str | None:
-    """Download the model files on first use. None when they are in place afterwards; otherwise why not (the check then
-    goes on with rules only). Never raises."""
+def auto_install(folder: Path, now: float | None = None, group: str = "pypi") -> str | None:
+    """Download the model files of a group on first use. None when they are in place afterwards; otherwise why not (the
+    check then goes on with rules only). Never raises."""
     folder = Path(folder)
     now = time.time() if now is None else now
     try:
         if opted_out(folder):
             return "turned off with ml-uninstall (ml-install turns it back on)"
-        failed = last_auto_failure(folder)
+        if not has_group(group):
+            return f"no {group} model released yet"
+        failed = last_auto_failure(folder, group)
         if failed and now - failed[0] < AUTO_RETRY_SECONDS:
             return f"the last automatic download failed ({failed[1]}); it is tried again later, or run guard_cli.py ml-install"
         folder.mkdir(parents=True, exist_ok=True)
-        lock = folder / ".auto.lock"
+        lock = folder / (".auto.lock" if group == "pypi" else f".auto_{group}.lock")
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
@@ -140,13 +176,13 @@ def auto_install(folder: Path, now: float | None = None) -> str | None:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
         try:
-            install_models(folder / "models", None, log=lambda *_: None, timeout=AUTO_TIMEOUT)
-            _auto_state(folder).unlink(missing_ok=True)
+            install_models(folder / "models", None, log=lambda *_: None, timeout=AUTO_TIMEOUT, group=group)
+            _auto_state(folder, group).unlink(missing_ok=True)
             return None
         except Exception as e:
             why = f"{type(e).__name__}: {e}"[:200]
             try:
-                _auto_state(folder).write_text(json.dumps({"at": now, "error": why}))
+                _auto_state(folder, group).write_text(json.dumps({"at": now, "error": why}))
             except OSError:
                 pass
             return f"automatic download failed ({why})"
@@ -197,3 +233,19 @@ def status(folder: Path) -> str:
     if problem:
         return f"not used: {problem} (run guard_cli.py ml-install)" + tail
     return f"installed in {folder}" + tail
+
+
+def status_npm(folder: Path) -> str:
+    """One line on the npm model (models.json "npm")."""
+    folder = Path(folder)
+    if not has_group("npm"):
+        return "no npm model released yet: npm packages are checked by the rules alone"
+    problem = check_models(folder / "models", "npm")
+    if not problem:
+        return f"installed in {folder}"
+    if opted_out(folder):
+        return "turned off with ml-uninstall (rules only)"
+    failed = last_auto_failure(folder, "npm")
+    if failed:
+        return f"not installed: the last automatic download failed ({failed[1]}). To retry now: guard_cli.py ml-install"
+    return f"not installed yet: downloaded automatically on the first npm check ({problem})"

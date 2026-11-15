@@ -279,6 +279,20 @@ def _ml_predict(name, version, handoff=None):
         return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
 
 
+def _ml_predict_npm(name, version, pkg_dir):
+    """The npm model on an unpacked npm package (ml_bridge.ml_predict_npm). Never raises."""
+    if not Path(__file__).with_name("ml_bridge.py").exists():
+        return {"ok": False, "error": "no ML model installed"}
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ml_bridge", Path(__file__).with_name("ml_bridge.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.ml_predict_npm(name, version, pkg_dir)
+    except Exception as e:
+        return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
+
+
 # [ML stage 2] the rule-based verdict, used as is when there is no ML result (failure or AEGIS_ML=0)
 def _compute_verdict_rules(features: ScanFeatures) -> Verdict:
     return Verdict(*rule_engine.score_rules(RULESET, features), features)
@@ -537,12 +551,18 @@ def scan_local_file(path: str | Path) -> Verdict:
         return scan_files(files, features)
 
 
-def scan_files(files: list[Path], features: ScanFeatures) -> Verdict:
+def scan_files(files: list[Path], features: ScanFeatures, ml_future=None) -> Verdict:
     """The source-independent part of a scan: rules over files already on disk (features.ecosystem says which languages
     are code), the verdict, and - for a flagged package - what its code can do (attack paths; Python code only for now).
-    Every source (PyPI's scan_package keeps its own concurrent flow; local files, npm, bundles) ends here."""
+    Every source (PyPI's scan_package keeps its own concurrent flow; local files, npm, bundles) ends here.
+    ml_future: an ML result still being computed (npm), awaited after the rules and before the verdict."""
     static_analysis(files, features)
     features.fetch_ok = True
+    if ml_future is not None:
+        try:
+            features.ml = ml_future.result()
+        except Exception as e:
+            features.ml = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     verdict = compute_verdict(features)
     if verdict.verdict != "ALLOW":
         try:
@@ -579,7 +599,7 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         except Exception:
             features.settled_version = None
     from concurrent.futures import ThreadPoolExecutor
-    with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(1) as pool:
+    with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(2) as pool:
         osv_f = pool.submit(query_osv, name, version, "npm")
         try:
             info: dict = {}
@@ -591,6 +611,8 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
             features.fetch_error = str(e)
             features.osv_vulns = osv_f.result()
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
+        # the npm model reads the same unpacked files while the rules run (it never changes them)
+        ml_f = pool.submit(_ml_predict_npm, name, version, info["root"]) if info.get("root") else None
         features.osv_vulns = osv_f.result()
         features.osv_max_severity = _severity_rank(features.osv_vulns)
         try:
@@ -601,7 +623,7 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
                 return _osv_malicious_verdict(features)
         except Exception:
             pass
-        return scan_files(files, features)
+        return scan_files(files, features, ml_future=ml_f)
 
 
 def _as_package_root(root: Path, tmp: Path) -> Path:
