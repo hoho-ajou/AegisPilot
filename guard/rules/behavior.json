@@ -81,6 +81,6 @@
     "interpreters": ["sh", "bash", "zsh", "dash", "ksh", "python", "python3", "python2", "py", "node", "perl", "ruby", "php", "pwsh", "powershell",
                      "powershell.exe", "iex", "invoke-expression", "cmd", "cmd.exe", "bun", "deno"]
   },
-  "limits": {"seconds": 10.0, "max_files": 3000, "max_file_bytes": 1500000, "max_string": 2000000, "max_iter": 200000,
-             "max_depth": 4, "max_steps": 400000}
+  "limits": {"seconds": 180.0, "max_files": 1000000000, "max_file_bytes": 67108864, "max_string": 2000000, "max_iter": 200000,
+             "max_depth": 4, "max_steps": 1000000000000}
 }

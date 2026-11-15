@@ -61,10 +61,10 @@ class Context:
         self._left: set[str] = set()
 
     def unread(self, rel: str, phase: str, why: str) -> None:
-        """A file not (fully) analyzed; one that runs by itself (install, interpreter start, import) is a finding.
-        The time limit is not: it depends on the machine and its load, and large real packages reach it."""
+        """A file not (fully) analyzed; one that runs by itself (install, interpreter start, import) is a finding,
+        whatever the limit was (the time limit too: code that runs by itself and was not read is never passed)."""
         self.not_analyzed.append((rel, why))
-        if phase in self.pol.auto and not why.startswith("time limit"):
+        if phase in self.pol.auto:
             self.emit("not_analyzed", phase, rel, 0, why)
 
     # ---------------------------------------------------------------- facts
@@ -518,8 +518,8 @@ def analyze_files(files: list[Path], features, deadline: float | None = None) ->
             why = f"only the first {lim['max_files']} files analyzed" if over else f"time limit ({lim['seconds']}s)"
             rest = [(r, ph) for _p, r, _l, ph in planned[n:] if (r, ph) not in ctx.module_phases]
             ctx.not_analyzed.append(("*", f"{why}: {len(rest)} files not analyzed"))
-            for r, ph in rest:              # left over at the file-count limit: install / startup files and import roots
-                if over and (ph in ("install", "interpreter_start") or ph == "import" and import_root(r)):
+            for r, ph in rest:              # left over: every one that runs by itself is a finding
+                if ph in ctx.pol.auto:
                     ctx.emit("not_analyzed", ph, r, 0, why)
             break
         if (rel, phase) in ctx.module_phases:

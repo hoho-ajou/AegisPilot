@@ -93,7 +93,7 @@ def _wanted(name: str, suffixes: tuple = WANTED_SUFFIXES) -> bool:
 #  - entry_points.txt: the command names the package installs
 #  - .pyc: only its presence (a module shipped without source cannot be read)
 TEXT_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".md", ".rst", ".txt")
-TEXT_MAX_BYTES = 1024 * 1024          # minified UI bundles run to 10-40MB per package; the attacks seen were small files
+TEXT_MAX_BYTES = MAX_MEMBER_BYTES     # read only for agent-directed text (not code analysis): every one, whatever its size
 PLACED_MAX_BYTES = 1024 * 1024
 MARKER_SUFFIXES = (".pyc",)
 _PLACED = re.compile(r"^[^/]+\.data/(scripts|data)/")
