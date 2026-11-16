@@ -1186,16 +1186,35 @@ def _apply_hard_rules(rs: Ruleset, mode: str, features, total: float, reasons: l
     """("BLOCK", score, reasons) if a block rule fired; else ("NEEDS_HUMAN_REVIEW" if a review rule fired, else None,
     total with the review floor applied, reasons)."""
     review = None
+    fired: list = []                                  # names of the rules that set the verdict (verdict_rule_names)
+    try:
+        setattr(features, f"_fired_{mode}", fired)
+    except Exception:
+        pass
     for h in rs.hard_rules:
         if mode not in h.get("modes", ["rules", "ml"]) or not _cond(h["when"], features):
             continue
         if h["action"] == "block":
             score = total if h.get("score") == "total" else max(total, rs.block_threshold)
+            fired[:] = verdict_rule_names(h, features)
             return "BLOCK", round(score, 3), reasons + [_reason(rs, h, features)]
         total = max(total, rs.review_floor)
         review = "NEEDS_HUMAN_REVIEW"
+        fired += [n for n in verdict_rule_names(h, features) if n not in fired]
         reasons.append(_reason(rs, h, features))
     return review, total, reasons
+
+
+def verdict_rule_names(h: dict, features) -> list:
+    """The name(s) a fired hard rule is reported by: its id, or for the behavior check the facts behind it as
+    `<finding>@<phase>` (download_exec@install), so the agent is told exactly which rule held the package."""
+    if h.get("id") in ("behavior_block", "behavior_review"):
+        want = "block" if h["id"] == "behavior_block" else "review"
+        names = sorted({f"{e['rule']}@{e['phase']}" for e in getattr(features, "evidence", None) or []
+                        if isinstance(e, dict) and e.get("phase") and e.get("action") == want})
+        if names:
+            return names
+    return [str(h.get("id") or "rule")]
 
 
 def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:

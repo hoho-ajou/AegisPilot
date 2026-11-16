@@ -464,7 +464,9 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                     offers = fix_offers(blocked + review)
                 except Exception:
                     offers = []
-                reason = claude_reason(report, offers)   # user mode: show the report, offer the fixed version, wait
+                from review_report import verdict_rule_names
+                names = list(dict.fromkeys(n for rec in blocked for n in verdict_rule_names(rec)))[:6]
+                reason = claude_reason(report, offers, names)   # user mode: show the report, offer the fixed version, wait
         except Exception:
             pass
         return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True)

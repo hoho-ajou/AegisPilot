@@ -144,6 +144,7 @@ class ScanFeatures:
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
     # download_then_execute, install_hook, high_entropy, keyword
     evidence: list = field(default_factory=list)
+    verdict_rules: list = field(default_factory=list)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
 
     # [ML] anomaly detection result from the ML model (ml_bridge.ml_predict). None: no ML verdict
     ml: dict | None = None
@@ -268,12 +269,16 @@ def compute_verdict(features: ScanFeatures) -> Verdict:
     file (the sdist it was trained on, not always the file pip installs), so on its own it could pass what the rules
     would have stopped: installing the ML model must never weaken a verdict."""
     rules = _compute_verdict_rules(features)
+    names = list(getattr(features, "_fired_rules", []))
     ml = features.ml
-    if not (ml and ml.get("ok")):
-        return rules                              # no ML: the rules alone
-    with_ml = Verdict(*rule_engine.score_ml(RULESET, features), features)
-    key = lambda v: (_VERDICT_RANK.get(v.verdict, 1), v.score)  # noqa: E731
-    return with_ml if key(with_ml) > key(rules) else rules
+    if ml and ml.get("ok"):
+        with_ml = Verdict(*rule_engine.score_ml(RULESET, features), features)
+        key = lambda v: (_VERDICT_RANK.get(v.verdict, 1), v.score)  # noqa: E731
+        if key(with_ml) > key(rules):
+            names = list(getattr(features, "_fired_ml", [])) or (["ml_score"] if with_ml.verdict != "ALLOW" else [])
+            rules = with_ml
+    features.verdict_rules = names if rules.verdict != "ALLOW" else []
+    return rules
 
 
 

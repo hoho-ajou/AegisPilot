@@ -109,8 +109,10 @@ class Rules(unittest.TestCase):
     def test_no_n_more_wording(self):
         for name, rec in ALL.items():
             self.assertNotIn("and 1 more", T.popup_line(rec)); self.assertNotIn("OSV vulnerability and", T.popup_line(rec))
-        weak = {**PYYAML, "evidence": PYYAML["evidence"]}
-        self.assertIn("2 other signal kind(s)", T.popup_line(weak))                     # the OTHER KINDS of signal are named as such
+        # the rules that held the package are named, not counted ("N other signal kinds" said nothing)
+        held = {**PYYAML, "verdict": "NEEDS_HUMAN_REVIEW", "verdict_rules": ["known_vulnerability", "download_exec@call"]}
+        self.assertIn("[rules: known_vulnerability, download_exec@call]", T.popup_line(held))
+        self.assertNotIn("other signal kind", T.popup_line(held))
 
     def test_dialog_always_says_what_approval_does(self):
         for name, rec in ALL.items():
