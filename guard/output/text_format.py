@@ -117,6 +117,12 @@ def _first_id(rec: dict) -> str:
     return str(ids[0]) if ids else ""
 
 
+def _rule_tag(rec: dict) -> str:
+    """` [rules: known_vulnerability, download_exec@import]`: the rules that held the package, by name."""
+    names = _rr.verdict_rule_names(rec)
+    return f" [rules: {', '.join(names)}]" if names else ""
+
+
 def _others(rec: dict, lead: str | None = None) -> int:
     """How many other KINDS of signal there are besides the one named (never 'N more vulnerabilities')."""
     rules = {r for r in _rules(rec) if r not in ("osv", "score")}
@@ -244,9 +250,7 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
         sev, first = _severity(rec), _first_id(rec)
         what = f"{n} {sev + ' ' if sev else ''}{'vulnerability' if n == 1 else 'vulnerabilities'}" + (f" ({first} and others)" if n > 1 and first else f" ({first})" if first else "")
         fix = f" → {adv['fix_version']} or later recommended" if adv.get("fix_version") else " → no fixed version"
-        other = _others(rec)
-        extra = f", {other} other signal kind(s)" if other else ""
-        return _cap(f"{_rr.PREFIX} {who} — {what}{fix}{extra}. If approved, it installs as is.{tail}")
+        return _cap(f"{_rr.PREFIX} {who} — {what}{fix}{_rule_tag(rec)}. If approved, it installs as is.{tail}")
     if case == "typo":
         return _cap(f"{_rr.PREFIX} {who} — name is close to the popular package '{_plain(adv['typosquat_of'], 40)}'. Check it is not a typo. If approved, it installs as is.{tail}")
     if case == "fetch":
@@ -264,16 +268,14 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
         return _cap(f"{_rr.PREFIX} {who} — scan failed ({why}). If approved, it installs unscanned.{tail}")
     lead = _lead_rule(rec)
     loc = _plain(_evidence(rec, lead).get("location") or "", 50)
-    more = _others(rec, lead)
-    extra = f", {more} other signal kind(s)" if more else ""
     if lead == "fresh_release" and adv.get("pin_version"):
         from output.render import fresh_pin
         pin = fresh_pin(_plain(rec.get("package") or "", 80), adv)
         if pin and adv.get("pin_dependency"):
-            return _cap(f"{_rr.PREFIX} {who} — dependency {_short(lead)}{f' ({loc})' if loc else ''}{extra}. Deny, then add {pin} (over a day old) to the install; if approved, the new version installs.{tail}")
+            return _cap(f"{_rr.PREFIX} {who} — dependency {_short(lead)}{f' ({loc})' if loc else ''}{_rule_tag(rec)}. Deny, then add {pin} (over a day old) to the install; if approved, the new version installs.{tail}")
         if pin:
-            return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{extra}. Deny to use {pin} (over a day old) instead; if approved, the new version installs.{tail}")
-    return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{extra}. If approved, it installs as is.{tail}")
+            return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{_rule_tag(rec)}. Deny to use {pin} (over a day old) instead; if approved, the new version installs.{tail}")
+    return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{_rule_tag(rec)}. If approved, it installs as is.{tail}")
 
 
 def _path(value: object, limit: int = 60) -> str:

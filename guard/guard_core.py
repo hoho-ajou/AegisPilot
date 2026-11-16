@@ -39,6 +39,7 @@ class Decision:
     action: str = ALLOW
     reason: str = ""
     detail: str = ""        # the person-facing report for a side channel (user-mode BLOCK); the adapter decides where
+    final: bool = False     # an install BLOCK: no ack, in any mode - a forbidden install is not the agent's to allow
 
 
 def _text_or(fn_name: str, fallback: str, *args) -> str:
@@ -227,9 +228,10 @@ def _auto(project_dir) -> bool:
 
 def _agent_decides(decision: Decision, fp: str) -> Decision:
     """auto mode: a refusal carries the evidence and an ack id; once the agent has run `guard_cli.py ack <id>`, the same
-    action passes (acks.py). Every refusal - BLOCK, REVIEW, extension, setting, guard file - is the agent's to decide;
-    user mode is unchanged (a person answers). Any failure here leaves the refusal as it was."""
-    if decision.action != REFUSE:
+    action passes (acks.py). A REVIEW, an extension, a setting or a guard file is the agent's to decide; an install BLOCK
+    is not (Decision.final: no ack is issued and none is honored). User mode is unchanged (a person answers). Any
+    failure here leaves the refusal as it was."""
+    if decision.action != REFUSE or decision.final:
         return decision
     try:
         import acks
@@ -462,10 +464,12 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                     offers = fix_offers(blocked + review)
                 except Exception:
                     offers = []
-                reason = claude_reason(report, offers)   # user mode: show the report, offer the fixed version, wait
+                from review_report import verdict_rule_names
+                names = list(dict.fromkeys(n for rec in blocked for n in verdict_rule_names(rec)))[:6]
+                reason = claude_reason(report, offers, names)   # user mode: show the report, offer the fixed version, wait
         except Exception:
             pass
-        return Decision(REFUSE, _with_decision_id(reason, report_data), detail)
+        return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True)
 
     if review or integrity_findings:
         if integrity_findings and mode == "auto":

@@ -368,6 +368,7 @@ def package_record(name: str, version: str | None, result) -> dict:
         "benign_cases": info["benign"],
         "evidence": [_evidence_entry(x, f) for x in findings],
         "other_reasons": [clean(r, 160) for r in result.reasons],
+        "verdict_rules": [clean(n, 60) for n in (getattr(f, "verdict_rules", None) or [])][:8],
         "headline": top["headline"],
         **_ml_fields(f),
         "advice": _advice_fields(f),
@@ -779,3 +780,16 @@ def load_review(cwd: str | os.PathLike, decision_id: str | None = None) -> dict 
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def verdict_rule_names(rec: dict) -> list:
+    """The rules that held this package (REVIEW / BLOCK), by name: recorded by the scan and the post rules; a record
+    made elsewhere (not scanned, timed out, policy) falls back to the rule of its first evidence. ALLOW -> []."""
+    if str(rec.get("verdict") or "ALLOW") == "ALLOW":
+        return []
+    names = [n for n in rec.get("verdict_rules") or [] if isinstance(n, str) and n]
+    if not names:
+        alias = {"osv": "known_vulnerability"}         # an evidence kind named as the rule that holds on it
+        names = [alias.get(str(e.get("rule")), str(e.get("rule"))) for e in (rec.get("evidence") or [])[:1]
+                 if isinstance(e, dict) and e.get("rule")]
+    return [re.sub(r"[^A-Za-z0-9_@.-]", "", n)[:60] for n in names][:8]

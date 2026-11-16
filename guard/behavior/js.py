@@ -1123,6 +1123,9 @@ GLOBAL_OBJECTS = {"global", "globalThis", "window", "self", "GLOBAL", "root"}
 ALIASES = {"process.mainModule.require": "require", "module.require": "require", "Function.prototype.constructor": "Function",
            "fs.promises": "fs.promises", "process.mainModule.constructor._load": "require",
            "module.constructor._load": "require", "Reflect.construct": "Reflect.construct"}
+# globals that are functions: their .constructor is Function (`Function.constructor("code")`, `atob.constructor(...)`)
+FUNC_GLOBALS = GLOBAL_NAMES - {"process", "console", "module", "exports", "JSON", "Math", "Reflect", "navigator",
+                               "location", "document"}
 EXEC_REFS = {"eval", "Function", "vm.runInNewContext", "vm.runInThisContext", "vm.runInContext", "vm.Script",
              "vm.compileFunction", "vm.SourceTextModule"}
 PROC_METHODS = {"exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync", "fork"}
@@ -1736,6 +1739,8 @@ class Analyzer:
                 return Val("node")
             if not isinstance(key, str):
                 return Val(NOVAL, obj.tags)
+            if key == "constructor" and (ref in FUNC_GLOBALS or ref in EXEC_REFS):
+                return Val(NOVAL, (), "Function", {"hidden": True} if hidden else None)
             full = ALIASES.get(f"{ref}.{key}", f"{ref}.{key}")
             if full == "process.env":
                 return Val(NOVAL, frozenset({SECRET}), "process.env")
@@ -3014,6 +3019,11 @@ def _quote(v: Val) -> str:
 
 # ============================================================================================================== entry
 
+# code pushed off-screen: a statement end, hundreds of spaces, then more code on the same line (where an editor or a
+# diff shows nothing); minified and generated code does not pad with spaces like this
+_HIDDEN_CODE = re.compile(r"[;})\]][ \t]{300,}[A-Za-z_$(\[!+~]")
+
+
 def analyze_source(ctx, text: str, file: str, phase: str, depth: int = 0, line_base: int | None = None) -> None:
     """Facts of one JavaScript source into ctx. Raises only LimitExceeded (the caller records the file as not analyzed);
     any other failure ends the analysis of this source quietly with what was found so far."""
@@ -3027,6 +3037,10 @@ def analyze_source(ctx, text: str, file: str, phase: str, depth: int = 0, line_b
         raise
     except (RecursionError, Exception):               # noqa: BLE001 - parse() already recovers per statement
         return
+    if not depth:
+        hidden = _HIDDEN_CODE.search(text)
+        if hidden:
+            ctx.emit("hidden_code", phase, file, text.count("\n", 0, hidden.start()) + 1, "code after a long run of spaces")
     an = Analyzer(ctx, text, file, phase, depth, line_base)
     try:
         an.run(stmts)

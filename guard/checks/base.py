@@ -129,6 +129,8 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
         was = result.verdict
         result.verdict = new_verdict
         rec["verdict"] = new_verdict
+        names = [fired["rule"]] if new_verdict == "BLOCK" else list(rec.get("verdict_rules") or []) + [fired["rule"]]
+        rec["verdict_rules"] = list(dict.fromkeys(names))
         if fired["rule"] == "known_malicious":
             rec["evidence"] = [{"rule": "known_malicious", "label": "known malicious version", "location": ", ".join(fired["ids"]),
                                 "snippet": "", "count": len(fired["ids"])}] + [e for e in rec["evidence"] if e.get("rule") != "score"]

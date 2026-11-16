@@ -102,11 +102,11 @@ direct.download = download_of(wheel_bytes("import base64\nexec(base64.b64decode(
 v = se.scan_direct(P("https://h.example/x-1.0-py3-none-any.whl"))
 assert v.verdict == "BLOCK", (v.verdict, v.reasons)
 
-# the decision: a flagged git source is a card (auto: the agent decides), a source that cannot be fetched is "not scanned"
+# the decision: a blocked git source is final (no ack, also in auto mode), a source that cannot be fetched is "not scanned"
 direct.checkout = repo_with({"setup.py": EVIL_SETUP})
 with tempfile.TemporaryDirectory() as d:
     r = guard_core.check_command("pip install git+https://github.com/o/r@v1", d)
-    assert r.action == "refuse" and "ack id" in r.reason, r
+    assert r.action == "refuse" and r.final and "ack id" not in r.reason, r
     rec = json.loads(Path(d, ".aegis", "last_review.json").read_text())["packages"][0]
     assert rec["direct_source"] == "https://github.com/o/r@v1" and rec["verdict"] == "BLOCK", rec
 

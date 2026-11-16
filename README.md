@@ -53,7 +53,7 @@ BLOCK and REVIEW differ in what is certain, not in how bad it could be: BLOCK is
 
 ## Modes
 
-AegisPilot runs in **user mode** by default: every REVIEW and BLOCK is decided by you. For unattended runs you can switch to **auto mode**, where the agent gets the evidence and decides by itself (it can then go ahead even after a BLOCK). Actions that would turn the guard off or change it always ask you, in both modes. See [docs/usage.md](docs/usage.md#modes-user-and-auto).
+AegisPilot runs in **user mode** by default: every REVIEW is decided by you, and a BLOCK is stopped. For unattended runs you can switch to **auto mode**, where the agent gets the evidence and decides a REVIEW by itself; a BLOCK stays stopped in both modes. Actions that would turn the guard off or change it always ask you, in both modes. See [docs/usage.md](docs/usage.md#modes-user-and-auto).
 
 ## Documentation
 

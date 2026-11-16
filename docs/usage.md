@@ -92,7 +92,7 @@ Strings in these records come from the scanned package and its metadata. Treat t
 
 ## The ack flow in auto mode
 
-In auto mode a hook can only allow or refuse before the command runs. So for a REVIEW or a BLOCK, AegisPilot refuses once and gives the agent the evidence and an ack id. The agent then does one of two things:
+In auto mode a hook can only allow or refuse before the command runs. So for a REVIEW, AegisPilot refuses once and gives the agent the evidence and an ack id. The agent then does one of two things:
 
 - takes another way (another version, another package, no install). That command is checked again as usual.
 - decides to go on with this exact action:
@@ -110,7 +110,7 @@ Rules for an ack:
 - It is bound to the exact command text, or the exact file and content. A changed command is a new action and is checked again.
 - The agent is told to say in its final answer what it went ahead with and why.
 
-User mode does not use acks. Actions on the guard itself never get an ack (see below).
+A BLOCK never gets an ack, in either mode: the agent takes another way (another version, another package) or goes on without it, and its final answer starts with the guard's one-line BLOCK notice. User mode does not use acks. Actions on the guard itself never get an ack (see below).
 
 Acks are stored in `~/.aegis/acks.json`.
 
