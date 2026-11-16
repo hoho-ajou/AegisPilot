@@ -387,6 +387,9 @@ def _advice_case(rec: dict) -> str:
         return "malicious"
     if (rec.get("policy") or {}).get("action") == "deny":
         return "policy"
+    beh = _behavior_names(rec)
+    if str(rec.get("verdict")) == "BLOCK" and any(ph in _AUTO_PHASES for _f, ph in beh):
+        return "behavior_block"
     if any(e.get("rule") == "new_risky_code" for e in rec.get("evidence") or []):
         return "diff"
     if any(e.get("rule") == "late_file" for e in rec.get("evidence") or []):
@@ -410,7 +413,45 @@ def _advice_case(rec: dict) -> str:
         return "unscanned"
     if "fetch_error" in rules or (rec.get("coverage") or {}).get("analyzed") is False:
         return "fetch"
+    if any(f in ("not_analyzed", "install_runs_unread") for f, _ph in beh):
+        return "unread"
+    if beh and all((f, ph) == ("install_process", "install") for f, ph in beh):
+        return "build"
+    if beh and all(ph == "call" for _f, ph in beh):
+        return "call"
+    if any(ph in _AUTO_PHASES for _f, ph in beh):
+        return "behavior_review"
+    from review_report import verdict_rule_names
+    if "ml_score" in verdict_rule_names(rec):
+        return "ml"
     return "other"
+
+
+_AUTO_PHASES = ("install", "interpreter_start", "import")
+_WHEN = {"install": "when it is installed", "interpreter_start": "every time Python starts", "import": "when it is imported",
+         "call": "only when your code calls that part", "command": "when it is run as a command"}
+
+
+def _behavior_names(rec: dict) -> list:
+    """[(finding, phase)] of the behavior facts among the rules that held the package (`download_exec@import`)."""
+    from review_report import verdict_rule_names
+    return [tuple(n.split("@", 1)) for n in verdict_rule_names(rec) if "@" in n]
+
+
+def _behavior_words(rec: dict) -> tuple:
+    """(what the code does, when, the rule names) for the instruction, from the guard's own labels - never package text."""
+    from review_report import verdict_rule_names
+    try:
+        from behavior.values import policy
+        labels = policy().findings
+    except Exception:
+        labels = {}
+    beh = _behavior_names(rec)
+    what = sorted({str((labels.get(f) or {}).get("label") or f.replace("_", " ")).lower().replace(" at install or import", "")
+                   for f, _ph in beh})
+    phases = [ph for _f, ph in beh]
+    when = next((_WHEN[p] for p in ("install", "interpreter_start", "import", "command", "call") if p in phases), "when it runs")
+    return " and ".join(what) or "risky behavior", when, ", ".join(verdict_rule_names(rec))
 
 
 def auto_summary_line(rec: dict) -> str:
@@ -444,9 +485,28 @@ def _legacy_summary_line(rec: dict) -> str:
 _JUDGE = ("First look at the plan and code you are working on (README, requirements, code already written) and decide whether this package is really needed.")
 
 
-def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> str:
+def _auto_action(case: str, name: str, adv: dict, kind: str | None = None, rec: dict | None = None) -> str:
     """What the agent is told to do, one text per reason. Every value in it is validated by the guard (package name, version,
     popular package name); nothing the package or the project wrote can reach this text."""
+    if case in ("behavior_block", "behavior_review", "build", "call", "unread", "ml"):
+        what, when, rules = _behavior_words(rec or {})
+        if case == "behavior_block":
+            return (f"The code of `{name}` {what} {when} ({rules}). Do not install this version. {_JUDGE} If the same job can be done "
+                    "another way (the standard library or a well-known package), continue that way; otherwise go on without it and tell the user why in one sentence.")
+        if case == "build":
+            return (f"Installing `{name}` runs an external program ({rules}). This is usually a native build step (a compiler, node-gyp, "
+                    f"a platform binary), common for packages with native code. {_JUDGE} If it is needed, go ahead; if not, leave it out.")
+        if case == "call":
+            return (f"`{name}` contains code that {what}, but it runs {when}, not at install or import ({rules}). {_JUDGE} "
+                    "If your code does not use that part, go ahead. If it does, decide whether that behavior is what the task wants; if not, use a well-known alternative.")
+        if case == "behavior_review":
+            return (f"The code of `{name}` {what} {when} ({rules}). This is a risk signal, not proof of an attack. {_JUDGE} "
+                    "If the package is needed and that behavior fits what it is for, go ahead; if not, leave it out or use a well-known alternative, and tell the user why in one sentence.")
+        if case == "unread":
+            return (f"Part of the code of `{name}` that runs by itself could not be read within the guard's limit ({rules}); retrying gives the same result. "
+                    f"{_JUDGE} If it is a well-known package the plan needs, go ahead; if not, leave it out and tell the user why in one sentence.")
+        return (f"The ML model rates `{name}` like known malicious packages, though no single rule fired ({rules}). {_JUDGE} "
+                "Prefer a well-known alternative. If this package is really needed, go ahead and say so in your final answer.")
     if case == "policy":
         return (f"`{name}` is on the deny list of the organization or project policy. Do not install it. If it is in a requirements file, delete that line; "
                 "if the same function is really needed, ask the user in one sentence which package to use instead. Do not edit the policy file or suggest editing it.")
@@ -552,7 +612,9 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
                "timeout": "the check did not finish in time", "crash": "the guard hit an internal error"}.get(kind, "the scan failed")
         return (f"The guard could not scan this package: {why}. Do not install it now, and tell the user why in one sentence.")
 
-    return (f"{_JUDGE} Risk signals were found. If needed, continue with another version or a well-known replacement package (the guard checks it again); "
+    from review_report import verdict_rule_names
+    rules = ", ".join(verdict_rule_names(rec or {}))
+    return (f"{_JUDGE} Risk signals were found{f' ({rules})' if rules else ''}. If needed, continue with another version or a well-known replacement package (the guard checks it again); "
             "otherwise do not install it and tell the user why in one sentence.")
 
 
@@ -568,7 +630,7 @@ def auto_reason(rec: dict, others: list | None = None) -> str:
         name = src_name                     # "requests @ git+https://..." -> the PyPI name it stands for
     name = name if _SAFE_NAME.match(name) else "(name omitted)"
     case = _advice_case(rec)
-    action = _auto_action(case, name, adv, (rec.get("source") or {}).get("kind"))
+    action = _auto_action(case, name, adv, (rec.get("source") or {}).get("kind"), rec)
     if rec.get("project_install") and case == "fix":
         # the dependency came from a project file (pip install . / uv sync / poetry install ...): the exact string has a
         # different shape per format, and a lock file has to follow the edit
