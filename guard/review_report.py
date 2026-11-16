@@ -787,5 +787,7 @@ def verdict_rule_names(rec: dict) -> list:
         return []
     names = [n for n in rec.get("verdict_rules") or [] if isinstance(n, str) and n]
     if not names:
-        names = [str(e.get("rule")) for e in (rec.get("evidence") or [])[:1] if isinstance(e, dict) and e.get("rule")]
+        alias = {"osv": "known_vulnerability"}         # an evidence kind named as the rule that holds on it
+        names = [alias.get(str(e.get("rule")), str(e.get("rule"))) for e in (rec.get("evidence") or [])[:1]
+                 if isinstance(e, dict) and e.get("rule")]
     return [re.sub(r"[^A-Za-z0-9_@.-]", "", n)[:60] for n in names][:8]

@@ -65,7 +65,7 @@ class Golden(unittest.TestCase):
     def test_one_line_and_dialog_sentence(self):
         self.assertEqual(T.summary_line(PYYAML), "[AegisPilot] pyyaml 5.3.1 blocked · CRITICAL · upgrade to >=5.4")
         self.assertEqual(T.popup_line(REQUESTS),
-                         "[AegisPilot] requests 2.31.0 — 3 MODERATE vulnerabilities (GHSA-9wx4-h78v-vm56 and others) → 2.33.0 or later recommended. If approved, it installs as is. Details: /aegis")
+                         "[AegisPilot] requests 2.31.0 — 3 MODERATE vulnerabilities (GHSA-9wx4-h78v-vm56 and others) → 2.33.0 or later recommended [rules: known_vulnerability]. If approved, it installs as is. Details: /aegis")
 
     def test_requests_report_lists_grouped_vulnerabilities(self):
         out = T.report_text({"packages": [REQUESTS]}, 100, PATH)                          # wide enough that nothing wraps
