@@ -184,8 +184,11 @@ def config_command(toks: list[str]) -> str | None:
     if not toks:
         return None
     first, rest = Path(toks[0]).name, toks[1:]
-    if first.startswith("python") and rest[:2] == ["-m", "pip"]:
-        first, rest = "pip", rest[2:]
+    if first.startswith("python") or first in ("py", "py.exe"):
+        import py_cli
+        args = py_cli.runs_module(rest, "pip")
+        if args is not None:
+            first, rest = "pip", args
     if re.fullmatch(r"pip(\d+(\.\d+)?)?", first) and "config" in rest[:3]:
         sub = rest[rest.index("config") + 1:]
         if sub[:1] == ["edit"]:

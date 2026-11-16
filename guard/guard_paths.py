@@ -15,6 +15,8 @@ import posixpath
 import re
 from pathlib import Path
 
+import py_cli
+
 # fragments matched against a raw path string (shell command text or a file edit's path) - deliberately broad substring
 # matches, not exact paths, since both can appear relative, absolute, or ~-expanded.
 GUARD_DIR = Path(__file__).resolve().parent
@@ -652,13 +654,14 @@ def _shell_writes_protected(command: str, frags: list[str], cwd: str | None = No
             positional = [a for a in args if not a.startswith("-")]
             if inline and program_writes(" ".join(args)):
                 return True
-            if not inline and "-m" not in args and (not positional or positional[0] == "-"):
+            if not inline and py_cli.module_args(args) is None and (not positional or positional[0] == "-"):
                 # the program comes on stdin: a here-document, a here-string, or whatever is piped in
                 program = "\n".join(seg["docs"]) + ("\n" + command if seg["piped"] or seg["stdin"] else "")
                 if program_writes(program):
                     return True
-            if "-m" in args and "pip" in args:
-                cmd = "pip"
+            pip_args = py_cli.runs_module(args, "pip")
+            if pip_args is not None:
+                cmd, args = "pip", pip_args
         if cmd.startswith("pip") or cmd in ("uv", "npm", "pnpm", "yarn"):
             for k, a in enumerate(args):
                 key, _, val = a.partition("=")

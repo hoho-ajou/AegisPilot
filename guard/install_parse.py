@@ -32,6 +32,7 @@ from pathlib import Path
 
 import index_config
 import npm_parse
+import py_cli
 
 # policy knobs: what to do with sources the scanner cannot read.
 REVIEW_UNSCANNED_KINDS = {"vcs_or_url", "custom_index", "index_setting", "find_links", "requirements_unreadable", "unparsed", "too_many_packages",
@@ -62,7 +63,6 @@ _REDIRECTS = {">", ">>", "<", "<<", ">&", "<&", "&>", "&>>"}
 # python -m pip, pip, pip3, pip3.12, uv pip install, uv add, poetry add, pipx install, pipenv install
 _PIP_NAME = re.compile(r"^(pip|pip3(\.\d+)?|pip\d(\.\d+)?)(\.exe)?$")
 _PY_NAME = re.compile(r"^(python[\d.]*|py)(\.exe)?$")        # py: the Windows launcher (`py -3.12 -m pip install x`)
-_PY_VERSION_OPT = re.compile(r"^-[23](\.\d+)?(-(32|64))?$")
 
 _REQ = re.compile(
     r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<extras>\[[^\]]*\])?\s*(?P<spec>[^;@]*)?(?:;.*)?$"
@@ -381,17 +381,16 @@ def _install_args(seg: list[str]) -> list[str] | None:
         return None
     first = Path(toks[0]).name
     rest = toks[1:]
-    if _PY_NAME.match(first) and rest and _PY_VERSION_OPT.match(rest[0]):       # py -3.12 -m pip ...
-        rest = rest[1:]
-    if _PY_NAME.match(first) and rest[:2] == ["-m", "uv"]:          # python -m uv pip install ...
-        first, rest = "uv", rest[2:]
+    if _PY_NAME.match(first):
+        # python -m pip / python -m uv, with any interpreter options before -m (`-I -m pip`, `-Im pip`, `py -3.12 -m pip`)
+        mod = py_cli.module_args(rest)
+        if mod and mod[0] in ("pip", "uv"):
+            first, rest = mod
     # `pip download` / `pip wheel` fetch the same files and build their metadata, which runs setup.py of a source
     # distribution: code executes although nothing is "installed". In testing, an agent "checked" an invented
     # name with `pip download` before installing; that command must not pass the guard unseen.
     if _PIP_NAME.match(first) and rest[:1] in (["install"], ["download"], ["wheel"]):
         return rest[1:]
-    if _PY_NAME.match(first) and rest[:2] == ["-m", "pip"] and rest[2:3] in (["install"], ["download"], ["wheel"]):
-        return rest[3:]
     if first == "uv" and rest[:2] == ["pip", "install"]:
         return rest[2:]
     if first == "uv" and rest[:1] == ["add"]:
@@ -526,7 +525,7 @@ def _commands_in_python(code: str) -> list[str]:
             before = code[max(0, m.start() - 40):m.start()]
             if _PIP_MAIN.search(before) or (re.search(r"\bmain\(\s*$", before) and _PIP_MAIN_IMPORTED.search(code)):
                 cmd = "pip " + cmd
-            out.append(("python " + cmd) if items[0] == "-m" else cmd)
+            out.append(("python " + cmd) if items[0].startswith("-") else cmd)     # [sys.executable, "-I", "-m", "pip", ...]
     for m in re.finditer(r"(['\"])((?:(?!\1).)*)\1", code):
         if _PY_INSTALL_HINT.search(m.group(2)) and " " in m.group(2):
             out.append(m.group(2))
@@ -1051,7 +1050,7 @@ def _tool_families(seg: list[str]) -> set[str]:
         n = Path(t).name
         if n in _TOOL_OF:
             out.add(_TOOL_OF[n])
-        elif _PIP_NAME.match(n) or (n == "pip" and i and seg[i - 1] == "-m"):
+        elif _PIP_NAME.match(n) or (_PY_NAME.match(n) and py_cli.runs_module(seg[i + 1:], "pip") is not None):
             out.add("pip")
     return out
 
