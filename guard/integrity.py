@@ -92,6 +92,7 @@ PROTECTED_FILES = [
     "behavior/python.py",
     "behavior/js.py",
     "behavior/js_entry.py",
+    "behavior/facts_cache.py",
     "rules/behavior.json",
     "rules/signals.json",
     "rules/rules.json",
