@@ -136,8 +136,16 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
         import transitive
         cfg = transitive.settings()
         deadline = _t.monotonic() + cfg["budget_seconds"]
-        direct = [{"name": n, "version": r.features.resolved_version or v, "dependencies": r.features.dependencies}
-                  for (n, v), r in zip(parsed.packages, results) if getattr(r.features, "dependencies", None)]
+        import collect
+        from install_parse import _norm
+        direct = []
+        for (n, v), r in zip(parsed.packages, results):
+            extras = sorted((getattr(parsed, "extras", None) or {}).get(_norm(n)) or ())
+            deps = getattr(r.features, "dependencies", None) or []
+            if extras and getattr(r.features, "requires_dist", None):      # `pkg[a,b]`: what those extras add installs too
+                deps = collect.parse_requires(r.features.requires_dist, extras, own=n)
+            if deps:
+                direct.append({"name": n, "version": r.features.resolved_version or v, "extras": extras, "dependencies": deps})
         if not direct:
             return None
         from sources import pypi

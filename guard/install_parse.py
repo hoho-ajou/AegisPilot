@@ -79,6 +79,7 @@ class Parsed:
         self.dropped = 0                           # packages beyond MAX_PACKAGES_PER_COMMAND (reported, never silently ignored)
         self.lock_pins: dict[str, str] = {}        # normalized name -> version from a lock file (lock-using commands only)
         self.specs: dict[str, str] = {}            # normalized name -> declared range ("" = any), to check a lock pin against
+        self.extras: dict[str, set[str]] = {}      # normalized name -> extras asked for (`pkg[a,b]`): their dependencies install too
         self.project_installs: list[str] = []      # project directories read for a project-level install
         self.installs = False                      # an install-type command was seen (index settings only matter then)
         self.written: set[str] = set()             # base names of files this same command writes
@@ -103,10 +104,18 @@ class Parsed:
         else:
             self.dropped += 1      # a vulnerable package on line 201 of requirements.txt used to pass without a word
 
+    def add_extras(self, name: str, extras) -> None:
+        if extras:
+            self.extras.setdefault(_norm(name), set()).update(extras)
+
     def merge(self, other: "Parsed") -> None:
         """Add what another parse found (an MCP server's launch command inside a plugin, ...)."""
         for name, version in other.packages:
             self.add_package(name, version)
+        for name, spec in other.specs.items():
+            self.specs.setdefault(name, spec)
+        for name, extras in other.extras.items():
+            self.add_extras(name, extras)
         for u in other.unscanned:
             self.add_unscanned(u["kind"], u["text"], u["reason"], u.get("url"), u.get("origin"))
         for attr in ("ecosystem_packages", "local_files", "bundles", "npm_lock", "project_installs", "direct_sources"):
@@ -678,9 +687,10 @@ def _requirement(spec: str, parsed: Parsed, cwd: Path | None) -> None:
     spec = spec.strip().strip("'\"")
     if not spec:
         return
-    m_at = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)@([^/:\s]+)$", spec)    # pipx/poetry style name@1.2.3
+    m_at = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?@([^/:\s]+)$", spec)    # pipx/poetry style name[x]@1.2.3
     if m_at:
-        ver = m_at.group(2)
+        ver = m_at.group(3)
+        parsed.add_extras(m_at.group(1), parse_extras(m_at.group(2)))
         parsed.add_package(m_at.group(1), ver if re.match(r"^\d[\w.!+-]*$", ver) else None)
         return
     if _URL.match(spec) or " @ " in spec or re.match(r"^[A-Za-z0-9._-]+\s*@\s*\S+", spec):
@@ -696,6 +706,7 @@ def _requirement(spec: str, parsed: Parsed, cwd: Path | None) -> None:
     name, rest = m.group("name"), (m.group("spec") or "").strip()
     exact = _EXACT.match(rest)
     parsed.specs.setdefault(_norm(name), rest.strip("() "))
+    parsed.add_extras(name, parse_extras(m.group("extras")))
     parsed.add_package(name, exact.group(1) if exact else None)
 
 
@@ -703,7 +714,7 @@ def _local_source(spec: str, parsed: Parsed, cwd: Path | None) -> None:
     """A local project / wheel / archive: its code is local, its dependencies come from PyPI - read them."""
     import project_deps
     m = re.match(r"^(.*?)(\[([^\]]*)\])?$", spec)
-    path_text, extras = m.group(1), {e.strip() for e in (m.group(3) or "").split(",") if e.strip()}
+    path_text, extras = m.group(1), parse_extras(m.group(3))
     path = Path(path_text).expanduser()
     if not path.is_absolute():
         if cwd is None:              # never resolve against the guard's own working directory
@@ -723,7 +734,7 @@ def _local_source(spec: str, parsed: Parsed, cwd: Path | None) -> None:
     if (spec, str(path)) not in parsed.local_files:
         parsed.local_files.append((spec, str(path)))
     if path.suffix == ".whl":
-        reqs, bad = project_deps.wheel_requires(path)
+        reqs, bad = project_deps.wheel_requires(path, extras)
         for r in reqs:
             _requirement(r, parsed, cwd)
         for why in bad:
@@ -838,6 +849,12 @@ def satisfies(version: str, spec: str) -> bool:
         if not ok:
             return False
     return True
+
+
+def parse_extras(text: str | None) -> set[str]:
+    """`[a, B_c]` or `a, B_c` -> {"a", "b-c"} (PEP 685 names)."""
+    from collect import parse_extras as _pe
+    return _pe((text or "").strip().strip("[]"))
 
 
 def _norm(name: str) -> str:
