@@ -13,6 +13,7 @@ transitive_malicious for the lock-file check), registries other than registry.np
 """
 from __future__ import annotations
 
+import net
 import json
 import re
 import urllib.parse
@@ -39,7 +40,7 @@ def metadata(name: str) -> dict:
     """The registry's abbreviated document (versions, dist-tags, tarball URLs) - what npm itself reads to install."""
     url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.npm.install-v1+json"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    with net.urlopen(req, timeout=TIMEOUT) as resp:
         return json.loads(resp.read())
 
 
@@ -75,7 +76,7 @@ def _publish_times(name: str) -> dict | None:
     if name in _TIMES:
         return _TIMES[name]
     url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
+    with net.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
         body = resp.read(FULL_DOC_MAX_BYTES + 1)
     times = None if len(body) > FULL_DOC_MAX_BYTES else (json.loads(body).get("time") or {})
     _TIMES[name] = times
@@ -741,7 +742,7 @@ def fetch(name: str, spec: str | None, dest: Path, meta: dict | None = None, inf
     url = dist.get("tarball", "")
     if not url.startswith(REGISTRY + "/"):
         raise ValueError("tarball address in the npm metadata is not registry.npmjs.org")
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as resp:
+    with net.urlopen(url, timeout=TIMEOUT) as resp:
         raw = resp.read(MAX_TARBALL_BYTES + 1)
     if len(raw) > MAX_TARBALL_BYTES:
         raise ValueError(f"package too large, code not scanned (>{MAX_TARBALL_BYTES >> 20}MB limit)")
@@ -776,7 +777,7 @@ def malicious_releases(pairs: list[tuple[str, str]]) -> dict[tuple[str, str], li
         chunk = pairs[i:i + OSV_BATCH_MAX]
         body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": "npm"}, "version": v} for n, v in chunk]}).encode()
         req = urllib.request.Request(OSV_BATCH_URL, data=body, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with net.urlopen(req, timeout=TIMEOUT) as resp:
             results = json.loads(resp.read()).get("results", [])
         for (n, v), r in zip(chunk, results):
             ids = [x.get("id", "") for x in (r or {}).get("vulns", []) if str(x.get("id", "")).startswith(prefixes)]

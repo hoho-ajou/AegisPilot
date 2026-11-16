@@ -32,6 +32,7 @@ are in guard/rules/post.json. This module only knows how to check each one. A ru
 """
 from __future__ import annotations
 
+import net
 import re
 
 import rule_engine
@@ -58,7 +59,7 @@ def osv_reachable(timeout: float = OSV_PROBE_TIMEOUT) -> bool:
                                                                    "version": version}).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with net.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read(2 * 1024 * 1024))
         return bool(isinstance(data, dict) and data.get("vulns"))
     except Exception:

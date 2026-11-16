@@ -316,7 +316,8 @@ class AutoReason(unittest.TestCase):
         self.assertIn("If the same package is on PyPI", M.auto_reason(unscanned))
         failed = {"package": "foo", "version": "1.0", "verdict": "NEEDS_HUMAN_REVIEW", "advice": {}, "evidence": [{"rule": "fetch_error"}],
                   "coverage": {"analyzed": False}}
-        self.assertIn("Try the same command once more", M.auto_reason(failed))
+        self.assertIn("could not scan this package", M.auto_reason(failed))
+        self.assertNotIn("once more", M.auto_reason(failed))
         weak = {"package": "p", "version": "1", "verdict": "NEEDS_HUMAN_REVIEW", "advice": {}, "evidence": [{"rule": "keyword", "label": "x"}]}
         self.assertIn("Risk signals were found", M.auto_reason(weak))
 
@@ -354,8 +355,11 @@ class AutoReason(unittest.TestCase):
                     "evidence": [{"rule": "fetch_error"}], "coverage": {"analyzed": False, "failure": RR.FAILURE_LABELS[kind]}}
         for kind in ("not_found", "version_missing", "too_big"):
             self.assertNotIn("Try the same command", M.auto_reason(rec(kind)), kind)    # a retry cannot change the answer
-        for kind in RR.RETRYABLE_FAILURES:
-            self.assertIn("Try the same command once more", M.auto_reason(rec(kind)), kind)
+        for kind in ("network", "registry", "timeout", "crash"):            # retried inside the guard (or not at all): never by the agent
+            text = M.auto_reason(rec(kind))
+            self.assertNotIn("once more", text, kind); self.assertNotIn("try again", text.lower(), kind)
+        self.assertIn(RR.TRIED, M.auto_reason(rec("network")))
+        self.assertNotIn("tried", M.auto_reason(rec("timeout")))                      # a timeout is not retried
         self.assertIn("name not on PyPI", M.auto_summary_line(rec("not_found")))
         self.assertIn("real package name", M.auto_reason(rec("not_found")))
 

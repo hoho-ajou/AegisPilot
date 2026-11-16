@@ -18,6 +18,7 @@ limit is recorded in the decision, never a silent pass of what was not looked at
 """
 from __future__ import annotations
 
+import net
 import json
 import time
 import urllib.request
@@ -175,7 +176,7 @@ def osv_malicious(found: list[dict], timeout: float = 15) -> dict[tuple[str, str
     payload = {"queries": [{"package": {"name": r["name"], "ecosystem": "PyPI"}, "version": r["version"]} for r in items]}
     req = urllib.request.Request(OSV_BATCH_URL, data=json.dumps(payload).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with net.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read(8 * 1024 * 1024))
     out = {}
     for r, res in zip(items, data.get("results") or []):

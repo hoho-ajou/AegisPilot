@@ -532,7 +532,8 @@ FAILURE_LABELS = {
     "crash": "internal error in scan",
     "other": "unknown cause",
 }
-RETRYABLE_FAILURES = {"network", "registry", "timeout", "crash"}
+RETRYABLE_FAILURES = {"network", "registry"}     # retried inside the guard (net.py) before they are reported
+TRIED = f"tried {__import__('net').ATTEMPTS} times"
 REGISTRY_NAMES = {"pypi": "PyPI", "npm": "npm"}
 
 

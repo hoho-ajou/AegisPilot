@@ -182,7 +182,7 @@ def summary_line(rec: dict, width: int = 66) -> str:
         kind = adv.get("failure_kind") or (rec.get("coverage") or {}).get("failure_kind") or "other"
         label = _plain((rec.get("coverage") or {}).get("failure") or "scan failed", 20)
         todo = {"not_found": "check the name", "version_missing": "check the version", "too_big": "could not read"}.get(
-            kind, "try again" if kind in ("network", "registry", "timeout", "crash") else "not scanned")
+            kind, "not scanned")
         variants = [[label, todo], [label]]
         parts = variants[0]
     elif case == "unscanned" and (rec.get("source") or {}).get("kind") == "too_many_packages":
@@ -263,8 +263,10 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
             return _cap(f"{_rr.PREFIX} {who} — version not on {reg}. Check the version. If approved, it tries to install unscanned.{tail}")
         if kind == "too_big":
             return _cap(f"{_rr.PREFIX} {who} — package too big, the code was not read. If approved, it installs unscanned.{tail}")
-        if kind in ("network", "registry", "timeout", "crash"):
-            return _cap(f"{_rr.PREFIX} {who} — not scanned: {why} (may be temporary). Try again. If approved, it installs unscanned.{tail}")
+        if kind in _rr.RETRYABLE_FAILURES:
+            return _cap(f"{_rr.PREFIX} {who} — not scanned: {why} ({_rr.TRIED}). If approved, it installs unscanned.{tail}")
+        if kind in ("timeout", "crash"):
+            return _cap(f"{_rr.PREFIX} {who} — not scanned: {why}. If approved, it installs unscanned.{tail}")
         return _cap(f"{_rr.PREFIX} {who} — scan failed ({why}). If approved, it installs unscanned.{tail}")
     lead = _lead_rule(rec)
     loc = _plain(_evidence(rec, lead).get("location") or "", 50)
@@ -406,8 +408,10 @@ def build_rows(rec: dict, report_path: str | None) -> tuple[str, list[tuple[str,
                 "not_found": "find the real package name on PyPI and fix it in the requirements file (approve if it is on a private index)",
                 "version_missing": "change to a version that exists on PyPI",
                 "too_big": "approve only if the package is really needed (the code was not read)",
-                "network": "try again in a moment", "registry": "try again in a moment",
-                "timeout": "try again in a moment", "crash": "try again; if it keeps failing, check the guard log",
+                "network": f"approve only if you trust the package (the network failed, {_rr.TRIED})",
+                "registry": f"approve only if you trust the package (the registry failed, {_rr.TRIED})",
+                "timeout": "approve only if you trust the package (the check did not finish in time)",
+                "crash": "approve only if you trust the package (guard error: see the guard log)",
             }.get(fk, "approve only if you trust the package")))
         else:
             rows.append(("Fix", "check that the package is needed; if not, do not install it"))

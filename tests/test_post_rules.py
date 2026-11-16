@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory() as t:
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, osv_ok=False)
     assert out and out["permissionDecision"] == "deny" and "vulnerability DB" in out["permissionDecisionReason"], out
     assert rec["packages"][0]["evidence"][0]["rule"] == "osv_unavailable"
-    assert "Run the same install command once more" in out["permissionDecisionReason"]
+    assert "once more" not in out["permissionDecisionReason"] and "tried 3 times" in out["permissionDecisionReason"], out
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, osv_ok=True)
     assert out is None or out.get("permissionDecision") == "allow", out
 # risky code new in this release: REVIEW, the agent pins the release before

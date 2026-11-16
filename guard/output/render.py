@@ -484,9 +484,10 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
                 f"(or the `{name}` line of the requirements file, no other lines) to exactly that and continue (the guard checks it again). "
                 )
     if case == "osvdown":
-        return ("The guard could not reach the vulnerability DB (OSV), so known vulnerabilities and malicious versions were not checked. The code scan found no problem. "
-                "Run the same install command once more (the guard checks again). If you get the same message again, do not install it, and "
-                "tell the user in one sentence that the install was stopped by a network (OSV access) problem. ")
+        from review_report import TRIED
+        return (f"The guard could not reach the vulnerability DB (OSV, {TRIED}), so known vulnerabilities and malicious versions were not checked. "
+                "The code scan found no problem. Do not install it now, and tell the user in one sentence that the install was stopped because "
+                "the vulnerability DB could not be reached. ")
     if case == "new":
         return (f"`{name}` was first registered on PyPI only recently (attackers register names that AI tools make up before anyone else does). "
                 f"{_JUDGE} Check that the name is right (not a typo or a made-up name) and that the plan really needs it. If a widely used alternative does the same job, suggest it, "
@@ -536,9 +537,10 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
         if kind == "too_big":
             return ("The package is too big, so the guard could not read the code. Retrying gives the same result. Decide from the plan whether this package is really needed; "
                     "if not, leave it out and continue. If it is needed, do not install it and tell the user why in one sentence.")
-        if kind in ("network", "registry", "timeout", "crash", "other"):
-            return ("The guard could not scan this package (it may be a temporary error). Try the same command once more. "
-                    "If it is stopped again, do not install it and tell the user why in one sentence.")
+        from review_report import TRIED
+        why = {"network": f"the network failed ({TRIED})", "registry": f"the registry did not answer ({TRIED})",
+               "timeout": "the check did not finish in time", "crash": "the guard hit an internal error"}.get(kind, "the scan failed")
+        return (f"The guard could not scan this package: {why}. Do not install it now, and tell the user why in one sentence.")
 
     return (f"{_JUDGE} Risk signals were found. If needed, continue with another version or a well-known replacement package (the guard checks it again); "
             "otherwise do not install it and tell the user why in one sentence.")

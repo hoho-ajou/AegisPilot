@@ -11,6 +11,7 @@ Stage 5 (dynamic sandbox observation) and stage 7 (rollback) are NOT implemented
 """
 from __future__ import annotations
 
+import net
 import io
 import json
 import os
@@ -212,7 +213,7 @@ def query_osv(name: str, version: str | None, ecosystem: str = "pypi") -> list[d
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with net.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
         return data.get("vulns", [])
     except Exception:

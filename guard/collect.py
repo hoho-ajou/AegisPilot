@@ -7,6 +7,7 @@ Pure functions plus one optional network call; nothing downloaded is executed.
 """
 from __future__ import annotations
 
+import net
 import json
 import re
 import urllib.request
@@ -98,7 +99,7 @@ def fetch_release(name: str, resolved: str | None, meta: dict, timeout: int = 15
     """The resolved version's own JSON ({"info", "urls"}). The project JSON's top level describes the LATEST release,
     so a pinned older version needs its own request; the latest one comes from `meta` for free."""
     if resolved and meta.get("info", {}).get("version") != resolved:
-        with urllib.request.urlopen(PYPI_VERSION_JSON_URL.format(name=name, version=resolved), timeout=timeout) as r:
+        with net.urlopen(PYPI_VERSION_JSON_URL.format(name=name, version=resolved), timeout=timeout) as r:
             return json.loads(r.read())
     return {"info": meta.get("info", {}), "urls": meta.get("urls", [])}
 
