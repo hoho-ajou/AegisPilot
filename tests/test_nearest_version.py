@@ -29,9 +29,9 @@ rec = {"package": "requests", "version": "2.99.0", "verdict": "NEEDS_HUMAN_REVIE
        "coverage": {"analyzed": False, "failure_kind": "version_missing"},
        "advice": {"failure_kind": "version_missing", "nearest_version": "2.34.1", "nearest_verdict": "ALLOW", "nearest_rules": []}}
 t = render.auto_reason(rec)
-assert "`requests==2.34.1`, was checked and passed" in t and "change the version" in t, t
+assert "suggested: requests==2.34.1 (the nearest version that exists, checked: passed)" in t, t
 assert "Nearest on PyPI: 2.34.1 (checked: passed)" in text_format.popup_line(rec), text_format.popup_line(rec)
 held = {**rec, "advice": {**rec["advice"], "nearest_verdict": "NEEDS_HUMAN_REVIEW", "nearest_rules": ["known_vulnerability"]}}
-assert "is held too (known_vulnerability)" in render.auto_reason(held)
+assert "checked: held too" in render.auto_reason(held)
 assert "checked: held" in text_format.popup_line(held)
 print("nearest_version: all cases passed")

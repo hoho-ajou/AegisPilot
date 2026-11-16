@@ -69,7 +69,7 @@ with tempfile.TemporaryDirectory() as t:
     # denied package: blocked although the scan found nothing; the auto card says why and what to do
     out, rec = hook(proj, "pip install leftpad", {}, mode="auto")
     assert out and out["permissionDecision"] == "deny" and rec["verdict"] == "BLOCK", (out, rec)
-    assert "deny list" in out["permissionDecisionReason"] and "policy file" in out["permissionDecisionReason"]
+    assert "deny list" in out["permissionDecisionReason"] and "policy_deny" in out["permissionDecisionReason"]
     assert rec["packages"][0]["evidence"][0]["rule"] == "policy_deny"
     out, rec = hook(proj, "pip install leftpad", {}, mode="user")
     assert out and out["permissionDecision"] == "deny"

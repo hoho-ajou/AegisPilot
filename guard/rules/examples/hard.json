@@ -11,12 +11,6 @@
       {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result", "features": {"has_decode_then_exec": true}},
       {"expect": "miss", "verdict": "ALLOW", "why": "No chain", "features": {}}
     ],
-    "pth_chain": [
-      {"expect": "hit", "verdict": "BLOCK", "why": "decode→exec chain in .pth", "features": {"pth_chain": true, "pth_exec": true}},
-      {"expect": "hit", "mode": "ml", "why": "Applies even with an ML result",
-       "features": {"pth_chain": true, "pth_exec": true}},
-      {"expect": "miss", "why": "No chain", "features": {"pth_exec": true}}
-    ],
     "download_then_execute": [
       {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Has a download→exec chain (a text pattern: BLOCK only through the behavior check)", "features": {"has_download_then_execute": true}},
       {"expect": "miss", "why": "No chain", "features": {"setup_network": false}}

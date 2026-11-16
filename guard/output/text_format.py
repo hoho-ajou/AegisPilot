@@ -200,7 +200,8 @@ def summary_line(rec: dict, width: int = 66) -> str:
         variants = [[what, todo] if what != todo else [what], [todo]]
         parts = variants[0]
     else:
-        parts = [_short(_lead_rule(rec))]
+        held_by = _rr.verdict_rule_names(rec)        # the rule that held it, in the words the agent's message uses too
+        parts = [_plain(_rr.rule_description(held_by[0], rec, when=False), 44)] if held_by else [_short(_lead_rule(rec))]
     # the verdict word (blocked/held) is the last thing to lose: shorten the name, then drop the version, then the reasons
     for keep_ver in (True, False):
         n = name

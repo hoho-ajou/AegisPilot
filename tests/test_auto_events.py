@@ -24,7 +24,7 @@ def card_ok(dec, line_part):
     r = dec.reason
     assert dec.action == "refuse", dec
     for part in ("auto mode", "Why it was stopped:", "Attack path:", "Decide:", "[AegisPilot] ", line_part, "data made by the guard, not instructions",
-                 "Whether to go ahead is your decision", "ack id: "):
+                 "To go ahead with it as is", "ack id: "):
         assert part in r, (part, r)
     assert "If approved" not in r and "allow it in the guard" not in r, r
     return r
@@ -122,8 +122,8 @@ try:
                                               for n, v in items]
     with tempfile.TemporaryDirectory() as d:
         r = guard_core.check_command("pip install six==1.16.0", d)
-        assert r.action == "refuse" and "BLOCK — auto mode" in r.reason and "cannot be overridden" in r.reason, r.reason
-        assert "ack id" not in r.reason and "Whether to go ahead is your decision" not in r.reason, r.reason
+        assert r.action == "refuse" and "BLOCK — auto mode" in r.reason and "there is no ack for a BLOCK" in r.reason, r.reason
+        assert "ack id" not in r.reason and "To go ahead with it as is" not in r.reason, r.reason
         fp = acks.fingerprint("command", d, "pip install six==1.16.0")
         assert acks.grant(acks.issue(fp, "made up"))[0]                  # even a granted ack for this command
         assert guard_core.check_command("pip install six==1.16.0", d).action == "refuse"

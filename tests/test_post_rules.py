@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory() as t:
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, vdiff=vd)
     assert out and out["permissionDecision"] == "deny", out
     reason = out["permissionDecisionReason"]
-    assert "not in the previous version" in reason and "`oldpkg==1.9`" in reason and "hijack" in reason, reason
+    assert "new_risky_code: risky code new in this version" in reason and "suggested: oldpkg==1.9 (the previous version)" in reason, reason
     pkg = rec["packages"][0]
     assert pkg["evidence"][0]["rule"] == "new_risky_code" and pkg["new_risky_code"]["previous"] == "1.9"
     from scan_engine import ScanFeatures, Verdict
@@ -108,15 +108,15 @@ with tempfile.TemporaryDirectory() as t:
     assert PR.apply(Verdict("BLOCK", 0.7, [], f), "2.0", vdiff=vd["oldpkg"]) == ("BLOCK", None)
     vd["oldpkg"]["safe_version"] = "1.9; rm -rf /"                  # never reaches the instruction unvalidated
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, vdiff=vd)
-    assert "rm -rf" not in out["permissionDecisionReason"].split("```")[0] and "If you cannot pin an earlier version" in out["permissionDecisionReason"]
+    assert "rm -rf" not in out["permissionDecisionReason"] and "suggested:" not in out["permissionDecisionReason"], out  # an invalid version is not offered
 # a file added to an old release recently: REVIEW, pin the release before
 with tempfile.TemporaryDirectory() as t:
     p = Path(t)
     lf = {"oldpkg": {"file": "oldpkg-2.0-py3-none-any.whl", "release_date": "2024-01-02", "added_days_after": 700,
                      "added_days_ago": 2, "safe_version": "1.9"}}
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, late=lf)
-    assert out and out["permissionDecision"] == "deny" and "was added recently" in out["permissionDecisionReason"], out
-    assert "`oldpkg==1.9`" in out["permissionDecisionReason"]
+    assert out and out["permissionDecision"] == "deny" and "late_file: file recently added to an old version" in out["permissionDecisionReason"], out
+    assert "suggested: oldpkg==1.9" in out["permissionDecisionReason"]
     assert rec["packages"][0]["evidence"][0]["rule"] == "late_file" and rec["packages"][0]["late_file"]["added_days_ago"] == 2
 # the score is the scanner's weighted sum and is not moved by these rules
 with tempfile.TemporaryDirectory() as t:
@@ -220,14 +220,14 @@ from output import render as _render  # noqa: E402
 assert _render._advice_case(rec) == "fresh"
 assert _render.fix_offers([rec]) == [("pkg", "pkg==1.9")]
 _txt = _render.auto_reason(rec)
-assert "`pkg==1.9`" in _txt and "newest earlier version that is over a day old" in _txt, _txt
+assert "suggested: pkg==1.9 (the newest version over a day old)" in _txt, _txt
 rec_n = {"package": "fx", "ecosystem": "npm", "evidence": [], "verdict": "ALLOW"}
 _fn = _fresh(3.0)
 _fn.features.settled_version, _fn.features.ecosystem = "2.0.5", "npm"
 _base.post_rules_into(rec_n, _fn, "2.1.0", True, None, None)
 assert _render.fresh_pin("fx", rec_n["advice"]) == "fx@2.0.5"
 _txt = _render.auto_reason(rec_n)
-assert "Install `fx@2.0.5` instead" in _txt, _txt
+assert "suggested: fx@2.0.5" in _txt, _txt
 assert _render.fresh_pin("fx", {"pin_version": "2.0.5; rm -rf /"}) == ""                 # registry values are validated
 # a dependency under a day old: the same day-old version, to be added to the install (the named packages stay)
 dep = {"package": "numpy", "version": "2.5.5", "verdict": "NEEDS_HUMAN_REVIEW", "via": "pandas → numpy",
@@ -235,7 +235,7 @@ dep = {"package": "numpy", "version": "2.5.5", "verdict": "NEEDS_HUMAN_REVIEW", 
        "advice": {"pin_version": "2.5.4", "pin_ecosystem": "pypi", "pin_dependency": True}}
 assert _render._advice_case(dep) == "fresh"
 _txt = _render.auto_reason(dep)
-assert "comes in as a dependency" in _txt and "add `numpy==2.5.4` to the same install command" in _txt, _txt
+assert "suggested: numpy==2.5.4" in _txt and "add it to the same install" in _txt, _txt
 from output import text_format as _tf  # noqa: E402
 assert "add numpy==2.5.4" in _tf.popup_line(dep), _tf.popup_line(dep)
 print("post_rules: fresh releases held")

