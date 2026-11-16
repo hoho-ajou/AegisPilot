@@ -274,6 +274,12 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0, ta
                     analyze(code, ctx, phase, file, line, depth + 1, tainted)
             if prog.startswith("python") and "-c" in argv and argv.index("-c") + 1 < len(argv):
                 ctx.nested_python(argv[argv.index("-c") + 1], phase, file, line, depth + 1)
+            # an interpreter started on one of the package's files: that file runs at this phase too
+            if (prog in ("node", "nodejs", "bun", "deno", "sh", "bash", "zsh", "dash") or prog.startswith("python")) \
+                    and not {"-e", "--eval", "-c", "-m", "-p", "--print"} & set(argv[1:]):
+                script = next((a for a in argv[1:] if not a.startswith("-")), None)
+                if script and hasattr(ctx, "run_script"):
+                    ctx.run_script(script, prog, phase, file)
             if prog in ("node", "bun", "deno") and ("-e" in argv or "--eval" in argv):
                 flag = "-e" if "-e" in argv else "--eval"
                 if argv.index(flag) + 1 < len(argv):

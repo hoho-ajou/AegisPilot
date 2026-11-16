@@ -197,6 +197,26 @@ class Context:
             self.emit("encoded_source", phase, rel, 1, f"source encoding declared as {codec}")
         return text
 
+    def run_script(self, target: str, prog: str, phase: str, file: str) -> None:
+        """A command line that starts an interpreter on a file (`node src/main.js`, `python x.py`, `sh x.sh`), from an
+        install script, a lifecycle command, JavaScript's child_process or Python's subprocess: when the file is the
+        package's own and the command runs by itself (install, interpreter start, import), read it at that phase. A
+        relative path is taken from the package root (where install scripts run), then from the calling file's folder."""
+        if phase not in ("install", "interpreter_start", "import"):
+            return
+        lang = ("js" if prog in ("node", "nodejs", "bun", "deno") else "python" if prog.startswith("python")
+                else "shell" if prog in ("sh", "bash", "zsh", "dash") else None)
+        t = (target or "").strip("'\"").replace("\\", "/")
+        if lang is None or not t or t.startswith(("-", "/", "~", "$")) or "://" in t:
+            return
+        here = file.rsplit("/", 1)[0] if "/" in file else ""
+        for base in ("", here) if here else ("",):
+            rel = norm_rel(f"{base}/{t}" if base else t)
+            status, path = self.bundled(rel)
+            if status in ("file", "aside"):
+                self.run_file(rel, path, lang, phase)
+                return
+
     def run_file(self, rel: str, path: Path, lang: str, phase: str) -> bool:
         """A package file that code being analyzed runs (a script setup.py starts, a file it exec()s): read at that
         phase, once. False if it could not be read (over the size limit, unreadable)."""
@@ -215,6 +235,9 @@ class Context:
         try:
             if lang == "python":
                 python.analyze_source(self, text, rel, phase, loaded=True)
+            elif lang == "js":
+                from . import js
+                js.analyze_source(self, text, rel, phase)
             elif lang == "make":
                 self.shell(make_recipes(text), phase, rel, 1)
             elif lang == "cmake":
