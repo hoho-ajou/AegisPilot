@@ -792,4 +792,9 @@ def verdict_rule_names(rec: dict) -> list:
         alias = {"osv": "known_vulnerability"}         # an evidence kind named as the rule that holds on it
         names = [alias.get(str(e.get("rule")), str(e.get("rule"))) for e in (rec.get("evidence") or [])[:1]
                  if isinstance(e, dict) and e.get("rule")]
+        # the two catch-all kinds say which case they are: scan_failed.timeout, unscanned.custom_index
+        kind = {"fetch_error": ((rec.get("advice") or {}).get("failure_kind"), "scan_failed"),
+                "unscanned_source": ((rec.get("source") or {}).get("kind"), "unscanned")}.get(names[0] if names else "")
+        if kind and kind[0]:
+            names = [f"{kind[1]}.{kind[0]}"]
     return [re.sub(r"[^A-Za-z0-9_@.-]", "", n)[:60] for n in names][:8]

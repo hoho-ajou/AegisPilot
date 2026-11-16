@@ -203,6 +203,7 @@ def policy_into(rec: dict, pol, policy_decide, name: str, version, verdict: str)
             rec["policy"] = note
             if note["action"] == "deny":
                 rec["verdict"] = "BLOCK"
+                rec["verdict_rules"] = ["policy_deny"]
                 rec["evidence"] = [{"rule": "policy_deny", "label": "package denied by policy", "location": f"{note['source']} policy",
                                     "snippet": note["reason"], "count": 1}] + rec["evidence"]
                 rec["headline"] = "package denied by policy"
