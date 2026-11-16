@@ -229,4 +229,13 @@ assert _render.fresh_pin("fx", rec_n["advice"]) == "fx@2.0.5"
 _txt = _render.auto_reason(rec_n)
 assert "Install `fx@2.0.5` instead" in _txt, _txt
 assert _render.fresh_pin("fx", {"pin_version": "2.0.5; rm -rf /"}) == ""                 # registry values are validated
+# a dependency under a day old: the same day-old version, to be added to the install (the named packages stay)
+dep = {"package": "numpy", "version": "2.5.5", "verdict": "NEEDS_HUMAN_REVIEW", "via": "pandas → numpy",
+       "evidence": [{"rule": "fresh_release", "label": "published less than a day ago", "location": "published 4 hours ago", "snippet": "", "count": 1}],
+       "advice": {"pin_version": "2.5.4", "pin_ecosystem": "pypi", "pin_dependency": True}}
+assert _render._advice_case(dep) == "fresh"
+_txt = _render.auto_reason(dep)
+assert "comes in as a dependency" in _txt and "add `numpy==2.5.4` to the same install command" in _txt, _txt
+from output import text_format as _tf  # noqa: E402
+assert "add numpy==2.5.4" in _tf.popup_line(dep), _tf.popup_line(dep)
 print("post_rules: fresh releases held")

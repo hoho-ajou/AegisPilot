@@ -136,8 +136,15 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
                                     "location": where, "snippet": "", "count": 1}] + \
                                   [e for e in rec["evidence"] if e.get("rule") != "score"]
                 rec["headline"] = label
+                rec["verdict_rules"] = [fired["rule"]]
                 if fired["rule"] == "known_malicious":
                     rec["malicious_ids"] = fired["ids"]
+                settled = getattr(result.features, "settled_version", None)
+                if fired["rule"] == "fresh_release" and settled:
+                    adv = rec.setdefault("advice", {})
+                    adv["pin_version"] = clean(str(settled), 40)
+                    adv["pin_ecosystem"] = "pypi"
+                    adv["pin_dependency"] = True        # not in the command: added to it, not changed in it
             out.add(rec, rec["verdict"], dependency=True)
         return {"found": len(found), "osv_checked": bool(osv_ok and found), "scanned": len(todo),
                 "malicious": len(malicious), "notes": [clean(n, 160) for n in notes]}

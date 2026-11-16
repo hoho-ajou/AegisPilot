@@ -471,6 +471,13 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
                 + (f"In the requirements file, change the `{name}` line to exactly `{pin}` (do not edit other lines) and continue the install (the guard checks it again). " if pin else
                    "If you cannot pin an earlier version, do not install it and tell the user why in one sentence. ")
                 + "Do not upgrade to the latest version or install the same version another way. ")
+    if case == "fresh" and adv.get("pin_dependency"):
+        pin = fresh_pin(name, adv)
+        return (f"`{name}` is not in the command: it comes in as a dependency, and its newest version was published less than a day ago. "
+                "Hijacked releases are usually caught and pulled within hours, so do not install that version. "
+                f"Pin the dependency to `{pin}` (the newest earlier version that is over a day old): add `{pin}` to the same install command "
+                f"next to what it installs, or add the line `{pin}` to the requirements file, and continue (the guard checks it again). "
+                "Leave the packages the command names as they are. ")
     if case == "fresh":
         pin = fresh_pin(name, adv)
         return (f"This version of `{name}` was published less than a day ago. Hijacked releases are usually caught and pulled within hours, "

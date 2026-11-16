@@ -269,6 +269,8 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
     if lead == "fresh_release" and adv.get("pin_version"):
         from output.render import fresh_pin
         pin = fresh_pin(_plain(rec.get("package") or "", 80), adv)
+        if pin and adv.get("pin_dependency"):
+            return _cap(f"{_rr.PREFIX} {who} — dependency {_short(lead)}{f' ({loc})' if loc else ''}{extra}. Deny, then add {pin} (over a day old) to the install; if approved, the new version installs.{tail}")
         if pin:
             return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{extra}. Deny to use {pin} (over a day old) instead; if approved, the new version installs.{tail}")
     return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{extra}. If approved, it installs as is.{tail}")
@@ -394,7 +396,8 @@ def build_rows(rec: dict, report_path: str | None) -> tuple[str, list[tuple[str,
         elif "fresh_release" in _rules(rec) and adv.get("pin_version"):
             from output.render import fresh_pin
             pin = fresh_pin(name, adv)
-            rows.append(("Fix", f"install {pin} (the newest version older than a day)" if pin else "wait a day, or pin the previous version"))
+            rows.append(("Fix", (f"add {pin} to the install (the newest version older than a day)" if adv.get("pin_dependency")
+                                 else f"install {pin} (the newest version older than a day)") if pin else "wait a day, or pin the previous version"))
         elif case == "fetch":
             fk = (adv.get("failure_kind") or (rec.get("coverage") or {}).get("failure_kind") or "other")
             rows.append(("Fix", {
