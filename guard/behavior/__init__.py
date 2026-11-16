@@ -59,6 +59,7 @@ class Context:
         self.pkg_root: Path | None = None         # the package root folder of the files given
         self._aside: dict[str, Path] | None = None
         self._left: set[str] = set()
+        self.impure = False                       # the file being read asked about another file (facts_cache)
 
     def unread(self, rel: str, phase: str, why: str) -> None:
         """A file not (fully) analyzed; one that runs by itself (install, interpreter start, import) is a finding,
@@ -92,6 +93,8 @@ class Context:
     def was_downloaded(self, path) -> bool:
         if not isinstance(path, str) or not path.strip():
             return False
+        if self.downloaded:
+            self.impure = True
         n = self._norm(path)
         known = {self._norm(d) for d in self.downloaded}
         if n in known:
@@ -106,6 +109,7 @@ class Context:
     # ---------------------------------------------------------------- code inside code
     def nested_python(self, code, phase, file, line, depth, env=None) -> None:
         from . import python
+        self.impure = True                                  # Python code can import the package's other modules
         if isinstance(code, (bytes, bytearray)):
             code = bytes(code).decode("utf-8", "replace")
         if not isinstance(code, str) or depth > self.limits["max_depth"]:
@@ -158,6 +162,7 @@ class Context:
         """("file" | "aside", path) for a file the package ships, ("left", None) for one shipped but too large to keep,
         ("absent", None) otherwise. rel: package-relative ("./" and "a/.." folded)."""
         rel = norm_rel(rel)
+        self.impure = True
         if not rel:
             return "absent", None
         if rel in self.by_rel:
@@ -196,6 +201,7 @@ class Context:
         """A package file that code being analyzed runs (a script setup.py starts, a file it exec()s): read at that
         phase, once. False if it could not be read (over the size limit, unreadable)."""
         from . import python
+        self.impure = True
         key = (rel, phase)
         if key in self.module_phases:
             return True
@@ -511,6 +517,8 @@ def analyze_files(files: list[Path], features, deadline: float | None = None, st
         ctx.not_analyzed.append(("*", f"file selection failed: {type(e).__name__}"))
         return ctx
     ctx.held = {rel for _p, rel, _l, _ph in held}
+    from . import facts_cache
+    cache = facts_cache.enabled()
     ctx.modules = _module_index(planned + held)
     for n, (path, rel, lang, phase) in enumerate(planned):
         if stop is not None and stop.is_set():          # OSV already lists the release as malicious: stop quietly
@@ -537,7 +545,7 @@ def analyze_files(files: list[Path], features, deadline: float | None = None, st
                 ctx.module_phases.add((rel, phase))
                 python.analyze_source(ctx, text, rel, phase)
             elif lang == "js":
-                js.analyze_source(ctx, text, rel, phase)
+                _js_file(ctx, text, rel, phase, cache)
             else:
                 ctx.shell(text, phase, rel, 1)
         except LimitExceeded as e:
@@ -551,6 +559,25 @@ def analyze_files(files: list[Path], features, deadline: float | None = None, st
     except Exception as e:                                   # noqa: BLE001
         ctx.not_analyzed.append(("*", f"analysis failed: {type(e).__name__}"))
     return ctx
+
+
+def _js_file(ctx: Context, text: str, rel: str, phase: str, cache: bool) -> None:
+    """One JavaScript file of the package; with the facts cache on, a file whose exact content was read before (same
+    name, phase, rules and analyzer) takes the facts found then (facts_cache)."""
+    from . import facts_cache, js
+    if not cache:
+        js.analyze_source(ctx, text, rel, phase)
+        return
+    k = facts_cache.key(text, rel, "js", phase, ctx)
+    hit = facts_cache.get(k)
+    if hit is not None:
+        facts_cache.replay(ctx, rel, hit)
+        return
+    rec = facts_cache.Recorder(ctx, rel)
+    js.analyze_source(ctx, text, rel, phase)                # a limit raises here: nothing is stored
+    entry = rec.entry()
+    if entry is not None:
+        facts_cache.put(k, entry)
 
 
 def analyze(files: list[Path], features, stop=None) -> None:

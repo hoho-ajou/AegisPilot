@@ -1308,10 +1308,14 @@ class Analyzer:
             elif isinstance(it.c, dict):
                 items = [Val(key) for key in it.c]
             if items is not None and len(items) and self.iters + len(items) <= self.max_iter and len(items) <= 64:
-                self.iters += len(items)
-                for item in items:
-                    self.bind(s[3], item, scope, declare=True)
+                # a work-list loop (`for (x of queue) queue.push(...)`) grows the array it walks: count every
+                # item, and stop at the same 64 the loop was let in with (items past it are not read one by one)
+                n = 0
+                while n < len(items) and n < 64:
+                    self.iters += 1
+                    self.bind(s[3], items[n], scope, declare=True)
                     self.exec(s[5], scope)
+                    n += 1
             else:
                 self.bind(s[3], Val(NOVAL, _tags(it)), scope, declare=True)
                 self.exec(s[5], scope)
@@ -2789,7 +2793,7 @@ class Analyzer:
             return self.map_items(list(items), a0, tags)
         if name == "reduce" and _meta(a0, "fn") is not None:
             acc = args[1] if len(args) > 1 else (items[0] if items else Val(UNDEF))
-            rest = items if len(args) > 1 else items[1:]
+            rest = list(items) if len(args) > 1 else items[1:]       # a reducer that pushes onto it: not walked
             if self.iters + len(rest) > self.max_iter:
                 return Val(NOVAL, _tags(recv))
             self.iters += len(rest)
@@ -3029,7 +3033,10 @@ def analyze_source(ctx, text: str, file: str, phase: str, depth: int = 0, line_b
     any other failure ends the analysis of this source quietly with what was found so far."""
     if not isinstance(text, str) or depth > int(ctx.limits["max_depth"]):
         return
-    if len(text) > int(ctx.limits["max_string"]):
+    # a file of the package is read up to the file size limit, like a Python file; code built at run time (eval, new
+    # Function, a decoded payload) is a value and stays under the value cap
+    cap = ctx.limits["max_string"] if depth or line_base is not None else ctx.limits["max_file_bytes"]
+    if len(text) > int(cap):
         raise LimitExceeded("size limit")
     try:
         stmts = parse(text, ctx.check_time)

