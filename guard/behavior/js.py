@@ -36,6 +36,9 @@ CRED_PATH, AUTOSTART_PATH, SOCK = "CRED_PATH", "AUTOSTART_PATH", "SOCK"
 # unreadable_exec is judged on these (python.py has the same): OPAQUE = computed from constants by code the analysis
 # could not follow (a custom decoder); ENV = an environment variable's value (code handed in from outside)
 OPAQUE, ENV = "OPAQUE", "ENV"
+# OVER = built from constants but dropped at a value cap (max_string / max_iter): not followed, and kept through
+# method calls on it (OPAQUE is not), so code made from it is unreadable_exec, not "nothing found"
+OVER = "OVER"
 PH = "\x00"                                        # placeholder for an unknown part inside a partially known string
 
 
@@ -1229,10 +1232,12 @@ class Analyzer:
         return self.phase in self.pol.auto
 
     def mk(self, c, tags=frozenset(), **meta) -> Val:
+        # a value dropped at a cap was computed from constants but is not followed (OVER): running it is
+        # unreadable_exec (a 4 MB install script that evals a decoded million-number array is not "nothing found")
         if isinstance(c, (str, bytes, bytearray)) and len(c) > self.max_string:
-            return Val(NOVAL, tags)
+            return Val(NOVAL, frozenset(tags) | {OVER})
         if isinstance(c, list) and len(c) > self.max_iter:
-            return Val(NOVAL, _tags(*c[:100]) | frozenset(tags))
+            return Val(NOVAL, _tags(*c[:100]) | frozenset(tags) | {OVER})
         return Val(c, tags, None, meta or None)
 
     # ---------------------------------------------------------------- program
@@ -1489,7 +1494,7 @@ class Analyzer:
             else:
                 out.append(self.ev(e, scope))
             if len(out) > self.max_iter:
-                return Val(NOVAL, _tags(*out[:100]))
+                return Val(NOVAL, _tags(*out[:100]) | {OVER})
         return Val(out)
 
     def e_obj(self, n, scope):
@@ -1698,7 +1703,7 @@ class Analyzer:
         total = sum(len(t) for t in texts)
         if known:
             if total > self.max_string:
-                return Val(NOVAL, tags)
+                return Val(NOVAL, frozenset(tags) | {OVER})
             return Val("".join(texts), tags)
         hint = "".join(texts)[:600]
         return Val(NOVAL, tags | _path_tags(hint), None, {"partial": hint})
@@ -2056,7 +2061,7 @@ class Analyzer:
             self.emit("decode_exec", pos)
         # unknown because it is data (a parameter, a table entry) is not unreadable; computed from constants by code
         # that could not be followed, or taken from the environment, is
-        if not tags & {NET, DECODED, LOCAL} and tags & {OPAQUE, ENV} and self.auto:
+        if not tags & {NET, DECODED, LOCAL} and tags & {OPAQUE, ENV, OVER} and self.auto:
             self.emit("unreadable_exec", pos)
 
     # ---------------------------------------------------------------- processes

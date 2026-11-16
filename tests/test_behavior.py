@@ -624,6 +624,17 @@ class LargePackages(unittest.TestCase):
         with self.assertRaises(behavior.LimitExceeded):     # built code over the value cap is still not read
             js.analyze_source(ctx, src, "index.js", "import", depth=1, line_base=1)
 
+    def test_code_over_value_cap_is_unreadable(self):
+        # @redhat-cloud-services/entitlements-client 4.0.11 preinstall: eval of a rot-n decoder over a 1.27 million
+        # number array; the array is over max_iter, so the code is not rebuilt - running it must not pass unnoticed
+        ctx = behavior.Context()
+        ctx.limits = dict(ctx.limits, max_iter=10)
+        src = ("try{eval(function(s,n){return s.replace(/[a-z]/g,function(c){return String.fromCharCode("
+               "(c.charCodeAt(0)-97+n)%26+97)})}([" + ",".join(["99"] * 40) + "].map(function(c){"
+               "return String.fromCharCode(c)}).join(''),24))}catch(e){}\n")
+        js.analyze_source(ctx, src, "index.js", "install")
+        self.assertIn("unreadable_exec", {f for (f, _ph, _file, _line) in ctx.facts})
+
     def test_facts_cache_reuses_and_keys_by_content(self):
         import os
         from behavior import facts_cache
