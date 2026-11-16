@@ -795,10 +795,12 @@ TREE_MAX_PACKAGES = 1000          # distinct packages per command: 198 popular p
 TREE_WORKERS = 8
 
 
-def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, skip: set | None = None) -> tuple[list[dict], list[str]]:
+def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, skip: set | None = None,
+                        resolved: list | None = None) -> tuple[list[dict], list[str]]:
     """([{name, version, via}] of packages in the dependency tree of `roots` (name, spec) whose resolved version has an
     install script, [notes]). The tree is resolved like npm does for a fresh install (dependencies + optionalDependencies,
-    highest version in range); `skip` = names already scanned. Stops at TREE_MAX_PACKAGES or `deadline` (noted)."""
+    highest version in range); `skip` = names already scanned. Stops at TREE_MAX_PACKAGES or `deadline` (noted).
+    `resolved`, when given, receives every {name, version, via} of the tree (for the OSV check of the whole tree)."""
     import time
     from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
     skip = set(skip or ())
@@ -845,6 +847,8 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
                     continue                      # an unreadable dependency: npm itself would fail on it
                 if not version:
                     continue
+                if resolved is not None:
+                    resolved.append({"name": name, "version": version, "via": via})
                 if info.get("hasInstallScript") and name not in skip:
                     found.append({"name": name, "version": version, "via": via})
                 for key in ("dependencies", "optionalDependencies"):

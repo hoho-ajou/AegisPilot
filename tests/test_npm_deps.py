@@ -68,13 +68,39 @@ def fake_scan(name, spec=None):
 
 se.scan_npm_package = fake_scan
 se.ECOSYSTEM_SCANNERS["npm"] = fake_scan
+import post_rules  # noqa: E402
+post_rules.osv_reachable = lambda *a, **k: True
+asked = []
+npm.malicious_releases = lambda pairs: asked.extend(pairs) or {}
 with tempfile.TemporaryDirectory() as d:
     r = guard_core.check_command("npm install app", d)
+    # the whole resolved tree went to OSV (not only the packages with install scripts), the named package excluded
+    assert set(asked) == {("lib", "2.1.0"), ("evil-native", "1.0.3"), ("clean-native", "1.2.0"), ("fsevents", "2.3.3")}, asked
     doc = json.loads(Path(d, ".aegis", "last_review.json").read_text())
     assert r.action == "refuse" and doc["verdict"] == "BLOCK", (r, doc["verdict"])
     evil = [p for p in doc["packages"] if p["package"] == "evil-native"][0]
     assert evil["via"] == "app → evil-native" and evil["install_script_dependency"], evil
     assert doc["npm_dependency_scripts"]["scanned"] == 3 and doc["npm_dependency_scripts"]["from"] == "registry"
+    assert doc["npm_dependency_scripts"]["tree_osv_checked"] == 4
+
+# a malicious dependency with no install script (it does its harm when imported) is found by the tree's OSV check:
+# BLOCK with the path that pulls it in; a malicious one with an install script is not scanned again
+npm.malicious_releases = lambda pairs: {p: ["MAL-2025-1"] for p in pairs if p[0] in ("lib", "clean-native")}
+with tempfile.TemporaryDirectory() as d:
+    r = guard_core.check_command("npm install app", d)
+    doc = json.loads(Path(d, ".aegis", "last_review.json").read_text())
+    lib = [p for p in doc["packages"] if p["package"] == "lib"]
+    assert r.action == "refuse" and lib and lib[0]["verdict"] == "BLOCK" and lib[0]["via"] == "app → lib", lib
+    assert doc["npm_dependency_scripts"]["tree_malicious"] == 2 and doc["npm_dependency_scripts"]["scanned"] == 2
+
+# OSV down: noted, the rest of the check stands
+post_rules.osv_reachable = lambda *a, **k: False
+with tempfile.TemporaryDirectory() as d:
+    guard_core.check_command("npm install app", d)
+    doc = json.loads(Path(d, ".aegis", "last_review.json").read_text())
+    assert any("OSV could not be reached" in n for n in doc["npm_dependency_scripts"]["notes"]), doc["npm_dependency_scripts"]
+post_rules.osv_reachable = lambda *a, **k: True
+with tempfile.TemporaryDirectory() as d:
 
     # a project with a lock: the lock says which dependencies have install scripts (no registry walk)
     Path(d, "package.json").write_text(json.dumps({"dependencies": {"lib": "^2.0.0"}}))
