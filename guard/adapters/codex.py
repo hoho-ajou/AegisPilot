@@ -73,7 +73,7 @@ def file_write(event: dict, with_text: bool = True):
     return (files[0], None, event.get("cwd") or os.getcwd()) if files else None
 
 
-def answer(action: str, reason: str) -> str | None:
+def answer(action: str, reason: str, notice: str = "") -> str | None:
     if action not in ("confirm", "refuse", "ask", "deny"):
         return None
     return json.dumps({"hookSpecificOutput": {

@@ -43,11 +43,11 @@ The default is `user` mode: you decide on every REVIEW and BLOCK. `auto` mode is
 
 | | `user` (default) | `auto` |
 | --- | --- | --- |
-| REVIEW | Claude Code's approval dialog. You decide. | The agent gets an evidence card and an ack id, and decides. |
-| BLOCK | The command is refused. A report is shown and the agent asks you what to do. | The command is refused. The agent gets the evidence card and an ack id, and decides; it can go ahead after `guard_cli.py ack <id>`. |
+| REVIEW | Claude Code's approval dialog, with the rules that held each package and a suggested version when there is one. You decide. | The command is refused. You see a notice with the rules; the agent gets the same evidence and an ack id, and decides: install as is (after `guard_cli.py ack <id>`), another package or version, or leave it out. |
+| BLOCK | The command is refused. You see a notice with the rules that held each package and the report path; the agent tells you the next step. | The same notice for you. The agent gets no ack: it uses another package or version, or goes on without it. |
 | Actions on the guard itself | Claude Code's approval dialog. You decide. | Claude Code's approval dialog. You decide. |
 
-In `auto` mode the agent is told to start its final answer with a one-line summary per package (for example `[AegisPilot] ctx 0.2.2 blocked · known malicious version`). That line comes from the agent, so you see it only if the agent follows the instruction. The full record is always in `.aegis/reviews/` (see below). Because the agent can go ahead after a BLOCK in this mode, use `auto` only where an unattended run matters more than a person seeing every BLOCK.
+The notice is shown by Claude Code itself (the hook's `systemMessage`), so you see it whatever the agent does next. In `auto` mode the agent is also told to start its final answer with a one-line summary per package (for example `[AegisPilot] ctx 0.2.2 blocked · known malicious version`). The full record is always in `.aegis/reviews/` (see below).
 
 To switch, create `.aegis/policy.json` in the project:
 

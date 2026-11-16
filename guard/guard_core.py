@@ -40,6 +40,7 @@ class Decision:
     reason: str = ""
     detail: str = ""        # the person-facing report for a side channel (user-mode BLOCK); the adapter decides where
     final: bool = False     # an install BLOCK: no ack, in any mode - a forbidden install is not the agent's to allow
+    notice: str = ""        # what the person sees on screen whatever the agent does with the reason (Claude Code: systemMessage)
 
 
 def _text_or(fn_name: str, fallback: str, *args) -> str:
@@ -237,11 +238,13 @@ def _agent_decides(decision: Decision, fp: str) -> Decision:
         import acks
         if acks.consume(fp):
             return Decision(ALLOW)
-        ack_id = acks.issue(fp, decision.reason.splitlines()[0] if decision.reason else "")
+        lines = (decision.reason or "").splitlines()
+        held = next((ln for ln in lines if ln.startswith("- ")), "")      # "- name ver (REVIEW)" in an install card
+        ack_id = acks.issue(fp, f"{lines[0]} {held}".strip() if lines else "")
         from output.render import ack_instruction
         cli = Path(__file__).resolve().parent / "guard_cli.py"
         return Decision(REFUSE, decision.reason + "\n" + ack_instruction(ack_id, f"python3 -I {cli} ack {ack_id}"),
-                        decision.detail)
+                        decision.detail, notice=decision.notice)
     except Exception:
         return decision
 
@@ -439,9 +442,9 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         # wrapped on purpose: a module-level import error exits 1, and exit 1 does not block - the install would run
         # (in testing, with output/ missing, `pip install pyyaml==5.3.1` went through). Whatever fails in the
         # extras, the refusal is still sent; if the short message cannot be built we send the full reason instead.
-        reason, detail = deny_block(blocked), ""
+        reason, detail, notice = deny_block(blocked), "", ""
         try:
-            from output.render import auto_reason, claude_reason, terminal_report, write_md_report
+            from output.render import auto_reason, claude_reason, person_notice, terminal_report, write_md_report
             try:
                 report_path = write_md_report(project_dir, report_data, force=False)
             except Exception:
@@ -453,6 +456,10 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                 except ValueError:
                     shown_path = report_path
             report = terminal_report(report_data, width=surface.get("width"), report_path=shown_path)
+            try:
+                notice = person_notice("BLOCK", blocked + review, shown_path)
+            except Exception:
+                notice = ""
             if mode == "auto":
                 # auto mode: the reasons stay in the record and the md report; the person gets one line (relayed by
                 # the agent), the agent gets the instruction. user mode: the fixed-format report is shown.
@@ -469,7 +476,8 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                 reason = claude_reason(report, offers, names)   # user mode: show the report, offer the fixed version, wait
         except Exception:
             pass
-        return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True)
+        return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True,
+                        notice=notice or f"{PREFIX} BLOCK — the install did not run.")
 
     if review or integrity_findings:
         if integrity_findings and mode == "auto":
@@ -494,15 +502,26 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
             # auto mode = no person in the loop: nothing is asked. The REVIEW is handed to the agent as a card with the
             # steps to resolve it (same channel and instruction as a BLOCK); the agent's next install is checked again.
             try:
-                from output.render import auto_reason
+                from output.render import auto_reason, person_notice
                 card = auto_reason(review[0], review[1:])
             except Exception:
                 card = None
             if card:
-                return Decision(REFUSE, _with_decision_id(card, report_data))
+                try:
+                    notice = person_notice("REVIEW", review)
+                except Exception:
+                    notice = ""
+                return Decision(REFUSE, _with_decision_id(card, report_data), notice=notice)
             reason = one_liner(review[0], extra_packages=len(review) - 1)   # the card could not be built: ask the person as before
         else:
             reason = _text_or("popup_line", one_liner(review[0], extra_packages=len(review) - 1), review[0], len(review) - 1)
+            try:                    # the evidence in the permission prompt itself: the person decides there
+                from output.render import held_text
+                held = held_text(review)
+                if held:
+                    reason += "\n" + held
+            except Exception:
+                pass
         return Decision(CONFIRM, _with_decision_id(reason, report_data))
 
     return Decision(ALLOW)

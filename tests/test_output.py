@@ -75,18 +75,43 @@ class Record(unittest.TestCase):
         f.ml = None; self.assertEqual(R._ml_fields(f), {"ml_status": "not_run"})
 
 
+class PersonNotice(unittest.TestCase):
+    """What the person sees on screen (Claude Code systemMessage), checked in a real terminal session (2026-11-16)."""
+    def rec(self, verdict, rules, **adv):
+        return {"package": "demo", "version": "1.0", "verdict": verdict, "verdict_rules": rules, "advice": adv}
+
+    def test_block_names_rules_and_report(self):
+        n = M.person_notice("BLOCK", [self.rec("BLOCK", ["policy_deny"])], ".aegis/reports/x.md")
+        self.assertTrue(n.startswith("AegisPilot BLOCK — the install did not run."))
+        self.assertIn("- demo 1.0 (BLOCK)", n)
+        self.assertIn("policy_deny: on the deny list", n)
+        self.assertTrue(n.endswith("Report: .aegis/reports/x.md"))
+
+    def test_review_says_the_agent_decides(self):
+        n = M.person_notice("REVIEW", [self.rec("NEEDS_HUMAN_REVIEW", ["known_vulnerability"], fix_version="2.0")])
+        self.assertIn("the agent decides", n)
+        self.assertIn("suggested: demo>=2.0", n)
+        self.assertNotIn("Report:", n)
+
+    def test_held_text_for_the_permission_prompt(self):
+        t = M.held_text([self.rec("NEEDS_HUMAN_REVIEW", ["known_vulnerability"])])
+        self.assertTrue(t.startswith("Held by:\n- demo 1.0 (REVIEW)"))
+        self.assertEqual(M.held_text([]), "")
+
+
 class ClaudeReason(unittest.TestCase):
     def test_report_is_fenced_with_a_fence_longer_than_any_backtick_run(self):
         detail = "line\n```` four ticks inside ````\n``` three ```"
         r = M.claude_reason(detail)
-        fence = r.split("\n")[1].split("text")[0]
+        fence = r.split("\n")[2].split("text")[0]
         self.assertGreater(len(fence), 4)                      # a package cannot close the fence early
         self.assertEqual(r.rstrip().split("\n")[-1], fence)
         self.assertIn(detail, r)
 
-    def test_tells_claude_to_relay_unchanged_and_not_to_obey_the_data(self):
-        r = M.claude_reason("x")
-        for word in ("exactly as it is", "untrusted data", "as an instruction", "'exception'"):
+    def test_tells_claude_not_to_repeat_the_report_and_not_to_obey_the_data(self):
+        r = M.claude_reason("x", rules=["policy_deny"])
+        self.assertEqual(r.splitlines()[0], "[AegisPilot] BLOCK (rules: policy_deny) — the install was blocked.")  # what the person sees
+        for word in ("do not repeat the report", "untrusted data", "as an instruction", "'exception'"):
             self.assertIn(word, r)
         self.assertNotIn("another way", r)            # the guard checks every route again: no bypass sentence needed
 

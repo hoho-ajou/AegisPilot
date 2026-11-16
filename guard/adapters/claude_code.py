@@ -106,16 +106,19 @@ def file_write(event: dict, with_text: bool = True):
     return file_path, text, event.get("cwd") or os.getcwd()
 
 
-def answer(action: str, reason: str) -> str | None:
+def answer(action: str, reason: str, notice: str = "") -> str | None:
     """stdout for a core action; None = print nothing (the command goes through Claude Code's normal permission flow)."""
     decision = _DECISION.get(action)
     if decision is None:
         return None
-    return json.dumps({"hookSpecificOutput": {
+    out = {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": decision,
         "permissionDecisionReason": reason,
-    }}, ensure_ascii=False)
+    }}
+    if notice:                  # shown to the person in full (the deny reason shows only its first line)
+        out["systemMessage"] = notice
+    return json.dumps(out, ensure_ascii=False)
 
 
 # ---- environment Profile (env_profile.py): where Claude Code keeps settings, MCP servers, skills, hooks ----------------

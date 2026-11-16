@@ -25,7 +25,8 @@ CASES = [
 for verdict, rules, words in CASES:
     text = R.auto_reason(rec(verdict, rules))
     assert words in text, (rules, text)
-    head = text.splitlines()[0]
+    first, head = text.splitlines()[0], "\n".join(text.splitlines()[:2])
+    assert first in ("[AegisPilot] BLOCK — auto mode.", "[AegisPilot] REVIEW — auto mode."), first   # the line the person sees
     if verdict == "BLOCK":
         assert "Do not install this version" in head and "no ack" in head, head
     else:
