@@ -350,14 +350,27 @@ def _offer_text(offers: list) -> str:
             "answer, change nothing and stop. ")
 
 
+def fresh_pin(name: str, adv: dict) -> str:
+    """`name==version` (PyPI) or `name@version` (npm) for a fresh release's settled earlier version, "" if either value
+    fails validation (both come from the registry, never from the package or the project)."""
+    safe = str(adv.get("pin_version") or "")
+    if not (_SAFE_NAME.match(name) and re.fullmatch(r"[0-9][0-9A-Za-z.+!-]{0,30}", safe)):
+        return ""
+    return f"{name}@{safe}" if adv.get("pin_ecosystem") == "npm" else f"{name}=={safe}"
+
+
 def fix_offers(records: list) -> list:
-    """(name, "name>=fix") for every record whose fix is a version bump the guard validated."""
+    """(name, spec) for every record whose fix is a version the guard validated: a fixed version, or for a release under
+    a day old the newest earlier version past that age."""
     out = []
     for rec in records:
         adv = rec.get("advice") or {}
         name = str(rec.get("package") or "")
-        if _advice_case(rec) == "fix" and _SAFE_NAME.match(name) and re.fullmatch(r"[0-9][0-9A-Za-z.+!-]{0,30}", str(adv.get("fix_version") or "")):
+        case = _advice_case(rec)
+        if case == "fix" and _SAFE_NAME.match(name) and re.fullmatch(r"[0-9][0-9A-Za-z.+!-]{0,30}", str(adv.get("fix_version") or "")):
             out.append((name, f"{name}>={adv['fix_version']}"))
+        elif case == "fresh" and fresh_pin(name, adv):
+            out.append((name, fresh_pin(name, adv)))
     return out
 
 
@@ -387,6 +400,8 @@ def _advice_case(rec: dict) -> str:
         return "fix" if adv.get("fix_version") else "nofix"
     if adv.get("typosquat_of"):
         return "typo"
+    if adv.get("pin_version") and any(e.get("rule") == "fresh_release" for e in rec.get("evidence") or []):
+        return "fresh"
     # "OSV did not answer, retry" only when nothing else explains the hold: a code/CVE/name reason must not be
     # replaced by a retry instruction (the verdict itself is not changed here)
     if any(e.get("rule") == "osv_unavailable" for e in rec.get("evidence") or []):
@@ -456,6 +471,19 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
                 + (f"In the requirements file, change the `{name}` line to exactly `{pin}` (do not edit other lines) and continue the install (the guard checks it again). " if pin else
                    "If you cannot pin an earlier version, do not install it and tell the user why in one sentence. ")
                 + "Do not upgrade to the latest version or install the same version another way. ")
+    if case == "fresh" and adv.get("pin_dependency"):
+        pin = fresh_pin(name, adv)
+        return (f"`{name}` is not in the command: it comes in as a dependency, and its newest version was published less than a day ago. "
+                "Hijacked releases are usually caught and pulled within hours, so do not install that version. "
+                f"Pin the dependency to `{pin}` (the newest earlier version that is over a day old): add `{pin}` to the same install command "
+                f"next to what it installs, or add the line `{pin}` to the requirements file, and continue (the guard checks it again). "
+                "Leave the packages the command names as they are. ")
+    if case == "fresh":
+        pin = fresh_pin(name, adv)
+        return (f"This version of `{name}` was published less than a day ago. Hijacked releases are usually caught and pulled within hours, "
+                f"so do not install it. Install `{pin}` instead (the newest earlier version that is over a day old): change the command "
+                f"(or the `{name}` line of the requirements file, no other lines) to exactly that and continue (the guard checks it again). "
+                "Do not install this version another way. ")
     if case == "osvdown":
         return ("The guard could not reach the vulnerability DB (OSV), so known vulnerabilities and malicious versions were not checked. The code scan found no problem. "
                 "Run the same install command once more (the guard checks again). If you get the same message again, do not install it, and "

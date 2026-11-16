@@ -140,6 +140,7 @@ class ScanFeatures:
     maintainer_count: int | None = None
     package_age_days: float | None = None
     release_age_hours: float | None = None   # hours since the version being installed was first uploaded (None: unknown)
+    settled_version: str | None = None       # when that is under the fresh-release limit: the newest earlier version past it
     has_readme: bool = False
 
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
@@ -308,6 +309,37 @@ def pypi_release_age_hours(meta: dict, version: str | None, now: datetime | None
     return max(ages) if ages else None
 
 
+def _fresh_hours() -> float:
+    try:
+        return float(rule_engine.current().fresh_release_hours)
+    except Exception:
+        return 24.0
+
+
+def pypi_settled_version(meta: dict, resolved: str | None, hours: float, now: datetime | None = None) -> str | None:
+    """The newest version below `resolved` whose first file was uploaded at least `hours` ago (yanked files ignored;
+    pre-releases only when `resolved` is one). None if there is none. The fresh-release card offers it as the fix."""
+    try:
+        from _vendor.packaging.version import InvalidVersion, Version
+        cur = Version(resolved or "")
+    except Exception:
+        return None
+    best = None
+    for v, files in (meta.get("releases") or {}).items():
+        try:
+            pv = Version(v)
+        except InvalidVersion:
+            continue
+        if pv >= cur or (pv.is_prerelease and not cur.is_prerelease):
+            continue
+        age = pypi_release_age_hours(meta, v, now)
+        if age is None or age < hours:
+            continue
+        if best is None or pv > best[0]:
+            best = (pv, v)
+    return best[1] if best else None
+
+
 def scan_package(name: str, version: str | None = None) -> Verdict:
     """Collection (one PyPI JSON), then the independent lookups run concurrently: the installed file's download and
     static analysis, OSV, the dependency list and (when enabled) the ML model. Verdict logic stays in compute_verdict."""
@@ -323,6 +355,9 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     resolved = version or meta.get("info", {}).get("version")
     features.resolved_version = resolved
     features.release_age_hours = pypi_release_age_hours(meta, resolved)
+    limit = _fresh_hours()
+    if features.release_age_hours is not None and features.release_age_hours < limit:
+        features.settled_version = pypi_settled_version(meta, resolved, limit)
 
     import threading
 
@@ -478,6 +513,12 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         features.release_age_hours = npm.release_age_hours(name, version, meta)
     except Exception:
         features.release_age_hours = None                 # unknown: the fresh-release rule does not apply
+    limit = _fresh_hours()
+    if features.release_age_hours is not None and features.release_age_hours < limit:
+        try:
+            features.settled_version = npm.settled_version(name, spec, version, meta, limit)
+        except Exception:
+            features.settled_version = None
     from concurrent.futures import ThreadPoolExecutor
     with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(1) as pool:
         osv_f = pool.submit(query_osv, name, version, "npm")
