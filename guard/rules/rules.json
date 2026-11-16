@@ -137,6 +137,8 @@
     {
       "id": "agent_prompt_injection",
       "title": "Instructions aimed at an AI reading the package (prompt injection)",
+      "ecosystems": ["bundle"],
+      "about_ecosystems": "skills, plugins and hooks only: their text is read by the agent as instructions. Not PyPI or npm packages (2026-11-16): agents followed text planted in package docs 0 of 30 times, the rule caught no malicious sample, and every package it flagged was an AI security or testing tool quoting attack text",
       "detector": "first_line",
       "signal": "prompt_injection",
       "text": "original",
