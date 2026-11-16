@@ -116,15 +116,16 @@ try:
     with tempfile.TemporaryDirectory() as d:
         r = card_ok(guard_core.check_command("pip install six==1.16.0", d), "guard file change detected")
         assert "repair --yes" in r and "verify" in r and "scan_engine.py" in r, r
-    # an install BLOCK is the agent's decision too: the strongest wording, then ack -> the same command passes once
+    # an install BLOCK is not the agent's to allow: no ack id, and an ack issued for the same command earlier is not honored
     guard_core.check_integrity = lambda: []
     guard_core.scan_packages = lambda items: [se.Verdict("BLOCK", 1.0, ["[hard rule] reverse shell"], se.ScanFeatures(name=n, version="1", fetch_ok=True))
                                               for n, v in items]
     with tempfile.TemporaryDirectory() as d:
         r = guard_core.check_command("pip install six==1.16.0", d)
-        assert r.action == "refuse" and "BLOCK — auto mode" in r.reason and "Whether to go ahead is your decision" in r.reason, r.reason
-        assert acks.grant(ack_id(r.reason))[0]
-        assert guard_core.check_command("pip install six==1.16.0", d).action == "allow"
+        assert r.action == "refuse" and "BLOCK — auto mode" in r.reason and "cannot be overridden" in r.reason, r.reason
+        assert "ack id" not in r.reason and "Whether to go ahead is your decision" not in r.reason, r.reason
+        fp = acks.fingerprint("command", d, "pip install six==1.16.0")
+        assert acks.grant(acks.issue(fp, "made up"))[0]                  # even a granted ack for this command
         assert guard_core.check_command("pip install six==1.16.0", d).action == "refuse"
         os.environ["AEGIS_MODE"] = "user"                               # user mode: no ack, the person's window / refusal
         r = guard_core.check_command("pip install six==1.16.0", d)
