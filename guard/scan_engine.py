@@ -148,7 +148,8 @@ class ScanFeatures:
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
     # download_then_execute, install_hook, high_entropy, keyword
     evidence: list = field(default_factory=list)
-    verdict_rules: list = field(default_factory=list)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
+    verdict_rules: list = field(default_factory=list)
+    nearest_version: str | None = None    # the version asked for is not on PyPI: the nearest one that is (pypi_nearest_version)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
 
     # [ML] anomaly detection result from the ML model (ml_bridge.ml_predict). None: no ML verdict
     ml: dict | None = None
@@ -309,6 +310,38 @@ def _hours_since(t: str | None, now: datetime | None = None) -> float | None:
     return max(0.0, ((now or datetime.now(timezone.utc)) - when).total_seconds() / 3600)
 
 
+def pypi_nearest_version(meta: dict, wanted: str, hours: float, now: datetime | None = None) -> str | None:
+    """A version that is on PyPI, nearest to one that is not: the highest release below it, else the lowest above it;
+    not yanked, over `hours` old, a pre-release only when `wanted` is one. None when there is no such release."""
+    from _vendor.packaging.version import InvalidVersion, Version
+    try:
+        want = Version(wanted)
+    except InvalidVersion:
+        want = None
+    now = now or datetime.now(timezone.utc)
+    ok = []
+    for v, files in (meta.get("releases") or {}).items():
+        files = [f for f in files or [] if not f.get("yanked")]
+        if not files:
+            continue
+        try:
+            pv = Version(v)
+        except InvalidVersion:
+            continue
+        if pv.is_prerelease and not (want and want.is_prerelease):
+            continue
+        times = [f.get("upload_time_iso_8601") for f in files if f.get("upload_time_iso_8601")]
+        if times and (now - min(datetime.fromisoformat(t.replace("Z", "+00:00")) for t in times)).total_seconds() < hours * 3600:
+            continue
+        ok.append((pv, v))
+    if not ok:
+        return None
+    if want is None:
+        return max(ok)[1]
+    below = [x for x in ok if x[0] < want]
+    return max(below)[1] if below else min(ok)[1]
+
+
 def pypi_release_age_hours(meta: dict, version: str | None, now: datetime | None = None) -> float | None:
     """Hours since the first file of this version was uploaded to PyPI (yanked files ignored), None if unknown."""
     files = [f for f in (meta.get("releases") or {}).get(version or "") or [] if not f.get("yanked")]
@@ -361,6 +394,11 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
     resolved = version or meta.get("info", {}).get("version")
     features.resolved_version = resolved
+    if version and not [f for f in (meta.get("releases") or {}).get(version) or [] if not f.get("yanked")]:
+        # pip would stop with "no matching distribution": nothing installs. Name the nearest real version instead
+        features.nearest_version = pypi_nearest_version(meta, version, _fresh_hours())
+        features.fetch_error = f"scan error: HTTP Error 404: version {version} not on PyPI"
+        return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
     features.release_age_hours = pypi_release_age_hours(meta, resolved)
     limit = _fresh_hours()
     if features.release_age_hours is not None and features.release_age_hours < limit:

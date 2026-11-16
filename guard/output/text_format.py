@@ -260,7 +260,9 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
         if kind == "not_found":
             return _cap(f"{_rr.PREFIX} {who} — name not on {reg}. It may be a typo or a made-up name. If approved, it tries to install unscanned.{tail}")
         if kind == "version_missing":
-            return _cap(f"{_rr.PREFIX} {who} — version not on {reg}. Check the version. If approved, it tries to install unscanned.{tail}")
+            near, nv = adv.get("nearest_version"), adv.get("nearest_verdict")
+            hint = (f" Nearest on {reg}: {_plain(near, 30)} (checked: {'passed' if nv == 'ALLOW' else 'held'})." if near else "")
+            return _cap(f"{_rr.PREFIX} {who} — version not on {reg}.{hint} If approved, pip fails: nothing installs.{tail}")
         if kind == "too_big":
             return _cap(f"{_rr.PREFIX} {who} — package too big, the code was not read. If approved, it installs unscanned.{tail}")
         if kind in _rr.RETRYABLE_FAILURES:

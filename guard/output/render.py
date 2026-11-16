@@ -531,6 +531,16 @@ def _auto_action(case: str, name: str, adv: dict, kind: str | None = None) -> st
             return (f"{_JUDGE} There is no package named `{name}` on PyPI. The name may be misspelled or made up, so find the real package name you meant "
                     "in the plan and docs (README, requirements), fix the name in the requirements file and continue. If the package is not needed, delete that line from the requirements file. "
                     "If it is a package on a private index, do not install it and tell the user in one sentence. Do not install under the same name again.")
+        if kind == "version_missing" and adv.get("nearest_version"):
+            near = f"{name}=={adv['nearest_version']}" if re.fullmatch(r"[0-9][0-9A-Za-z.+!-]{0,40}", str(adv["nearest_version"])) else ""
+            if near and adv.get("nearest_verdict") == "ALLOW":
+                return (f"This version of `{name}` is not on PyPI. The nearest version that is, `{near}`, was checked and passed. "
+                        f"Unless the plan needs a different version, change the version in the command or the requirements file to exactly `{near}` "
+                        "(do not edit other lines) and continue. If another version is needed, use that one (the guard checks it).")
+            if near:
+                rules = ", ".join(adv.get("nearest_rules") or []) or "risk signals"
+                return (f"This version of `{name}` is not on PyPI, and the nearest version that is, `{near}`, is held too ({rules}). "
+                        f"{_JUDGE} If it is needed, pick another version that exists on PyPI (the guard checks it); otherwise do not install it and tell the user why in one sentence.")
         if kind == "version_missing":
             return (f"{_JUDGE} This version of `{name}` is not on PyPI. The name exists, so change the version in the requirements file to one that really exists on PyPI "
                     "(do not edit other lines) and continue. If you do not know which version is right, install without a version, or do not install and tell the user why in one sentence.")

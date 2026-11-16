@@ -87,6 +87,28 @@ def _pin_ranges(parsed) -> None:
                 parsed.packages[i] = (parsed.packages[i][0], v)
 
 
+def _check_nearest(ctx, out, parsed, results, osv_ok: bool) -> None:
+    """A version that is not on PyPI: the nearest one that is (scan_engine.pypi_nearest_version) is scanned now, so the
+    card offers a version already checked - with its own verdict and rules when that one is held too."""
+    todo = [(rec, name, result.features.nearest_version) for (rec, _v), (name, _ver), result
+            in zip(out.records, parsed.packages, results) if getattr(result.features, "nearest_version", None)]
+    if not todo:
+        return
+    try:
+        import scan_engine
+        from review_report import verdict_rule_names
+        scanned = scan_engine.scan_packages([(name, near) for _r, name, near in todo])
+    except Exception:
+        return
+    for (rec, name, near), res in zip(todo, scanned):
+        check = package_record(name, near, res)
+        post_rules_into(check, res, near, osv_ok, None, None)
+        adv = rec.setdefault("advice", {})
+        adv["nearest_version"] = clean(str(near), 40)
+        adv["nearest_verdict"] = check.get("verdict") or res.verdict
+        adv["nearest_rules"] = verdict_rule_names(check)
+
+
 def run(ctx) -> Outcome:
     parsed, out = ctx.parsed, Outcome()
     _pin_ranges(parsed)
@@ -113,6 +135,7 @@ def run(ctx) -> Outcome:
         if getattr(parsed, "project_installs", None):
             rec["project_install"] = True          # the card then explains the project file formats and lock refresh
         out.add(rec, ctx.policy(rec, name, version, "ALLOW" if internal_package(rec, result, parsed) else result.verdict))
+    _check_nearest(ctx, out, parsed, results, osv_ok)
     info = transitive(parsed, results, osv_ok, out)
     if info:
         out.report["transitive"] = info
