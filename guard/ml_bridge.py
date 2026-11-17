@@ -153,6 +153,8 @@ def _run(cmd: list) -> dict:
         return {"ok": False, "error": f"could not parse result: {tail[0][:200]}"}
     if not isinstance(r, dict):
         return {"ok": False, "error": "could not parse result: not a JSON object"}
+    if r.get("skipped"):                       # no model for this case (npm without its registry document): silent
+        return {"ok": False, "skipped": True, "error": r.get("error", "skipped")}
     if "error" in r:
         return {"ok": False, "error": r["error"]}
     try:

@@ -34,11 +34,13 @@ python3 build_features.py benign --benign $AEGIS_NPM_DATA/final --out $AEGIS_NPM
 
 # 5. train and measure (the test sets once), optionally with the one-model-for-both comparison
 python3 train.py --mal $AEGIS_NPM_DATA/mal.jsonl --benign $AEGIS_NPM_DATA/benign.jsonl \
-    --final-benign $AEGIS_NPM_DATA/final.jsonl --cutoff 2026-05-01 --out $AEGIS_NPM_DATA/out \
-    [--joint-pypi pypi_rows.csv]
+    --final-benign $AEGIS_NPM_DATA/final.jsonl --cutoff 2026-03-01 --out $AEGIS_NPM_DATA/out \
+    --mal-all-ages --model-version 2 [--joint-pypi pypi_rows.csv]
 ```
 
 `--cutoff`: malicious samples found on or after this day are the test set. Pick it before training so that the test set is the last few months (about a fifth of the samples), and do not change it after seeing results.
+
+`collect_benign.py --top-counts search` ranks the popular group by the download counts the search answers already carry (no extra requests; used for the v2 final set), and `--top-ranking-out FILE` saves that ranking. Requests answered with 429 are retried with a growing wait.
 
 `--joint-pypi`: a CSV with one PyPI release per row (the raw PyPI feature names of `guard/ml/features.py` and `code_features.py`, `label` 1 for malicious, optional `split` train/test), e.g. the training table of the PyPI model v2. Without it the comparison is skipped.
 
@@ -46,7 +48,7 @@ python3 train.py --mal $AEGIS_NPM_DATA/mal.jsonl --benign $AEGIS_NPM_DATA/benign
 
 1. Malicious rows split by the day they were found; benign rows split by package name (25% test), the final set kept apart.
 2. At most three malicious rows with exactly the same features (campaigns publish hundreds of copies).
-3. Install ages, as for the PyPI model R3f: a malicious version stands for every age from 0 to the day it was found (it was installable until then); a new benign package for 0, 1, 3, 7, 14 and 30 days; an established one for its age when collected. Each row's copies weigh 1 in total; both classes weigh the same.
+3. Install ages, as for the PyPI model R3f: with `--mal-all-ages` (model v2) a malicious version stands for 0, 1, 3, 7, 14 and 30 days; without it (v1) only for the ages up to the day it was found, which is mostly day 0 and taught v1 that an older package is benign. A new benign package stands for all six ages, an established one for its age when collected. Each row's copies weigh 1 in total; both classes weigh the same.
 4. Random forest, 300 trees, `min_samples_leaf=2` (as for PyPI); `npm_full` with the registry features, `npm_pkg` without.
 5. Threshold: out-of-fold predictions (5 folds by package name) on the training rows; the lowest threshold at which the benign REVIEW rate (two stages, as `ml/scan.py` decides) is at most 5% overall, 2% popular, 8% long tail and 8% new, at every install age.
 6. One measurement of the test set and the final set with that threshold; the pure-Python forest of the guard checked against scikit-learn on the same rows.

@@ -2,7 +2,24 @@
 
 The PyPI model ([ml.md](ml.md)) reads PyPI data and Python code. This page explains why npm got its own models instead of one model for both, which features they read, and how they are trained, measured and switched on.
 
-**Status (2026-11-15):** the code is in place (features, scoring, guard hook, training scripts, tests). No npm model is released yet: `guard/ml/models.json` has no `npm` block, so npm packages are still checked by the rules alone and the result shows no ML line. The models are trained with [training/npm](../training/npm/README.md) on a machine with network access; adding the `npm` block it writes to `models.json`, and the two files to a release, turns them on.
+**Status (2026-11-17):** the code is in place (features, scoring, guard hook, training scripts, tests) and model v2 is trained and measured (below). It is not released yet: `guard/ml/models.json` has no `npm` block, so npm packages are still checked by the rules alone and the result shows no ML line. Adding the `npm` block and uploading the model file to the `ml-models-npm-2` release turns it on.
+
+## Results (model v2)
+
+Trained with [training/npm](../training/npm/README.md) (`--mal-all-ages --model-version 2`): 23,481 malicious samples (DataDog, found 2024–2026; those found on or after 2026-03-01 are the test set), 4,500 benign packages (1,500 popular, 1,500 long tail, 1,500 created in the last 30 days), and a separate final set of 660 benign packages measured once.
+
+| | npm_full v2 |
+| --- | --- |
+| Threshold | 0.2716 |
+| Malicious REVIEW, installed 0 / 7 / 30 days after publishing | 82.2% / 82.1% / 82.0% |
+| Benign REVIEW, all packages | 4.1–4.7% (goal 5%) |
+| Goal missed | final set, packages created in the last 30 days, at 0–1 day: 21 of 252 (8.33%, goal 8%) |
+| Pure-Python forest vs scikit-learn | largest score difference 1.1e-16 |
+
+- Model v1 (malicious rows only at the ages they were installable, i.e. mostly day 0) leaned on the package's age: 79.7% at day 0, 74.0% at day 30. v2 trains every malicious row at every install age, as the PyPI model R3f does.
+- Weak spot: malicious versions that stayed on the registry a week or more get REVIEW in 3–13% of cases; their scores are high (80–92% alert), but their code shows no behavior signal, so the second stage keeps them at "note".
+- **Only npm_full is released.** npm_pkg (no registry document) raised false alarms in v2 (5.24% overall, 2.88% popular, 8.92% long tail), so a version whose registry document cannot be read (over 16 MB, no answer) gets no ML verdict and no ML line; the rules still check it.
+- One model for both ecosystems: about the same on npm (AUC 0.965 vs 0.967), worse on PyPI (88.9% vs 91.5% detection at 2% false alarms) — separate models stay.
 
 ## One model or two?
 
@@ -34,7 +51,7 @@ About two thirds of the ideas carry over, but not the numbers behind them. A sin
 - **Code (22):** counts over the JavaScript files, the install-time versions of them (`install_*`: the files the lifecycle scripts run, followed through `npm run`, `sh`, `node -e`), and top-level calls (`auto_*`; a function called in place — `(function(){…})()` — counts as top level). Comments are removed first; a top-level `require('https')` alone is not a network call.
 - **Time budget:** install-time files are always read in full; the others smallest first until 8 million characters, then only counted and measured (a malicious CLI sample carried 58 MB of bundles). The slowest of 750 samples took 13 s including zip decryption.
 
-Two models: `npm_full` (all 44) and `npm_pkg` (without the registry 4), used when the registry document cannot be read.
+Two models are trained: `npm_full` (all 44) and `npm_pkg` (without the registry 4, for a version whose registry document cannot be read). A release may ship `npm_full` alone; without `npm_pkg` such a version gets no ML verdict.
 
 ### Two stages
 

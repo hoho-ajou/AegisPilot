@@ -68,13 +68,18 @@ def age_at(r, days_after_publish):
 
 
 USE_AGE = True          # False while the model without registry features (npm_pkg) is trained: no install ages
+MODEL_VERSION = 1       # --model-version: number in the model file names and the release name
+MAL_ALL_AGES = False    # --mal-all-ages: malicious rows stand for every install age 0-30 (PyPI R3f), not only up to found
 
 
 def install_ages(r):
     """The install ages a row stands for in training: malicious - every age up to when it was found (it was installable
-    until then); new benign - all; established benign - only as collected (they were installed at that age)."""
+    until then), or every age with --mal-all-ages; new benign - all; established benign - only as collected (they were
+    installed at that age)."""
     if not (USE_AGE and r.get("registry_ok")):
         return [None]
+    if r["label"] == 1 and MAL_ALL_AGES:
+        return list(INSTALL_AGES)
     if r["label"] == 1:
         pub = parse_t(r.get("t_published")) or parse_t(r["t_scan"])
         found = max(0, int((parse_t(r["t_scan"]) - pub).total_seconds() // DAY))
@@ -274,19 +279,24 @@ def train_one(variant, feats, train_rows, test_rows, final_rows, out):
         for i, a, s, f in pr:
             if rows[i]["label"] == 1 and a in (0, None):
                 by_kind[rows[i]["kind"]][0] += s >= thr and f; by_kind[rows[i]["kind"]][1] += 1
+        alert_by_age = defaultdict(lambda: [0, 0])
+        for i, a, s, f in pr:
+            if rows[i]["label"] == 1:
+                alert_by_age[str(a)][0] += s >= thr; alert_by_age[str(a)][1] += 1
         alert_only = sum(1 for i, a, s, f in pr if rows[i]["label"] == 1 and a in (0, None) and s >= thr) / max(
             1, sum(1 for i, a, s, f in pr if rows[i]["label"] == 1 and a in (0, None)))
         return pr, {"benign_review_rate": {f"{g}@{a}": round(v, 4) for (g, a), v in sorted(fpr.items(), key=str)},
                     "benign_counts": {f"{g}@{a}": c for (g, a), c in sorted(fpc.items(), key=str)},
                     "malicious_review_recall": {str(a): round(v, 4) for a, v in tpr.items()},
                     "malicious_alert_recall_age0": round(alert_only, 4),
+                    "malicious_alert_recall": {a: round(v[0] / v[1], 4) for a, v in alert_by_age.items() if v[1]},
                     "malicious_recall_by_kind_age0": {k: round(v[0] / v[1], 4) for k, v in by_kind.items() if v[1]},
                     "malicious_counts": {str(a): c for a, c in tpc.items()}}
 
     _, test_m = measure(test_rows)
     final_m = measure(final_rows)[1] if final_rows else None
     d = to_json(model, feats, thr, variant, f"train {len(train_rows)} rows; see metrics.json")
-    fname = {"npm_full": "aegis-ml-npm-full-1.json.gz", "npm_pkg": "aegis-ml-npm-pkg-1.json.gz"}[variant]
+    fname = {"npm_full": f"aegis-ml-npm-full-{MODEL_VERSION}.json.gz", "npm_pkg": f"aegis-ml-npm-pkg-{MODEL_VERSION}.json.gz"}[variant]
     entry = write_gz(d, out / fname)
     sample = [with_age(r, a) for r in random.Random(SEED).sample(test_rows, min(500, len(test_rows))) for a in eval_ages(r)][:2000]
     par = parity(d, model, sample, feats)
@@ -330,7 +340,9 @@ def joint_experiment(pypi_csv, train_rows, test_rows):
             (py_te if rec.get("split") == "test" else py_tr).append((raw, int(float(rec["label"]))))
 
     def npm(rows):
-        return [(with_age(r, a), r["label"]) for r in rows for a in ([0] if r.get("registry_ok") else [None])]
+        # only rows with the registry document: the shared concepts include n_versions and age_days, which rows
+        # without it do not have (their raw lacks the registry features)
+        return [(with_age(r, 0), r["label"]) for r in rows if r.get("registry_ok")]
 
     n_tr, n_te = npm(train_rows), npm(test_rows)
 
@@ -370,7 +382,12 @@ def main():
     ap.add_argument("--benign-test-pct", type=int, default=25)
     ap.add_argument("--joint-pypi", default=None)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--mal-all-ages", action="store_true",
+                    help="malicious rows stand for (and are measured at) every install age 0-30, as PyPI R3f")
+    ap.add_argument("--model-version", type=int, default=1)
     a = ap.parse_args()
+    global MAL_ALL_AGES, MODEL_VERSION
+    MAL_ALL_AGES, MODEL_VERSION = a.mal_all_ages, a.model_version
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     cutoff = parse_t(a.cutoff + "T00:00:00Z")
@@ -388,7 +405,8 @@ def main():
     test = dedupe(mal_te + ben_te, feats_dedupe)
     print(f"malicious {len(mal)} (train {len(mal_tr)} before dedupe, test {len(mal_te)}), benign {len(ben)}, final {len(final)}")
 
-    metrics = {"made": now_utc().isoformat(), "cutoff": a.cutoff, "goals": GOALS, "counts": {
+    metrics = {"made": now_utc().isoformat(), "cutoff": a.cutoff, "goals": GOALS, "mal_all_ages": MAL_ALL_AGES,
+               "model_version": MODEL_VERSION, "counts": {
         "train": Counter(group_of(r) for r in train), "test": Counter(group_of(r) for r in test),
         "final": Counter(group_of(r) for r in final)}}
     full_tr = [r for r in train if r.get("registry_ok")]
@@ -397,15 +415,19 @@ def main():
     both = lambda rows: {r["label"] for r in rows} == {0, 1}      # noqa: E731
     metrics["npm_full"] = train_one("npm_full", NF.NPM_FEATURES, full_tr, full_te, full_fi, out) if both(full_tr) else None
     metrics["npm_pkg"] = train_one("npm_pkg", NF.PKG_FEATURES, train, test, final, out)
-    if a.joint_pypi:
-        metrics["joint_experiment"] = joint_experiment(a.joint_pypi, train, test)
 
-    block = {"version": 1, "release_url": "https://github.com/hoho-ajou/AegisPilot/releases/download/ml-models-npm-1/",
+    # the models' block and metrics are written before the optional joint comparison, so a failure there cannot
+    # lose the measured results; metrics.json is written again with the comparison added when it succeeds
+    block = {"version": MODEL_VERSION,
+             "release_url": f"https://github.com/hoho-ajou/AegisPilot/releases/download/ml-models-npm-{MODEL_VERSION}/",
              "models": {k: metrics[k]["model_file"] for k in ("npm_full", "npm_pkg") if metrics.get(k)},
              "thresholds": {k: {"alert": metrics[k]["threshold"], "review": metrics[k]["threshold"]}
                             for k in ("npm_full", "npm_pkg") if metrics.get(k)}}
     (out / "models_npm.json").write_text(json.dumps(block, indent=2) + "\n")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=dict) + "\n")
+    if a.joint_pypi:
+        metrics["joint_experiment"] = joint_experiment(a.joint_pypi, train, test)
+        (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=dict) + "\n")
     print(json.dumps(metrics, indent=1, default=dict)[:6000])
 
 

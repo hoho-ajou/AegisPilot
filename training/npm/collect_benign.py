@@ -23,6 +23,7 @@ import json
 import random
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -51,9 +52,28 @@ WORDS = ("util array string date time json http server client config parse forma
          "scrape crawl spider rss feed news weather time zone calendar cron schedule job worker thread cluster").split()
 
 
+RETRIES_429 = 6          # npm registry / api.npmjs.org answer 429 when searched quickly: wait and try again
+SEARCH_PAUSE = 1.5       # seconds between search requests (was 0.2: about a third of the searches got 429)
+DOWNLOADS_PAUSE = 1.5    # seconds between bulk download-count requests (was 0.3)
+
+
 def _get(url, limit=MAX_DOC, timeout=30, accept="application/json"):
     req = urllib.request.Request(url, headers={**UA, "Accept": accept})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    for attempt in range(RETRIES_429 + 1):
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == RETRIES_429:
+                raise
+            try:
+                wait = float(e.headers.get("Retry-After") or 0)
+            except ValueError:
+                wait = 0
+            wait = min(300, max(wait, 10 * 2 ** attempt))      # 10, 20, 40, 80, 160, 300 s
+            print(f"  429, waiting {wait:.0f}s: {url[:100]}", file=sys.stderr)
+            time.sleep(wait)
+    with resp:
         data = resp.read(limit + 1)
     if len(data) > limit:
         raise ValueError("too large")
@@ -83,13 +103,14 @@ def downloads(names):
                 out[n] = (v or {}).get("downloads", 0) if isinstance(v, dict) else 0
         except Exception as e:
             print("  downloads failed:", e, file=sys.stderr)
-        time.sleep(0.3)
+        time.sleep(DOWNLOADS_PAUSE)
     for n in names:
         if n.startswith("@"):
             try:
                 out[n] = json.loads(_get("https://api.npmjs.org/downloads/point/last-month/" + n)).get("downloads", 0)
             except Exception:
                 out[n] = 0
+            time.sleep(DOWNLOADS_PAUSE)
     return out
 
 
@@ -113,15 +134,29 @@ def osv_malicious(names):
     return bad
 
 
-def candidates_top(n, rnd):
+def candidates_top(n, rnd, bad=frozenset(), counts="api", ranking_out=None):
+    """Popular candidates: the whole download ranking of the search results, then the names in `bad` (earlier
+    collections, benchmark, malicious lists) removed, and the first n*2 left in rank order. Removing before cutting
+    keeps a second collection (--exclude-dirs) from ending up with almost nothing.
+    counts: "api" - last month's downloads from api.npmjs.org (one request per scoped name);
+            "search" - downloads.monthly that the search response already carries (no extra requests).
+    ranking_out: write the whole ranking (rank, name, monthly downloads, excluded) as JSON lines."""
     names = {}
     for w in WORDS:
         for o in search(w, 250, 0, 1.0):
-            names[o["package"]["name"]] = 1
-        time.sleep(0.2)
-    dl = downloads(sorted(names))
-    ranked = sorted(dl, key=lambda k: -dl[k])
-    return ranked[: n * 2]
+            m = (o.get("downloads") or {}).get("monthly")
+            names[o["package"]["name"]] = max(names.get(o["package"]["name"]) or 0, m or 0)
+        time.sleep(SEARCH_PAUSE)
+    dl = names if counts == "search" else downloads(sorted(names))
+    ranked = sorted(dl, key=lambda k: (-dl[k], k))
+    if ranking_out:
+        with open(ranking_out, "w") as fh:
+            for i, k in enumerate(ranked, 1):
+                fh.write(json.dumps({"rank": i, "name": k, "monthly": dl[k], "excluded": k.lower() in bad}) + "\n")
+    kept = [k for k in ranked if k.lower() not in bad]
+    print(f"top candidates: {len(ranked)} ranked ({counts} counts), {len(ranked) - len(kept)} excluded, "
+          f"using the first {min(len(kept), n * 2)} left", flush=True)
+    return kept[: n * 2]
 
 
 def candidates_random(n, rnd, low=1, high=1000, new_days=None):
@@ -144,7 +179,7 @@ def candidates_random(n, rnd, low=1, high=1000, new_days=None):
             out.append(p["name"])
         if len(out) >= n * 3:
             break
-        time.sleep(0.2)
+        time.sleep(SEARCH_PAUSE)
     if new_days is None:
         dl = downloads(out)
         out = [k for k in out if low <= dl.get(k, 0) <= high]
@@ -221,6 +256,9 @@ def main():
     ap.add_argument("--datadog-manifest", default=None)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--recheck", action="store_true")
+    ap.add_argument("--top-counts", choices=["api", "search"], default="api",
+                    help="download counts for the top ranking: api.npmjs.org (default) or the search response's")
+    ap.add_argument("--top-ranking-out", default=None, help="write the whole top ranking here (JSON lines)")
     a = ap.parse_args()
     out_dir = Path(a.out)
     if a.recheck:
@@ -232,7 +270,7 @@ def main():
     for d in a.exclude_dirs:
         bad |= {json.loads(p.read_text())["name"].lower() for p in Path(d).glob("*/*.json")}
     if a.top:
-        names = candidates_top(a.top, rnd)
+        names = candidates_top(a.top, rnd, bad, a.top_counts, a.top_ranking_out)
         collect("top", names, a.top, out_dir, bad | osv_malicious(names))
     if a.longtail:
         names = candidates_random(a.longtail, rnd)

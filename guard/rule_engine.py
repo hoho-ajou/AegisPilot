@@ -1271,7 +1271,7 @@ def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:
         if ml_level(ml) == "review":
             total, flagged = max(total, rs.review_floor), True
         reasons += ml_reasons(ml)
-    elif ml and not ml.get("disabled") and not ml.get("not_installed"):
+    elif ml and not ml.get("disabled") and not ml.get("not_installed") and not ml.get("skipped"):
         reasons.append(f"[ML] no verdict ({ml.get('error')})")
     if ml and ml.get("ok") and not ml.get("code_analyzed") and "ArchiveLimitError" in str(ml.get("code_source")):
         total, flagged = max(total, rs.review_floor), True

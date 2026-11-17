@@ -201,6 +201,32 @@ class TwoStages(unittest.TestCase):
         r = self.run_npm({"package.json": pj(), "index.js": "module.exports = 1;\n"})
         self.assertEqual(r["level"], "note")
 
+    def test_without_npm_pkg_no_registry_is_skipped_quietly(self):
+        """A release with npm_full alone: no registry document -> no ML verdict, and no '[ML] no verdict' line."""
+        saved = self.scan.SPEC
+        self.scan.SPEC = {**saved, "npm": {"models": {"npm_full": {"file": "x", "sha256": "0"}}}}
+        try:
+            root = Path(self.tmp.name) / "s.tgz.unpacked"
+            unpack(tgz(MALICIOUS), root)
+            r = self.scan.scan_npm("demo", "1.0.0", str(root), offline=True)
+        finally:
+            self.scan.SPEC = saved
+        self.assertTrue(r["skipped"])
+        import ml_bridge
+        import rule_engine
+        import scan_engine as se
+        p = subprocess.CompletedProcess([], 0, json.dumps(r), "")
+        real = ml_bridge.subprocess.run
+        ml_bridge.subprocess.run = lambda *a, **k: p
+        try:
+            res = ml_bridge._run(["x"])
+        finally:
+            ml_bridge.subprocess.run = real
+        self.assertEqual((res["ok"], res.get("skipped")), (False, True))
+        f = se.ScanFeatures(name="demo", version="1.0.0", ecosystem="npm")
+        f.ml = res
+        self.assertFalse(any("[ML" in x for x in rule_engine.score_rules(se.RULESET, f)[2]))
+
     def test_registry_document_picks_npm_full(self):
         doc = {"time": {"created": "2026-01-01T00:00:00Z", "1.0.0": "2026-01-01T00:00:00Z"}, "maintainers": []}
         r = self.run_npm(MALICIOUS, "npm_full", doc)

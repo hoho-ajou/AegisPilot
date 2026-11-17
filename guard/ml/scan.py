@@ -261,6 +261,12 @@ def scan_npm(name, version, pkg_dir, packument_path=None, now=None, top_k=3, off
             why = f"registry document not read: {type(e).__name__}"
     feat = NF.compute_from_dir(pkg_dir, doc, version, now)
     kind = "npm_full" if feat["registry_ok"] else "npm_pkg"
+    if kind == "npm_pkg" and kind not in _cache and kind not in ((SPEC.get("npm") or {}).get("models") or {}):
+        # a release may ship npm_full alone: then a version whose registry document could not be read gets no ML
+        # verdict, quietly (the rules still check it)
+        return {"package": name, "version": version or feat["version"], "ecosystem": "npm", "skipped": True,
+                "error": f"no npm model without the registry document ({why or 'not read'})",
+                "elapsed_sec": round(time.perf_counter() - t0, 2)}
     model = _load(kind)
     j = judge(model, feat["raw"], two_stage=True, severe=NF.SEVERE, behavior=NF.BEHAVIOR, present=_npm_present,
               desc=NPM_DESC, top_k=top_k)
