@@ -227,12 +227,18 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
         return 1
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        for g in groups:
-            ml_install.install_models(folder / "models", a.src, group=g)
+        ml_install.install_models(folder / "models", a.src, group="pypi")
         ml_install.opt_out_marker(folder).unlink(missing_ok=True)
     except (OSError, ValueError) as e:
         print(f"Not installed: {e}")
         return 1
+    for g in groups:                          # the npm model is optional: its failure leaves the PyPI one in place
+        if g == "pypi":
+            continue
+        try:
+            ml_install.install_models(folder / "models", a.src, group=g)
+        except (OSError, ValueError) as e:
+            print(f"{g} model not installed: {e} (npm packages are checked by the rules; ml-install retries)")
     print(f"ML: {ml_install.status(folder)}. It is used for PyPI packages from the next check on (AEGIS_ML=0 turns it off).")
     print(f"ML (npm): {ml_install.status_npm(folder)}")
     return 0

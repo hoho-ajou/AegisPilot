@@ -2,7 +2,7 @@
 
 The PyPI model ([ml.md](ml.md)) reads PyPI data and Python code. This page explains why npm got its own models instead of one model for both, which features they read, and how they are trained, measured and switched on.
 
-**Status (2026-11-17):** the code is in place (features, scoring, guard hook, training scripts, tests) and model v2 is trained and measured (below). It is not released yet: `guard/ml/models.json` has no `npm` block, so npm packages are still checked by the rules alone and the result shows no ML line. Adding the `npm` block and uploading the model file to the `ml-models-npm-2` release turns it on.
+**Status (2026-11-17):** the code is in place (features, scoring, guard hook, training scripts, tests) and model v2 is trained and measured (below). `guard/ml/models.json` carries its `npm` block (npm_full only). The model file `aegis-ml-npm-full-2.json.gz` must be on the GitHub release `ml-models-npm-2` before this ships: the guard downloads it on the first npm check and checks its SHA-256. Until it can be downloaded, npm packages are checked by the rules alone (the failed download is retried after a day).
 
 ## Results (model v2)
 
