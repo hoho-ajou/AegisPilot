@@ -353,4 +353,14 @@ with tempfile.TemporaryDirectory() as d:
         assert not r.local_files and [u["kind"] for u in r.unscanned] == ["requirements_unreadable"], (c, r.unscanned)
     assert parse_install_command("pip install ./missing-1.0-py3-none-any.whl", d).local_files == []
 
+
+# interpreter options before -m (2026-11-16: `.venv/bin/python -I -m pip install pendulum` installed a denied package unseen)
+for cmd in (".venv/bin/python -I -m pip install six==1.16.0", "python3 -Im pip install six==1.16.0", "python3 -mpip install six==1.16.0",
+            "python3 -W ignore -X utf8 -m pip install six==1.16.0", "python3 -OO -B -s -E -u -m pip install six==1.16.0",
+            "py -3.12 -m pip install six==1.16.0", "python3 -I -m uv pip install six==1.16.0", "python3 -I -m pip download six==1.16.0",
+            "python3 --check-hash-based-pycs never -m pip install six==1.16.0"):
+    check(cmd, [("six", "1.16.0")])
+for cmd in ("python3 -I -m pip list", "python3 -I script.py install six", "python3 -c 'print(1)' -m pip install six", "python3 -I -m pytest"):
+    check(cmd, [])
+
 print("install_parse: all cases passed")

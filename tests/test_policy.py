@@ -46,7 +46,8 @@ scan_engine.scan_packages = fake
     ev = {"tool_name": "Bash", "cwd": str(project), "tool_input": {"command": command}}
     r = subprocess.run([sys.executable, "-c", code], input=json.dumps(ev), capture_output=True, text=True, timeout=60,
                        env={**os.environ, "AEGIS_MODE": mode, "AEGIS_SYSTEM_POLICY": str(project / "no-system-policy.json")})
-    out = json.loads(r.stdout)["hookSpecificOutput"] if r.stdout.strip() else None
+    doc = json.loads(r.stdout) if r.stdout.strip() else None
+    out = {**doc["hookSpecificOutput"], "_notice": doc.get("systemMessage") or ""} if doc else None
     rec = json.loads((project / ".aegis/last_review.json").read_text())
     return out, rec
 
@@ -69,10 +70,11 @@ with tempfile.TemporaryDirectory() as t:
     # denied package: blocked although the scan found nothing; the auto card says why and what to do
     out, rec = hook(proj, "pip install leftpad", {}, mode="auto")
     assert out and out["permissionDecision"] == "deny" and rec["verdict"] == "BLOCK", (out, rec)
-    assert "deny list" in out["permissionDecisionReason"] and "policy file" in out["permissionDecisionReason"]
+    assert "deny list" in out["permissionDecisionReason"] and "policy_deny" in out["permissionDecisionReason"]
     assert rec["packages"][0]["evidence"][0]["rule"] == "policy_deny"
     out, rec = hook(proj, "pip install leftpad", {}, mode="user")
     assert out and out["permissionDecision"] == "deny"
+    assert out["_notice"].startswith("AegisPilot BLOCK") and "policy_deny" in out["_notice"], out   # the person sees the rule
     # the system file wins and the agent cannot weaken it from the project
     sysfile = proj / "system.json"
     sysfile.write_text(json.dumps({"deny": [{"package": "corp-utils", "versions": "*", "reason": "banned company-wide"}]}))

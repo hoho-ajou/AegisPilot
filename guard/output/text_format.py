@@ -117,6 +117,12 @@ def _first_id(rec: dict) -> str:
     return str(ids[0]) if ids else ""
 
 
+def _rule_tag(rec: dict) -> str:
+    """` [rules: known_vulnerability, download_exec@import]`: the rules that held the package, by name."""
+    names = _rr.verdict_rule_names(rec)
+    return f" [rules: {', '.join(names)}]" if names else ""
+
+
 def _others(rec: dict, lead: str | None = None) -> int:
     """How many other KINDS of signal there are besides the one named (never 'N more vulnerabilities')."""
     rules = {r for r in _rules(rec) if r not in ("osv", "score")}
@@ -176,7 +182,7 @@ def summary_line(rec: dict, width: int = 66) -> str:
         kind = adv.get("failure_kind") or (rec.get("coverage") or {}).get("failure_kind") or "other"
         label = _plain((rec.get("coverage") or {}).get("failure") or "scan failed", 20)
         todo = {"not_found": "check the name", "version_missing": "check the version", "too_big": "could not read"}.get(
-            kind, "try again" if kind in ("network", "registry", "timeout", "crash") else "not scanned")
+            kind, "not scanned")
         variants = [[label, todo], [label]]
         parts = variants[0]
     elif case == "unscanned" and (rec.get("source") or {}).get("kind") == "too_many_packages":
@@ -194,7 +200,8 @@ def summary_line(rec: dict, width: int = 66) -> str:
         variants = [[what, todo] if what != todo else [what], [todo]]
         parts = variants[0]
     else:
-        parts = [_short(_lead_rule(rec))]
+        held_by = _rr.verdict_rule_names(rec)        # the rule that held it, in the words the agent's message uses too
+        parts = [_plain(_rr.rule_description(held_by[0], rec, when=False), 44)] if held_by else [_short(_lead_rule(rec))]
     # the verdict word (blocked/held) is the last thing to lose: shorten the name, then drop the version, then the reasons
     for keep_ver in (True, False):
         n = name
@@ -244,9 +251,7 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
         sev, first = _severity(rec), _first_id(rec)
         what = f"{n} {sev + ' ' if sev else ''}{'vulnerability' if n == 1 else 'vulnerabilities'}" + (f" ({first} and others)" if n > 1 and first else f" ({first})" if first else "")
         fix = f" → {adv['fix_version']} or later recommended" if adv.get("fix_version") else " → no fixed version"
-        other = _others(rec)
-        extra = f", {other} other signal kind(s)" if other else ""
-        return _cap(f"{_rr.PREFIX} {who} — {what}{fix}{extra}. If approved, it installs as is.{tail}")
+        return _cap(f"{_rr.PREFIX} {who} — {what}{fix}{_rule_tag(rec)}. If approved, it installs as is.{tail}")
     if case == "typo":
         return _cap(f"{_rr.PREFIX} {who} — name is close to the popular package '{_plain(adv['typosquat_of'], 40)}'. Check it is not a typo. If approved, it installs as is.{tail}")
     if case == "fetch":
@@ -256,17 +261,26 @@ def popup_line(rec: dict, extra_packages: int = 0) -> str:
         if kind == "not_found":
             return _cap(f"{_rr.PREFIX} {who} — name not on {reg}. It may be a typo or a made-up name. If approved, it tries to install unscanned.{tail}")
         if kind == "version_missing":
-            return _cap(f"{_rr.PREFIX} {who} — version not on {reg}. Check the version. If approved, it tries to install unscanned.{tail}")
+            near, nv = adv.get("nearest_version"), adv.get("nearest_verdict")
+            hint = (f" Nearest on {reg}: {_plain(near, 30)} (checked: {'passed' if nv == 'ALLOW' else 'held'})." if near else "")
+            return _cap(f"{_rr.PREFIX} {who} — version not on {reg}.{hint} If approved, pip fails: nothing installs.{tail}")
         if kind == "too_big":
             return _cap(f"{_rr.PREFIX} {who} — package too big, the code was not read. If approved, it installs unscanned.{tail}")
-        if kind in ("network", "registry", "timeout", "crash"):
-            return _cap(f"{_rr.PREFIX} {who} — not scanned: {why} (may be temporary). Try again. If approved, it installs unscanned.{tail}")
+        if kind in _rr.RETRYABLE_FAILURES:
+            return _cap(f"{_rr.PREFIX} {who} — not scanned: {why} ({_rr.TRIED}). If approved, it installs unscanned.{tail}")
+        if kind in ("timeout", "crash"):
+            return _cap(f"{_rr.PREFIX} {who} — not scanned: {why}. If approved, it installs unscanned.{tail}")
         return _cap(f"{_rr.PREFIX} {who} — scan failed ({why}). If approved, it installs unscanned.{tail}")
     lead = _lead_rule(rec)
     loc = _plain(_evidence(rec, lead).get("location") or "", 50)
-    more = _others(rec, lead)
-    extra = f", {more} other signal kind(s)" if more else ""
-    return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{extra}. If approved, it installs as is.{tail}")
+    if lead == "fresh_release" and adv.get("pin_version"):
+        from output.render import fresh_pin
+        pin = fresh_pin(_plain(rec.get("package") or "", 80), adv)
+        if pin and adv.get("pin_dependency"):
+            return _cap(f"{_rr.PREFIX} {who} — dependency {_short(lead)}{f' ({loc})' if loc else ''}{_rule_tag(rec)}. Deny, then add {pin} (over a day old) to the install; if approved, the new version installs.{tail}")
+        if pin:
+            return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{_rule_tag(rec)}. Deny to use {pin} (over a day old) instead; if approved, the new version installs.{tail}")
+    return _cap(f"{_rr.PREFIX} {who} — {_short(lead)}{f' ({loc})' if loc else ''}{_rule_tag(rec)}. If approved, it installs as is.{tail}")
 
 
 def _path(value: object, limit: int = 60) -> str:
@@ -386,14 +400,21 @@ def build_rows(rec: dict, report_path: str | None) -> tuple[str, list[tuple[str,
             rows.append(("Fix", "do not install. The user picks any replacement package"))
         elif case == "typo":
             rows.append(("Fix", f"check whether you meant '{_plain(adv['typosquat_of'], 40)}'"))
+        elif "fresh_release" in _rules(rec) and adv.get("pin_version"):
+            from output.render import fresh_pin
+            pin = fresh_pin(name, adv)
+            rows.append(("Fix", (f"add {pin} to the install (the newest version older than a day)" if adv.get("pin_dependency")
+                                 else f"install {pin} (the newest version older than a day)") if pin else "wait a day, or pin the previous version"))
         elif case == "fetch":
             fk = (adv.get("failure_kind") or (rec.get("coverage") or {}).get("failure_kind") or "other")
             rows.append(("Fix", {
                 "not_found": "find the real package name on PyPI and fix it in the requirements file (approve if it is on a private index)",
                 "version_missing": "change to a version that exists on PyPI",
                 "too_big": "approve only if the package is really needed (the code was not read)",
-                "network": "try again in a moment", "registry": "try again in a moment",
-                "timeout": "try again in a moment", "crash": "try again; if it keeps failing, check the guard log",
+                "network": f"approve only if you trust the package (the network failed, {_rr.TRIED})",
+                "registry": f"approve only if you trust the package (the registry failed, {_rr.TRIED})",
+                "timeout": "approve only if you trust the package (the check did not finish in time)",
+                "crash": "approve only if you trust the package (guard error: see the guard log)",
             }.get(fk, "approve only if you trust the package")))
         else:
             rows.append(("Fix", "check that the package is needed; if not, do not install it"))

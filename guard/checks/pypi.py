@@ -51,8 +51,69 @@ def _look_back(packages) -> tuple[dict, dict, dict, list]:
     return vdiff_box, late_box, vfeat_box, threads
 
 
+RANGE_WAIT_SECONDS = 20
+
+
+def _pin_ranges(parsed) -> None:
+    """`pip install "requests<2.30"` installs the highest matching release, not the latest: scan that one. The PyPI
+    lookups run side by side; a range that cannot be read or matched keeps the latest (as before)."""
+    from install_parse import _norm
+    todo = [(i, n, parsed.specs.get(_norm(n), "")) for i, (n, v) in enumerate(parsed.packages) if v is None]
+    todo = [(i, n, spec) for i, n, spec in todo if spec.strip()]
+    if not todo:
+        return
+    from concurrent.futures import ThreadPoolExecutor, wait
+    import transitive
+    from sources import pypi as _pypi
+
+    def pick(name, spec):
+        rng = spec.split(";", 1)[0].strip()             # an environment marker is not part of the range
+        try:
+            from _vendor.packaging.specifiers import SpecifierSet
+            SpecifierSet(rng)
+        except Exception:
+            return None                                  # a range this cannot read: keep the latest
+        return transitive.pick_version(_pypi.metadata(name), rng)   # the same choice the dependency walk makes
+    pool = ThreadPoolExecutor(max_workers=min(8, len(todo)))
+    try:
+        futs = {pool.submit(pick, n, spec): i for i, n, spec in todo}
+        done, _ = wait(futs, timeout=RANGE_WAIT_SECONDS)
+        for f in done:
+            try:
+                v = f.result()
+            except Exception:
+                continue
+            if v:
+                i = futs[f]
+                parsed.packages[i] = (parsed.packages[i][0], v)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)   # a lookup still running is left behind, not waited for
+
+
+def _check_nearest(ctx, out, parsed, results, osv_ok: bool) -> None:
+    """A version that is not on PyPI: the nearest one that is (scan_engine.pypi_nearest_version) is scanned now, so the
+    card offers a version already checked - with its own verdict and rules when that one is held too."""
+    todo = [(rec, name, result.features.nearest_version) for (rec, _v), (name, _ver), result
+            in zip(out.records, parsed.packages, results) if getattr(result.features, "nearest_version", None)]
+    if not todo:
+        return
+    try:
+        from review_report import verdict_rule_names
+        scanned = ctx.scan_packages([(name, near) for _r, name, near in todo])
+    except Exception:
+        return
+    for (rec, name, near), res in zip(todo, scanned):
+        check = package_record(name, near, res)
+        post_rules_into(check, res, near, osv_ok, None, None)
+        adv = rec.setdefault("advice", {})
+        adv["nearest_version"] = clean(str(near), 40)
+        adv["nearest_verdict"] = check.get("verdict") or res.verdict
+        adv["nearest_rules"] = verdict_rule_names(check)
+
+
 def run(ctx) -> Outcome:
     parsed, out = ctx.parsed, Outcome()
+    _pin_ranges(parsed)
     ctx.start_osv()                                     # beside the scan, waited for after it
     vdiff_box, late_box, vfeat_box, threads = _look_back(parsed.packages)
     try:
@@ -76,6 +137,7 @@ def run(ctx) -> Outcome:
         if getattr(parsed, "project_installs", None):
             rec["project_install"] = True          # the card then explains the project file formats and lock refresh
         out.add(rec, ctx.policy(rec, name, version, "ALLOW" if internal_package(rec, result, parsed) else result.verdict))
+    _check_nearest(ctx, out, parsed, results, osv_ok)
     info = transitive(parsed, results, osv_ok, out)
     if info:
         out.report["transitive"] = info
@@ -99,8 +161,16 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
         import transitive
         cfg = transitive.settings()
         deadline = _t.monotonic() + cfg["budget_seconds"]
-        direct = [{"name": n, "version": r.features.resolved_version or v, "dependencies": r.features.dependencies}
-                  for (n, v), r in zip(parsed.packages, results) if getattr(r.features, "dependencies", None)]
+        import collect
+        from install_parse import _norm
+        direct = []
+        for (n, v), r in zip(parsed.packages, results):
+            extras = sorted((getattr(parsed, "extras", None) or {}).get(_norm(n)) or ())
+            deps = getattr(r.features, "dependencies", None) or []
+            if extras and getattr(r.features, "requires_dist", None):      # `pkg[a,b]`: what those extras add installs too
+                deps = collect.parse_requires(r.features.requires_dist, extras, own=n)
+            if deps:
+                direct.append({"name": n, "version": r.features.resolved_version or v, "extras": extras, "dependencies": deps})
         if not direct:
             return None
         from sources import pypi
@@ -136,8 +206,15 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
                                     "location": where, "snippet": "", "count": 1}] + \
                                   [e for e in rec["evidence"] if e.get("rule") != "score"]
                 rec["headline"] = label
+                rec["verdict_rules"] = [fired["rule"]]
                 if fired["rule"] == "known_malicious":
                     rec["malicious_ids"] = fired["ids"]
+                settled = getattr(result.features, "settled_version", None)
+                if fired["rule"] == "fresh_release" and settled:
+                    adv = rec.setdefault("advice", {})
+                    adv["pin_version"] = clean(str(settled), 40)
+                    adv["pin_ecosystem"] = "pypi"
+                    adv["pin_dependency"] = True        # not in the command: added to it, not changed in it
             out.add(rec, rec["verdict"], dependency=True)
         return {"found": len(found), "osv_checked": bool(osv_ok and found), "scanned": len(todo),
                 "malicious": len(malicious), "notes": [clean(n, 160) for n in notes]}

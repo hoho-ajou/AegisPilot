@@ -13,6 +13,7 @@ transitive_malicious for the lock-file check), registries other than registry.np
 """
 from __future__ import annotations
 
+import net
 import json
 import re
 import urllib.parse
@@ -39,7 +40,7 @@ def metadata(name: str) -> dict:
     """The registry's abbreviated document (versions, dist-tags, tarball URLs) - what npm itself reads to install."""
     url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.npm.install-v1+json"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    with net.urlopen(req, timeout=TIMEOUT) as resp:
         return json.loads(resp.read())
 
 
@@ -63,12 +64,53 @@ def release_age_hours(name: str, version: str, meta: dict, now=None) -> float | 
     modified = hours(meta.get("modified"))
     if modified is not None and modified >= 24:
         return modified                                   # a lower bound: the version is at least this old
+    times = _publish_times(name)
+    return None if times is None else hours(times.get(version))
+
+
+_TIMES: dict = {}                                       # name -> the full document's `time` map, fetched once per process
+
+
+def _publish_times(name: str) -> dict | None:
+    """The full document's `time` map (version -> publish time), None if it is too big. Fetched once per name."""
+    if name in _TIMES:
+        return _TIMES[name]
     url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
+    with net.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
         body = resp.read(FULL_DOC_MAX_BYTES + 1)
-    if len(body) > FULL_DOC_MAX_BYTES:
+    times = None if len(body) > FULL_DOC_MAX_BYTES else (json.loads(body).get("time") or {})
+    _TIMES[name] = times
+    return times
+
+
+def settled_version(name: str, spec: str | None, version: str, meta: dict, hours: float, now=None) -> str | None:
+    """The newest version below `version` published at least `hours` ago that still fits `spec` (an exact pin or a dist
+    tag counts as "any version"); pre-releases only when `version` is one. None if there is none or times are unknown."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    times = _publish_times(name)
+    cur = parse(version)
+    if not times or cur is None:
         return None
-    return hours((json.loads(body).get("time") or {}).get(version))
+    spec = (spec or "").strip()
+    tags = meta.get("dist-tags") or {}
+    any_version = spec in ("", "*", "latest") or spec in tags or spec.lstrip("=v") == version
+    best = None
+    for v in (meta.get("versions") or {}):
+        p = parse(v)
+        if p is None or _key(p) >= _key(cur) or (p[3] is not None and cur[3] is None):
+            continue
+        try:
+            if not any_version and not satisfies(v, spec):
+                continue
+            when = datetime.fromisoformat(str(times.get(v)).replace("Z", "+00:00"))
+        except (TypeError, ValueError, KeyError):
+            continue
+        if (now - when).total_seconds() / 3600 < hours:
+            continue
+        if best is None or _key(p) > _key(best[1]):
+            best = (v, p)
+    return best[0] if best else None
 
 
 # --------------------------------------------------------------------------------------------- semver (npm's subset)
@@ -700,7 +742,7 @@ def fetch(name: str, spec: str | None, dest: Path, meta: dict | None = None, inf
     url = dist.get("tarball", "")
     if not url.startswith(REGISTRY + "/"):
         raise ValueError("tarball address in the npm metadata is not registry.npmjs.org")
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as resp:
+    with net.urlopen(url, timeout=TIMEOUT) as resp:
         raw = resp.read(MAX_TARBALL_BYTES + 1)
     if len(raw) > MAX_TARBALL_BYTES:
         raise ValueError(f"package too large, code not scanned (>{MAX_TARBALL_BYTES >> 20}MB limit)")
@@ -735,7 +777,7 @@ def malicious_releases(pairs: list[tuple[str, str]]) -> dict[tuple[str, str], li
         chunk = pairs[i:i + OSV_BATCH_MAX]
         body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": "npm"}, "version": v} for n, v in chunk]}).encode()
         req = urllib.request.Request(OSV_BATCH_URL, data=body, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with net.urlopen(req, timeout=TIMEOUT) as resp:
             results = json.loads(resp.read()).get("results", [])
         for (n, v), r in zip(chunk, results):
             ids = [x.get("id", "") for x in (r or {}).get("vulns", []) if str(x.get("id", "")).startswith(prefixes)]
@@ -754,10 +796,12 @@ TREE_MAX_PACKAGES = 1000          # distinct packages per command: 198 popular p
 TREE_WORKERS = 8
 
 
-def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, skip: set | None = None) -> tuple[list[dict], list[str]]:
+def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, skip: set | None = None,
+                        resolved: list | None = None) -> tuple[list[dict], list[str]]:
     """([{name, version, via}] of packages in the dependency tree of `roots` (name, spec) whose resolved version has an
     install script, [notes]). The tree is resolved like npm does for a fresh install (dependencies + optionalDependencies,
-    highest version in range); `skip` = names already scanned. Stops at TREE_MAX_PACKAGES or `deadline` (noted)."""
+    highest version in range); `skip` = names already scanned. Stops at TREE_MAX_PACKAGES or `deadline` (noted).
+    `resolved`, when given, receives every {name, version, via} of the tree (for the OSV check of the whole tree)."""
     import time
     from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
     skip = set(skip or ())
@@ -804,6 +848,8 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
                     continue                      # an unreadable dependency: npm itself would fail on it
                 if not version:
                     continue
+                if resolved is not None:
+                    resolved.append({"name": name, "version": version, "via": via})
                 if info.get("hasInstallScript") and name not in skip:
                     found.append({"name": name, "version": version, "via": via})
                 for key in ("dependencies", "optionalDependencies"):

@@ -129,6 +129,8 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
         was = result.verdict
         result.verdict = new_verdict
         rec["verdict"] = new_verdict
+        names = [fired["rule"]] if new_verdict == "BLOCK" else list(rec.get("verdict_rules") or []) + [fired["rule"]]
+        rec["verdict_rules"] = list(dict.fromkeys(names))
         if fired["rule"] == "known_malicious":
             rec["evidence"] = [{"rule": "known_malicious", "label": "known malicious version", "location": ", ".join(fired["ids"]),
                                 "snippet": "", "count": len(fired["ids"])}] + [e for e in rec["evidence"] if e.get("rule") != "score"]
@@ -173,6 +175,12 @@ def post_rules_into(rec: dict, result, version, osv_ok: bool, vdiff, late) -> No
             else:                                         # already a REVIEW: keep its lead, add the age next to it
                 rec["evidence"] = others[:1] + [ev] + others[1:]
             rec["release_age_hours"] = fired["hours"]
+            f = getattr(result, "features", None)
+            settled = getattr(f, "settled_version", None)
+            if settled:
+                adv = rec.setdefault("advice", {})
+                adv["pin_version"] = clean(str(settled), 40)
+                adv["pin_ecosystem"] = "npm" if (rec.get("ecosystem") or getattr(f, "ecosystem", "pypi")) == "npm" else "pypi"
         if fired["rule"] == "osv_unavailable":
             rec["evidence"] = [{"rule": "osv_unavailable", "label": "vulnerability DB lookup failed", "location": "OSV",
                                 "snippet": "", "count": 1}] + [e for e in rec["evidence"] if e.get("rule") != "score"]
@@ -195,6 +203,7 @@ def policy_into(rec: dict, pol, policy_decide, name: str, version, verdict: str)
             rec["policy"] = note
             if note["action"] == "deny":
                 rec["verdict"] = "BLOCK"
+                rec["verdict_rules"] = ["policy_deny"]
                 rec["evidence"] = [{"rule": "policy_deny", "label": "package denied by policy", "location": f"{note['source']} policy",
                                     "snippet": note["reason"], "count": 1}] + rec["evidence"]
                 rec["headline"] = "package denied by policy"

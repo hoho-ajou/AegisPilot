@@ -36,6 +36,9 @@ CRED_PATH, AUTOSTART_PATH, SOCK = "CRED_PATH", "AUTOSTART_PATH", "SOCK"
 # unreadable_exec is judged on these (python.py has the same): OPAQUE = computed from constants by code the analysis
 # could not follow (a custom decoder); ENV = an environment variable's value (code handed in from outside)
 OPAQUE, ENV = "OPAQUE", "ENV"
+# OVER = built from constants but dropped at a value cap (max_string / max_iter): not followed, and kept through
+# method calls on it (OPAQUE is not), so code made from it is unreadable_exec, not "nothing found"
+OVER = "OVER"
 PH = "\x00"                                        # placeholder for an unknown part inside a partially known string
 
 
@@ -1123,6 +1126,9 @@ GLOBAL_OBJECTS = {"global", "globalThis", "window", "self", "GLOBAL", "root"}
 ALIASES = {"process.mainModule.require": "require", "module.require": "require", "Function.prototype.constructor": "Function",
            "fs.promises": "fs.promises", "process.mainModule.constructor._load": "require",
            "module.constructor._load": "require", "Reflect.construct": "Reflect.construct"}
+# globals that are functions: their .constructor is Function (`Function.constructor("code")`, `atob.constructor(...)`)
+FUNC_GLOBALS = GLOBAL_NAMES - {"process", "console", "module", "exports", "JSON", "Math", "Reflect", "navigator",
+                               "location", "document"}
 EXEC_REFS = {"eval", "Function", "vm.runInNewContext", "vm.runInThisContext", "vm.runInContext", "vm.Script",
              "vm.compileFunction", "vm.SourceTextModule"}
 PROC_METHODS = {"exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync", "fork"}
@@ -1226,10 +1232,12 @@ class Analyzer:
         return self.phase in self.pol.auto
 
     def mk(self, c, tags=frozenset(), **meta) -> Val:
+        # a value dropped at a cap was computed from constants but is not followed (OVER): running it is
+        # unreadable_exec (a 4 MB install script that evals a decoded million-number array is not "nothing found")
         if isinstance(c, (str, bytes, bytearray)) and len(c) > self.max_string:
-            return Val(NOVAL, tags)
+            return Val(NOVAL, frozenset(tags) | {OVER})
         if isinstance(c, list) and len(c) > self.max_iter:
-            return Val(NOVAL, _tags(*c[:100]) | frozenset(tags))
+            return Val(NOVAL, _tags(*c[:100]) | frozenset(tags) | {OVER})
         return Val(c, tags, None, meta or None)
 
     # ---------------------------------------------------------------- program
@@ -1305,10 +1313,14 @@ class Analyzer:
             elif isinstance(it.c, dict):
                 items = [Val(key) for key in it.c]
             if items is not None and len(items) and self.iters + len(items) <= self.max_iter and len(items) <= 64:
-                self.iters += len(items)
-                for item in items:
-                    self.bind(s[3], item, scope, declare=True)
+                # a work-list loop (`for (x of queue) queue.push(...)`) grows the array it walks: count every
+                # item, and stop at the same 64 the loop was let in with (items past it are not read one by one)
+                n = 0
+                while n < len(items) and n < 64:
+                    self.iters += 1
+                    self.bind(s[3], items[n], scope, declare=True)
                     self.exec(s[5], scope)
+                    n += 1
             else:
                 self.bind(s[3], Val(NOVAL, _tags(it)), scope, declare=True)
                 self.exec(s[5], scope)
@@ -1482,7 +1494,7 @@ class Analyzer:
             else:
                 out.append(self.ev(e, scope))
             if len(out) > self.max_iter:
-                return Val(NOVAL, _tags(*out[:100]))
+                return Val(NOVAL, _tags(*out[:100]) | {OVER})
         return Val(out)
 
     def e_obj(self, n, scope):
@@ -1691,7 +1703,7 @@ class Analyzer:
         total = sum(len(t) for t in texts)
         if known:
             if total > self.max_string:
-                return Val(NOVAL, tags)
+                return Val(NOVAL, frozenset(tags) | {OVER})
             return Val("".join(texts), tags)
         hint = "".join(texts)[:600]
         return Val(NOVAL, tags | _path_tags(hint), None, {"partial": hint})
@@ -1736,6 +1748,8 @@ class Analyzer:
                 return Val("node")
             if not isinstance(key, str):
                 return Val(NOVAL, obj.tags)
+            if key == "constructor" and (ref in FUNC_GLOBALS or ref in EXEC_REFS):
+                return Val(NOVAL, (), "Function", {"hidden": True} if hidden else None)
             full = ALIASES.get(f"{ref}.{key}", f"{ref}.{key}")
             if full == "process.env":
                 return Val(NOVAL, frozenset({SECRET}), "process.env")
@@ -2047,7 +2061,7 @@ class Analyzer:
             self.emit("decode_exec", pos)
         # unknown because it is data (a parameter, a table entry) is not unreadable; computed from constants by code
         # that could not be followed, or taken from the environment, is
-        if not tags & {NET, DECODED, LOCAL} and tags & {OPAQUE, ENV} and self.auto:
+        if not tags & {NET, DECODED, LOCAL} and tags & {OPAQUE, ENV, OVER} and self.auto:
             self.emit("unreadable_exec", pos)
 
     # ---------------------------------------------------------------- processes
@@ -2784,7 +2798,7 @@ class Analyzer:
             return self.map_items(list(items), a0, tags)
         if name == "reduce" and _meta(a0, "fn") is not None:
             acc = args[1] if len(args) > 1 else (items[0] if items else Val(UNDEF))
-            rest = items if len(args) > 1 else items[1:]
+            rest = list(items) if len(args) > 1 else items[1:]       # a reducer that pushes onto it: not walked
             if self.iters + len(rest) > self.max_iter:
                 return Val(NOVAL, _tags(recv))
             self.iters += len(rest)
@@ -3014,12 +3028,20 @@ def _quote(v: Val) -> str:
 
 # ============================================================================================================== entry
 
+# code pushed off-screen: a statement end, hundreds of spaces, then more code on the same line (where an editor or a
+# diff shows nothing); minified and generated code does not pad with spaces like this
+_HIDDEN_CODE = re.compile(r"[;})\]][ \t]{300,}[A-Za-z_$(\[!+~]")
+
+
 def analyze_source(ctx, text: str, file: str, phase: str, depth: int = 0, line_base: int | None = None) -> None:
     """Facts of one JavaScript source into ctx. Raises only LimitExceeded (the caller records the file as not analyzed);
     any other failure ends the analysis of this source quietly with what was found so far."""
     if not isinstance(text, str) or depth > int(ctx.limits["max_depth"]):
         return
-    if len(text) > int(ctx.limits["max_string"]):
+    # a file of the package is read up to the file size limit, like a Python file; code built at run time (eval, new
+    # Function, a decoded payload) is a value and stays under the value cap
+    cap = ctx.limits["max_string"] if depth or line_base is not None else ctx.limits["max_file_bytes"]
+    if len(text) > int(cap):
         raise LimitExceeded("size limit")
     try:
         stmts = parse(text, ctx.check_time)
@@ -3027,6 +3049,10 @@ def analyze_source(ctx, text: str, file: str, phase: str, depth: int = 0, line_b
         raise
     except (RecursionError, Exception):               # noqa: BLE001 - parse() already recovers per statement
         return
+    if not depth:
+        hidden = _HIDDEN_CODE.search(text)
+        if hidden:
+            ctx.emit("hidden_code", phase, file, text.count("\n", 0, hidden.start()) + 1, "code after a long run of spaces")
     an = Analyzer(ctx, text, file, phase, depth, line_base)
     try:
         an.run(stmts)

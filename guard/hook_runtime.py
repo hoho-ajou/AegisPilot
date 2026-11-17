@@ -80,7 +80,7 @@ def _current_adapter():
     return _adapter
 
 
-def emit(action: str, reason: str) -> bool:
+def emit(action: str, reason: str, notice: str = "") -> bool:
     """Write the decision for a core action (confirm / refuse; "ask" / "deny" are accepted as the same), once.
     An agent whose hook cannot ask a person gets a refusal for "confirm". False if a decision was already written."""
     global _finished
@@ -90,7 +90,7 @@ def emit(action: str, reason: str) -> bool:
     with _lock:
         if _finished:
             return False
-        out = adapter.answer(action, reason)
+        out = adapter.answer(action, reason, notice)
         if out:
             print(out)
             sys.stdout.flush()

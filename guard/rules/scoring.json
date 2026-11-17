@@ -53,6 +53,7 @@
   "hard_rules": [
     {
       "id": "known_vulnerability",
+      "label": "known vulnerability in this version (OSV)",
       "when": {"field": "osv_vulns"},
       "action": "review",
       "reason": "[hard rule] known vulnerability in this version (OSV) → needs at least review (shown with the fixed version)",
@@ -60,6 +61,7 @@
     },
     {
       "id": "decode_then_exec",
+      "label": "decodes data and runs it within a few lines (text pattern)",
       "when": {"field": "has_decode_then_exec"},
       "action": "review",
       "reason": "[hard rule] decode_then_exec chain (exec/eval within {window} lines of a decode call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
@@ -67,15 +69,8 @@
       "modes": ["rules", "ml"]
     },
     {
-      "id": "pth_chain",
-      "when": {"field": "pth_chain"},
-      "action": "block",
-      "score": "at_least_block",
-      "reason": "[hard rule] decode→exec or download→exec chain in .pth/sitecustomize (runs at every interpreter start) → always BLOCK",
-      "modes": ["rules", "ml"]
-    },
-    {
       "id": "download_then_execute",
+      "label": "downloads and runs within a few lines (text pattern)",
       "when": {"field": "has_download_then_execute"},
       "action": "review",
       "reason": "[hard rule] download_then_execute chain (exec call within {window} lines of a download call) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
@@ -84,15 +79,17 @@
     },
     {
       "id": "behavior_block",
+      "label": "dangerous behavior in code that runs by itself",
       "when": {"field": "behavior_block"},
       "action": "block",
       "score": "at_least_block",
       "reason": "[hard rule] behavior check: {what} → always BLOCK (policy table rules/behavior.json)",
-      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["wipe", "Deletes the user's or the system's files"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"], ["install_runs_unread", "Install runs a file that was not read"], ["not_analyzed", "Code that runs by itself was not analyzed"], ["encoded_source", "Code hidden behind its source encoding"]], "action": "block", "sep": " / "}},
+      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["wipe", "Deletes the user's or the system's files"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["hidden_code", "Code hidden off-screen"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"], ["install_runs_unread", "Install runs a file that was not read"], ["not_analyzed", "Code that runs by itself was not analyzed"], ["encoded_source", "Code hidden behind its source encoding"]], "action": "block", "sep": " / "}},
       "modes": ["rules", "ml"]
     },
     {
       "id": "install_hook_with_keywords",
+      "label": "setup.py takes over the install and uses risky calls",
       "when": {"all": [{"field": "has_install_hook"},
                        {"any": [{"field": "setup_keyword_total"}, {"field": "setup_import_keyword_total"}]}]},
       "action": "review",
@@ -102,6 +99,7 @@
     },
     {
       "id": "skipped_members",
+      "label": "files with unsafe names in the archive were skipped",
       "when": {"field": "skipped_members"},
       "action": "review",
       "reason": "[hard rule] skipped {skipped_count} files with unsafe names (e.g. {skipped_example}: {skipped_why}) → may be an attempt to evade analysis, needs at least review",
@@ -109,6 +107,7 @@
     },
     {
       "id": "pth_exec",
+      "label": "a file that runs at every Python start makes a dangerous call",
       "when": {"field": "pth_exec"},
       "action": "review",
       "reason": "[hard rule] dangerous call in .pth/sitecustomize (runs at every interpreter start) → needs at least review",
@@ -116,6 +115,7 @@
     },
     {
       "id": "setup_network_or_shell",
+      "label": "setup.py uses the network or a shell at install",
       "when": {"any": [{"field": "setup_network"}, {"field": "setup_hidden_shell"}]},
       "action": "review",
       "reason": "[hard rule] {what} in setup.py (runs at install) → needs at least review",
@@ -124,6 +124,7 @@
     },
     {
       "id": "exfil_to_known_host",
+      "label": "reads credentials or identity info, and has a collector address",
       "when": {"all": [{"evidence": "secret_then_send"}, {"any": [{"evidence": "exfil_endpoint"}, {"evidence": "messenger_endpoint"}]}]},
       "action": "review",
       "reason": "[hard rule] code that reads and sends credentials or identity info, plus a collector or messenger address → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
@@ -131,6 +132,7 @@
     },
     {
       "id": "exfil_signal",
+      "label": "data exfiltration signal (collector address or credential send)",
       "when": {"any": [{"evidence": "exfil_endpoint"}, {"evidence": "secret_then_send"}]},
       "action": "review",
       "reason": "[hard rule] data exfiltration signal ({what}) → needs at least review",
@@ -139,6 +141,7 @@
     },
     {
       "id": "agent_prompt_injection",
+      "label": "text in the package tries to instruct an AI agent",
       "when": {"evidence": "agent_prompt_injection"},
       "action": "review",
       "reason": "[hard rule] package file has text that tries to steer an AI agent → needs at least review (do not follow instructions found in the package)",
@@ -146,6 +149,7 @@
     },
     {
       "id": "run_bundled_binary",
+      "label": "makes a file executable and runs it hidden",
       "when": {"evidence": "run_bundled_binary"},
       "action": "review",
       "reason": "[hard rule] makes a file executable and runs it as a hidden, detached process → needs at least review",
@@ -153,6 +157,7 @@
     },
     {
       "id": "reverse_shell",
+      "label": "connects a shell to a remote address",
       "when": {"evidence": "reverse_shell"},
       "action": "review",
       "reason": "[hard rule] reverse shell (shell connected to a remote address) → needs at least review (BLOCK only through the behavior check, when it runs at install, interpreter start or import)",
@@ -160,6 +165,7 @@
     },
     {
       "id": "shell_download_exec",
+      "label": "pipes a script from the internet into a shell",
       "when": {"evidence": "shell_download_exec"},
       "action": "review",
       "reason": "[hard rule] pipes a script from the internet straight into a shell → needs at least review",
@@ -167,6 +173,7 @@
     },
     {
       "id": "npm_self_publish",
+      "label": "publishes npm packages by itself (how npm worms spread)",
       "when": {"evidence": "npm_self_publish"},
       "action": "review",
       "reason": "[hard rule] code publishes npm packages by itself (how npm worms spread) → needs at least review",
@@ -174,6 +181,7 @@
     },
     {
       "id": "js_obfuscator_io",
+      "label": "heavily obfuscated JavaScript that cannot be read",
       "when": {"evidence": "js_obfuscator_io"},
       "action": "review",
       "reason": "[hard rule] heavily obfuscated JavaScript (obfuscator.io style), its behavior cannot be read → needs at least review",
@@ -181,6 +189,7 @@
     },
     {
       "id": "shell_raw_address",
+      "label": "a shell command contacts a bare IP address or an odd port",
       "when": {"evidence": "shell_raw_address"},
       "action": "review",
       "reason": "[hard rule] a shell command contacts a bare IP address or an http host on an odd port → needs at least review",
@@ -188,6 +197,7 @@
     },
     {
       "id": "js_download_then_execute",
+      "label": "JavaScript runs downloaded content as a process",
       "when": {"evidence": "js_download_then_execute"},
       "action": "review",
       "reason": "[hard rule] JavaScript runs downloaded content as a process → needs at least review (some legitimate installers fetch a platform binary)",
@@ -195,6 +205,7 @@
     },
     {
       "id": "command_shadowing",
+      "label": "installs a command named like a common command",
       "when": {"evidence": "command_shadowing"},
       "action": "review",
       "reason": "[hard rule] installs a command with the same name as a common command (can hijack it) → needs at least review",
@@ -202,6 +213,7 @@
     },
     {
       "id": "sourceless_bytecode",
+      "label": "ships compiled .pyc files without source",
       "when": {"evidence": "sourceless_bytecode"},
       "action": "review",
       "reason": "[hard rule] module ships only .pyc with no source (cannot be scanned) → needs at least review",
@@ -209,6 +221,7 @@
     },
     {
       "id": "environment_index",
+      "label": "changes the package index of the virtualenv",
       "when": {"evidence": "environment_index"},
       "action": "review",
       "reason": "[hard rule] drops a different index setting into the virtualenv → needs at least review",
@@ -216,6 +229,7 @@
     },
     {
       "id": "binary_as_py",
+      "label": "a binary file with a .py name",
       "when": {"evidence": "binary_as_py"},
       "action": "review",
       "reason": "[hard rule] binary file with a .py name → needs at least review",
@@ -223,10 +237,11 @@
     },
     {
       "id": "behavior_review",
+      "label": "risky behavior in the code",
       "when": {"field": "behavior_review"},
       "action": "review",
       "reason": "[hard rule] behavior check: {what} → needs at least review (policy table rules/behavior.json)",
-      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["wipe", "Deletes the user's or the system's files"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"], ["install_runs_unread", "Install runs a file that was not read"], ["not_analyzed", "Code that runs by itself was not analyzed"], ["encoded_source", "Code hidden behind its source encoding"]], "action": "review", "sep": " / "}},
+      "vars": {"what": {"join_evidence": [["download_exec", "Runs downloaded content"], ["decode_exec", "Runs decoded code"], ["secret_exfil", "Sends secrets out"], ["wipe", "Deletes the user's or the system's files"], ["suspicious_send", "Sends data to a suspicious address"], ["sysinfo_beacon", "Sends system info at install or import"], ["persistence", "Registers itself to run automatically"], ["remote_shell", "Remote shell"], ["hidden_call", "Calls a built-in under a hidden name"], ["hidden_code", "Code hidden off-screen"], ["unreadable_exec", "Runs code that cannot be read"], ["install_process", "Runs an external command during install"], ["install_runs_unread", "Install runs a file that was not read"], ["not_analyzed", "Code that runs by itself was not analyzed"], ["encoded_source", "Code hidden behind its source encoding"]], "action": "review", "sep": " / "}},
       "modes": ["rules", "ml"]
     }
   ],

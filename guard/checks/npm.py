@@ -4,7 +4,8 @@ AegisPilot - checks that only npm needs:
   lock_malicious   every release in package-lock.json against OSV's malicious-packages records (npm installs, and runs
                    the install scripts of, the whole locked tree)
   script_deps      the dependencies whose install scripts npm will run (package-lock.json's hasInstallScript, or the
-                   registry's for a fresh resolve), scanned like named packages and recorded with `via`
+                   registry's for a fresh resolve), scanned like named packages and recorded with `via`; for a fresh
+                   resolve the whole resolved tree also goes to OSV in one batch (what lock_malicious does for a lock)
 
 The named npm packages themselves are checks/ecosystems.py.
 """
@@ -38,6 +39,38 @@ def _lock_malicious(parsed) -> list:
     return out
 
 
+def _tree_malicious(ctx, out: Outcome, tree: list, skip: set, osv_ok: bool, notes: list) -> set:
+    """The resolved tree of a fresh install (no lock file) against OSV's malicious-packages records, in one batch: npm
+    installs every package of it, and a malicious dependency does its harm when imported, install script or not (the
+    same check the lock file gets, and every PyPI dependency gets). Returns the (name, version) pairs found."""
+    pairs = list(dict.fromkeys((d["name"], d["version"]) for d in tree if d["name"] not in skip))
+    if not pairs:
+        return set()
+    if not osv_ok:
+        notes.append("OSV could not be reached: the dependency tree was not checked for malicious releases")
+        return set()
+    try:
+        import scan_engine
+        from sources import npm
+        found = npm.malicious_releases(pairs)
+    except Exception as e:
+        notes.append(f"OSV batch lookup of the dependency tree failed: {type(e).__name__}")
+        return set()
+    via = {}
+    for d in tree:
+        via.setdefault((d["name"], d["version"]), d.get("via"))
+    for (name, version), ids in found.items():
+        f = scan_engine.ScanFeatures(name=name, version=version, resolved_version=version, ecosystem="npm",
+                                     osv_vulns=[{"id": i} for i in ids])
+        result = scan_engine.Verdict("ALLOW", 0.0, [], f)
+        rec = package_record(name, version, result)
+        rec["ecosystem"] = "npm"
+        rec["via"] = clean(" → ".join(x for x in (via.get((name, version)), name) if x), 160)
+        post_rules_into(rec, result, version, True, None, None)
+        out.add(rec, ctx.policy(rec, name, version, rec.get("verdict") or result.verdict), dependency=True)
+    return set(found)
+
+
 def run_lock(ctx) -> Outcome:
     out = Outcome()
     for name, version, result in _lock_malicious(ctx.parsed):       # anywhere in the locked tree (not scanned above)
@@ -64,10 +97,13 @@ def script_deps(ctx, out: Outcome) -> dict | None:
         import scan_engine
         from sources import npm
         skip = {n for n, _ in names}
+        tree: list = []
         if from_lock is not None:
             found, notes = [d for d in from_lock if d["name"] not in skip], []
         else:
-            found, notes = npm.install_script_deps(names, _t.monotonic() + NPM_TREE_SECONDS, skip)
+            found, notes = npm.install_script_deps(names, _t.monotonic() + NPM_TREE_SECONDS, skip, resolved=tree)
+        malicious = _tree_malicious(ctx, out, tree, skip, osv_ok, notes)
+        found = [d for d in found if (d["name"], d["version"]) not in malicious]      # already BLOCK: no scan needed
         if len(found) > NPM_SCRIPT_DEPS_MAX:
             notes.append(f"only {NPM_SCRIPT_DEPS_MAX} of {len(found)} dependencies with install scripts checked")
             found = found[:NPM_SCRIPT_DEPS_MAX]
@@ -89,8 +125,12 @@ def script_deps(ctx, out: Outcome) -> dict | None:
                 rec["install_script_dependency"] = True
                 post_rules_into(rec, result, d["version"], osv_ok, None, None)
                 out.add(rec, ctx.policy(rec, d["name"], d["version"], rec.get("verdict") or result.verdict), dependency=True)
-        return {"with_install_script": len(found), "scanned": scanned, "from": "package-lock.json" if from_lock is not None else "registry",
+        info = {"with_install_script": len(found), "scanned": scanned, "from": "package-lock.json" if from_lock is not None else "registry",
                 "notes": [clean(n, 160) for n in dict.fromkeys(notes)]}
+        if from_lock is None:
+            info["tree_osv_checked"] = len({(d["name"], d["version"]) for d in tree if d["name"] not in skip}) if osv_ok else 0
+            info["tree_malicious"] = len(malicious)
+        return info
     except Exception as e:
         return {"error": clean(f"{type(e).__name__}: {e}", 160)}
 

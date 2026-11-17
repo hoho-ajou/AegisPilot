@@ -65,7 +65,7 @@ class Golden(unittest.TestCase):
     def test_one_line_and_dialog_sentence(self):
         self.assertEqual(T.summary_line(PYYAML), "[AegisPilot] pyyaml 5.3.1 blocked · CRITICAL · upgrade to >=5.4")
         self.assertEqual(T.popup_line(REQUESTS),
-                         "[AegisPilot] requests 2.31.0 — 3 MODERATE vulnerabilities (GHSA-9wx4-h78v-vm56 and others) → 2.33.0 or later recommended. If approved, it installs as is. Details: /aegis")
+                         "[AegisPilot] requests 2.31.0 — 3 MODERATE vulnerabilities (GHSA-9wx4-h78v-vm56 and others) → 2.33.0 or later recommended [rules: known_vulnerability]. If approved, it installs as is. Details: /aegis")
 
     def test_requests_report_lists_grouped_vulnerabilities(self):
         out = T.report_text({"packages": [REQUESTS]}, 100, PATH)                          # wide enough that nothing wraps
@@ -109,8 +109,10 @@ class Rules(unittest.TestCase):
     def test_no_n_more_wording(self):
         for name, rec in ALL.items():
             self.assertNotIn("and 1 more", T.popup_line(rec)); self.assertNotIn("OSV vulnerability and", T.popup_line(rec))
-        weak = {**PYYAML, "evidence": PYYAML["evidence"]}
-        self.assertIn("2 other signal kind(s)", T.popup_line(weak))                     # the OTHER KINDS of signal are named as such
+        # the rules that held the package are named, not counted ("N other signal kinds" said nothing)
+        held = {**PYYAML, "verdict": "NEEDS_HUMAN_REVIEW", "verdict_rules": ["known_vulnerability", "download_exec@call"]}
+        self.assertIn("[rules: known_vulnerability, download_exec@call]", T.popup_line(held))
+        self.assertNotIn("other signal kind", T.popup_line(held))
 
     def test_dialog_always_says_what_approval_does(self):
         for name, rec in ALL.items():

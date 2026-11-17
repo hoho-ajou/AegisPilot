@@ -9,8 +9,10 @@
        "features": {"osv_vulns": [{"id": "PYSEC-2022-199", "summary": "", "details": "The ctx hosted project on PyPI was taken over via user account compromise"}]}},
       {"expect": "miss", "why": "Text describing what a vulnerability enables is not malware (requests)",
        "features": {"osv_vulns": [{"id": "GHSA-x", "summary": "Requests may follow redirects to malicious URLs"}]}},
-      {"expect": "miss", "why": "No decision if OSV could not be reached", "osv_ok": false,
-       "features": {"osv_vulns": [{"id": "MAL-1", "summary": ""}]}}
+      {"expect": "hit", "verdict": "BLOCK", "why": "A MAL record is OSV answering: it blocks even if the reachability probe timed out", "osv_ok": false,
+       "features": {"osv_vulns": [{"id": "MAL-1", "summary": ""}]}},
+      {"expect": "miss", "why": "No decision if OSV could not be reached and returned nothing", "osv_ok": false,
+       "features": {"osv_vulns": []}}
     ],
     "new_risky_code": [
       {"expect": "hit", "verdict": "NEEDS_HUMAN_REVIEW", "why": "Shell exec at import time that the previous release did not have",

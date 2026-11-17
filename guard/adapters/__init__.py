@@ -18,7 +18,8 @@ An adapter is a module with these names (claude_code.py is the reference):
   detect_surface(env)   {"surface": terminal|app|api|unknown, "width": columns, ...}
   shell_command(event)  (command, project_dir) if the event is a shell command about to run, else None
   file_write(event)     (file_path, proposed_text_or_None, project_dir) if the event writes a file, else None
-  answer(action, reason) the text the hook prints to stdout for a core action ("allow" -> None = print nothing)
+  answer(action, reason, notice="") the text the hook prints to stdout for a core action ("allow" -> None = print nothing);
+                        notice = what the person should see on screen, where the agent can show it
 """
 from __future__ import annotations
 

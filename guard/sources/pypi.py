@@ -7,6 +7,7 @@ files, through HTTP Range - remote_wheel.py).
 """
 from __future__ import annotations
 
+import net
 import json
 import os
 import urllib.request
@@ -34,7 +35,7 @@ PYPI_JSON_URL = "https://pypi.org/pypi/{name}/json"
 
 def metadata(name: str) -> dict:
     """The project's JSON document (every release and its files)."""
-    with urllib.request.urlopen(PYPI_JSON_URL.format(name=name), timeout=15) as resp:
+    with net.urlopen(PYPI_JSON_URL.format(name=name), timeout=15) as resp:
         return json.loads(resp.read())
 
 
@@ -81,7 +82,7 @@ def fetch(name: str, version: str | None, dest_dir: Path,
     for file_info in [chosen]:
         url = file_info["url"]
         filename = file_info["filename"]
-        with urllib.request.urlopen(url, timeout=30) as resp:
+        with net.urlopen(url, timeout=30) as resp:
             raw = resp.read(MAX_DOWNLOAD_BYTES + 1)     # metadata size can be wrong; enforce while reading
         if len(raw) > MAX_DOWNLOAD_BYTES:
             raise ValueError(f"package too large, code not scanned (>{MAX_DOWNLOAD_BYTES // 1024 // 1024}MB limit)")

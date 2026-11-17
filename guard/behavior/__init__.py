@@ -59,12 +59,13 @@ class Context:
         self.pkg_root: Path | None = None         # the package root folder of the files given
         self._aside: dict[str, Path] | None = None
         self._left: set[str] = set()
+        self.impure = False                       # the file being read asked about another file (facts_cache)
 
     def unread(self, rel: str, phase: str, why: str) -> None:
-        """A file not (fully) analyzed; one that runs by itself (install, interpreter start, import) is a finding.
-        The time limit is not: it depends on the machine and its load, and large real packages reach it."""
+        """A file not (fully) analyzed; one that runs by itself (install, interpreter start, import) is a finding,
+        whatever the limit was (the time limit too: code that runs by itself and was not read is never passed)."""
         self.not_analyzed.append((rel, why))
-        if phase in self.pol.auto and not why.startswith("time limit"):
+        if phase in self.pol.auto:
             self.emit("not_analyzed", phase, rel, 0, why)
 
     # ---------------------------------------------------------------- facts
@@ -92,6 +93,8 @@ class Context:
     def was_downloaded(self, path) -> bool:
         if not isinstance(path, str) or not path.strip():
             return False
+        if self.downloaded:
+            self.impure = True
         n = self._norm(path)
         known = {self._norm(d) for d in self.downloaded}
         if n in known:
@@ -106,6 +109,7 @@ class Context:
     # ---------------------------------------------------------------- code inside code
     def nested_python(self, code, phase, file, line, depth, env=None) -> None:
         from . import python
+        self.impure = True                                  # Python code can import the package's other modules
         if isinstance(code, (bytes, bytearray)):
             code = bytes(code).decode("utf-8", "replace")
         if not isinstance(code, str) or depth > self.limits["max_depth"]:
@@ -158,6 +162,7 @@ class Context:
         """("file" | "aside", path) for a file the package ships, ("left", None) for one shipped but too large to keep,
         ("absent", None) otherwise. rel: package-relative ("./" and "a/.." folded)."""
         rel = norm_rel(rel)
+        self.impure = True
         if not rel:
             return "absent", None
         if rel in self.by_rel:
@@ -192,10 +197,31 @@ class Context:
             self.emit("encoded_source", phase, rel, 1, f"source encoding declared as {codec}")
         return text
 
+    def run_script(self, target: str, prog: str, phase: str, file: str) -> None:
+        """A command line that starts an interpreter on a file (`node src/main.js`, `python x.py`, `sh x.sh`), from an
+        install script, a lifecycle command, JavaScript's child_process or Python's subprocess: when the file is the
+        package's own and the command runs by itself (install, interpreter start, import), read it at that phase. A
+        relative path is taken from the package root (where install scripts run), then from the calling file's folder."""
+        if phase not in ("install", "interpreter_start", "import"):
+            return
+        lang = ("js" if prog in ("node", "nodejs", "bun", "deno") else "python" if prog.startswith("python")
+                else "shell" if prog in ("sh", "bash", "zsh", "dash") else None)
+        t = (target or "").strip("'\"").replace("\\", "/")
+        if lang is None or not t or t.startswith(("-", "/", "~", "$")) or "://" in t:
+            return
+        here = file.rsplit("/", 1)[0] if "/" in file else ""
+        for base in ("", here) if here else ("",):
+            rel = norm_rel(f"{base}/{t}" if base else t)
+            status, path = self.bundled(rel)
+            if status in ("file", "aside"):
+                self.run_file(rel, path, lang, phase)
+                return
+
     def run_file(self, rel: str, path: Path, lang: str, phase: str) -> bool:
         """A package file that code being analyzed runs (a script setup.py starts, a file it exec()s): read at that
         phase, once. False if it could not be read (over the size limit, unreadable)."""
         from . import python
+        self.impure = True
         key = (rel, phase)
         if key in self.module_phases:
             return True
@@ -209,6 +235,9 @@ class Context:
         try:
             if lang == "python":
                 python.analyze_source(self, text, rel, phase, loaded=True)
+            elif lang == "js":
+                from . import js
+                js.analyze_source(self, text, rel, phase)
             elif lang == "make":
                 self.shell(make_recipes(text), phase, rel, 1)
             elif lang == "cmake":
@@ -327,6 +356,7 @@ def _plan(files: list[Path], features, ctx: Context | None = None) -> tuple[list
     install_setups = rule_engine.install_time_setups(rs, files)
     install_files = [str(f).replace("\\", "/") for f in (getattr(features, "install_time_files", None) or [])]
     out, held = [], []
+    js_loaded = _js_loaded(files, rule_engine) if getattr(features, "ecosystem", None) == "npm" else None
     for path in files:
         try:
             if not path.is_file():
@@ -363,6 +393,8 @@ def _plan(files: list[Path], features, ctx: Context | None = None) -> tuple[list
             phase = "install"
         else:
             phase = "import" if lang == "js" else "command"
+            if lang == "js" and js_loaded is not None and rel not in js_loaded[0]:
+                phase = "command" if rel in js_loaded[1] else "call"   # runs only when asked for by path or as a command
         if phase in ("import", "command") and (rule_engine.is_test_path(rs, path)
                                                or rule_engine.is_dev_path(rs, path, set(dev_names) if dev_names else None)):
             held.append((path, rel, lang, phase))
@@ -384,6 +416,20 @@ def _plan(files: list[Path], features, ctx: Context | None = None) -> tuple[list
     # the file-count limit are ones only an explicit import of that very module runs
     out.sort(key=lambda x: (order.get(x[3], 9), not import_root(x[1]), x[1].count("/"), x[1]))
     return out, held
+
+
+def _js_loaded(files: list[Path], rule_engine) -> tuple[set[str], set[str]] | None:
+    """npm: (files that run when the package is loaded, bin files) - see js_entry; None when that cannot be told."""
+    from . import js_entry
+    by_rel = {}
+    for path in files:
+        if path.name.startswith("package.json#"):
+            continue
+        by_rel.setdefault(rule_engine.package_relative(path).replace("\\", "/"), path)
+    try:
+        return js_entry.loaded_files(by_rel)
+    except Exception:
+        return None
 
 
 def import_root(rel: str) -> bool:
@@ -476,7 +522,7 @@ def _read(path: Path, limit: int) -> str | None:
         return None
 
 
-def analyze_files(files: list[Path], features, deadline: float | None = None) -> Context:
+def analyze_files(files: list[Path], features, deadline: float | None = None, stop=None) -> Context:
     """Run the front ends over the package files; returns the Context with the facts. Never raises."""
     from . import js, python
     ctx = Context(deadline)
@@ -494,15 +540,19 @@ def analyze_files(files: list[Path], features, deadline: float | None = None) ->
         ctx.not_analyzed.append(("*", f"file selection failed: {type(e).__name__}"))
         return ctx
     ctx.held = {rel for _p, rel, _l, _ph in held}
+    from . import facts_cache
+    cache = facts_cache.enabled()
     ctx.modules = _module_index(planned + held)
     for n, (path, rel, lang, phase) in enumerate(planned):
+        if stop is not None and stop.is_set():          # OSV already lists the release as malicious: stop quietly
+            break
         over = n >= int(lim["max_files"])
         if over or time.monotonic() > ctx.deadline:
             why = f"only the first {lim['max_files']} files analyzed" if over else f"time limit ({lim['seconds']}s)"
             rest = [(r, ph) for _p, r, _l, ph in planned[n:] if (r, ph) not in ctx.module_phases]
             ctx.not_analyzed.append(("*", f"{why}: {len(rest)} files not analyzed"))
-            for r, ph in rest:              # left over at the file-count limit: install / startup files and import roots
-                if over and (ph in ("install", "interpreter_start") or ph == "import" and import_root(r)):
+            for r, ph in rest:              # left over: every one that runs by itself is a finding
+                if ph in ctx.pol.auto:
                     ctx.emit("not_analyzed", ph, r, 0, why)
             break
         if (rel, phase) in ctx.module_phases:
@@ -518,7 +568,7 @@ def analyze_files(files: list[Path], features, deadline: float | None = None) ->
                 ctx.module_phases.add((rel, phase))
                 python.analyze_source(ctx, text, rel, phase)
             elif lang == "js":
-                js.analyze_source(ctx, text, rel, phase)
+                _js_file(ctx, text, rel, phase, cache)
             else:
                 ctx.shell(text, phase, rel, 1)
         except LimitExceeded as e:
@@ -534,13 +584,32 @@ def analyze_files(files: list[Path], features, deadline: float | None = None) ->
     return ctx
 
 
-def analyze(files: list[Path], features) -> None:
+def _js_file(ctx: Context, text: str, rel: str, phase: str, cache: bool) -> None:
+    """One JavaScript file of the package; with the facts cache on, a file whose exact content was read before (same
+    name, phase, rules and analyzer) takes the facts found then (facts_cache)."""
+    from . import facts_cache, js
+    if not cache:
+        js.analyze_source(ctx, text, rel, phase)
+        return
+    k = facts_cache.key(text, rel, "js", phase, ctx)
+    hit = facts_cache.get(k)
+    if hit is not None:
+        facts_cache.replay(ctx, rel, hit)
+        return
+    rec = facts_cache.Recorder(ctx, rel)
+    js.analyze_source(ctx, text, rel, phase)                # a limit raises here: nothing is stored
+    entry = rec.entry()
+    if entry is not None:
+        facts_cache.put(k, entry)
+
+
+def analyze(files: list[Path], features, stop=None) -> None:
     """Behavior facts of the unpacked package into `features`: evidence (rule = finding id, with phase and label),
     behavior_block / behavior_review from the policy table, behavior_not_analyzed for files over a limit."""
     import rule_engine
     rs = rule_engine.current()
     try:
-        ctx = analyze_files(files, features)
+        ctx = analyze_files(files, features, stop=stop)
     except Exception as e:                                   # noqa: BLE001
         features.behavior_not_analyzed = [("*", f"analysis failed: {type(e).__name__}")]
         return

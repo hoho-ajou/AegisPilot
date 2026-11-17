@@ -17,6 +17,7 @@ package does something nobody has seen, so it is described as "what it can reach
 """
 from __future__ import annotations
 
+import net
 import json
 import re
 from pathlib import Path
@@ -623,7 +624,7 @@ def report_text(result: dict, max_paths: int = 12) -> str:
 def save_osv(project: Path, vuln_ids: list[str], fetch=None) -> dict:
     """Fetch the OSV advisories (trusted text) into .aegis/osv/ so the judgement can quote them. {id: relative path}."""
     import urllib.request
-    fetch = fetch or (lambda vid: urllib.request.urlopen(f"https://api.osv.dev/v1/vulns/{vid}", timeout=15).read())
+    fetch = fetch or (lambda vid: net.urlopen(f"https://api.osv.dev/v1/vulns/{vid}", timeout=15).read())
     out = {}
     d = project / ".aegis" / "osv"
     for vid in vuln_ids:

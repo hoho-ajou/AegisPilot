@@ -32,6 +32,7 @@ are in guard/rules/post.json. This module only knows how to check each one. A ru
 """
 from __future__ import annotations
 
+import net
 import re
 
 import rule_engine
@@ -58,7 +59,7 @@ def osv_reachable(timeout: float = OSV_PROBE_TIMEOUT) -> bool:
                                                                    "version": version}).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with net.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read(2 * 1024 * 1024))
         return bool(isinstance(data, dict) and data.get("vulns"))
     except Exception:
@@ -94,6 +95,17 @@ def typosquat_of(result) -> str | None:
     return pop
 
 
+def malicious_ids(vulns) -> list[str]:
+    """Ids of the OSV records in `vulns` that call the release malicious."""
+    ids = []
+    for v in vulns or []:
+        vid = str(v.get("id", ""))
+        text = f"{v.get('summary') or ''} {(v.get('details') or '')[:RULES.malicious_details_chars]}"
+        if vid.startswith(RULES.malicious_id_prefixes) or _MALICIOUS.search(text):
+            ids.append(vid)
+    return ids
+
+
 def known_malicious(result, version: str | None = None) -> list[str]:
     """Ids of OSV records that call this exact release malicious ([] when none or unknown)."""
     f = getattr(result, "features", None)
@@ -108,19 +120,16 @@ def known_malicious(result, version: str | None = None) -> list[str]:
             vulns = query_osv(f.name, ver) if eco == "pypi" else query_osv(f.name, ver, eco)
         except Exception:
             vulns = []
-    ids = []
-    for v in vulns or []:
-        vid = str(v.get("id", ""))
-        text = f"{v.get('summary') or ''} {(v.get('details') or '')[:RULES.malicious_details_chars]}"
-        if vid.startswith(RULES.malicious_id_prefixes) or _MALICIOUS.search(text):
-            ids.append(vid)
-    return ids
+    return malicious_ids(vulns)
 
 
 def _fires(rule_id: str, result, version, osv_ok: bool, vdiff, late) -> dict | None:
     """What a rule found (the record kept in the decision), or None."""
     if rule_id == "known_malicious":
-        mal = known_malicious(result, version) if osv_ok else []
+        # a malicious record is OSV answering: it counts even when the reachability probe timed out (the probe only
+        # guards against reading a failed lookup as "nothing found"); a scan stopped early by it must still block
+        has = osv_ok or bool(getattr(getattr(result, "features", None), "osv_vulns", None))
+        mal = known_malicious(result, version) if has else []
         return {"ids": mal[:RULES.malicious_max_ids]} if mal else None
     if rule_id == "new_risky_code":
         return dict(vdiff) if vdiff and vdiff.get("signals") else None

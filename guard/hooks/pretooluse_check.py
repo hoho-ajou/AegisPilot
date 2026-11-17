@@ -40,12 +40,8 @@ def main(event: dict) -> None:
     decision = check_command(got[0], got[1], agent, actor={k: event.get(k) for k in ("session_id", "agent_id") if event.get(k)})
     if decision.action == ALLOW:
         return                          # fall through silently (no stdout): the command proceeds normally
-    if decision.detail:                 # stdout is reserved for the hook JSON, so the person-facing report goes to stderr
-        print("", file=sys.stderr)
-        print(decision.detail, file=sys.stderr)
-        print("", file=sys.stderr)
-        sys.stderr.flush()
-    hook_runtime.emit(decision.action, decision.reason)
+    # The person sees decision.notice (systemMessage). stderr of a hook that exits 0 reaches nobody (debug log only).
+    hook_runtime.emit(decision.action, decision.reason, decision.notice)
 
 
 if __name__ == "__main__":

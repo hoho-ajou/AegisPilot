@@ -15,6 +15,7 @@ Nothing downloaded is executed or imported.
 """
 from __future__ import annotations
 
+import net
 import io
 import struct
 import urllib.request
@@ -45,7 +46,7 @@ class RemoteWheelError(Exception):
 def _get_range(url: str, start: int, end: int) -> bytes:
     """Bytes [start, end] inclusive. Requires a 206 answer: a server that ignores Range would send the whole file."""
     req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
-    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+    with net.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
         if resp.status != 206:
             raise RemoteWheelError(f"server did not honour Range (status {resp.status})")
         data = resp.read(end - start + 2)
@@ -56,7 +57,7 @@ def _get_range(url: str, start: int, end: int) -> bytes:
 
 def _total_size(url: str) -> int:
     req = urllib.request.Request(url, headers={"Range": "bytes=0-0"})
-    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+    with net.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
         if resp.status != 206:
             raise RemoteWheelError(f"server did not honour Range (status {resp.status})")
         cr = resp.headers.get("Content-Range", "")           # "bytes 0-0/223229342"

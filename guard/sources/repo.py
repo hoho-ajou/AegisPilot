@@ -11,6 +11,7 @@ gets installed; without one the default branch is fetched and the commit is repo
 """
 from __future__ import annotations
 
+import net
 import os
 import re
 import subprocess
@@ -41,7 +42,7 @@ def fetch_github(repo: str, ref: str | None, dest: Path, keep: tuple = KEEP_SUFF
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or (ref and not _REF.match(ref)):
         raise ValueError(f"could not parse the repository name: {repo}@{ref}")
     url = f"https://codeload.github.com/{repo}/tar.gz/{ref or 'HEAD'}"
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as resp:
+    with net.urlopen(url, timeout=TIMEOUT) as resp:
         raw = resp.read(MAX_ARCHIVE_BYTES + 1)
     if len(raw) > MAX_ARCHIVE_BYTES:
         raise ValueError(f"repository too large, not scanned (>{MAX_ARCHIVE_BYTES >> 20}MB)")

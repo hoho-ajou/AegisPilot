@@ -32,7 +32,7 @@ Some sources cannot be read: private indexes the guard does not know, `ssh://` a
 | Verdict | Meaning |
 | --- | --- |
 | BLOCK | Only three things: a release OSV records as malicious, a package on your deny list, or code that runs by itself (at install, at Python start, at import, or as a hook or MCP server the agent starts) and runs downloaded or hidden code, sends credentials or data out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped. |
-| REVIEW | A rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, a version published less than 24 hours ago, an ML score at or above its review threshold. Or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
+| REVIEW | A rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, a version published less than 24 hours ago (shown with the newest version over a day old), an ML score at or above its review threshold. Or part of the install could not be checked. Someone has to decide. Records show it as `NEEDS_HUMAN_REVIEW`. |
 | ALLOW | Neither of the above. The command runs and nothing is shown. ALLOW means no evidence of a problem was found, not that the package is verified safe. |
 
 Each message starts with `[AegisPilot ...]` and ends with its decision id (for example `decision id: D7f3a`), which `/aegis` uses to explain it.
@@ -43,11 +43,11 @@ The default is `user` mode: you decide on every REVIEW and BLOCK. `auto` mode is
 
 | | `user` (default) | `auto` |
 | --- | --- | --- |
-| REVIEW | Claude Code's approval dialog. You decide. | The agent gets an evidence card and an ack id, and decides. |
-| BLOCK | The command is refused. A report is shown and the agent asks you what to do. | The command is refused. The agent gets the evidence card and an ack id, and decides; it can go ahead after `guard_cli.py ack <id>`. |
+| REVIEW | Claude Code's approval dialog, with the rules that held each package and a suggested version when there is one. You decide. | The command is refused. You see a notice with the rules; the agent gets the same evidence and an ack id, and decides: install as is (after `guard_cli.py ack <id>`), another package or version, or leave it out. |
+| BLOCK | The command is refused. You see a notice with the rules that held each package and the report path; the agent tells you the next step. | The same notice for you. The agent gets no ack: it uses another package or version, or goes on without it. |
 | Actions on the guard itself | Claude Code's approval dialog. You decide. | Claude Code's approval dialog. You decide. |
 
-In `auto` mode the agent is told to start its final answer with a one-line summary per package (for example `[AegisPilot] ctx 0.2.2 blocked · known malicious version`). That line comes from the agent, so you see it only if the agent follows the instruction. The full record is always in `.aegis/reviews/` (see below). Because the agent can go ahead after a BLOCK in this mode, use `auto` only where an unattended run matters more than a person seeing every BLOCK.
+The notice is shown by Claude Code itself (the hook's `systemMessage`), so you see it whatever the agent does next. In `auto` mode the agent is also told to start its final answer with a one-line summary per package (for example `[AegisPilot] ctx 0.2.2 blocked · known malicious version`). The full record is always in `.aegis/reviews/` (see below).
 
 To switch, create `.aegis/policy.json` in the project:
 
@@ -92,7 +92,7 @@ Strings in these records come from the scanned package and its metadata. Treat t
 
 ## The ack flow in auto mode
 
-In auto mode a hook can only allow or refuse before the command runs. So for a REVIEW or a BLOCK, AegisPilot refuses once and gives the agent the evidence and an ack id. The agent then does one of two things:
+In auto mode a hook can only allow or refuse before the command runs. So for a REVIEW, AegisPilot refuses once and gives the agent the evidence and an ack id. The agent then does one of two things:
 
 - takes another way (another version, another package, no install). That command is checked again as usual.
 - decides to go on with this exact action:
@@ -110,7 +110,7 @@ Rules for an ack:
 - It is bound to the exact command text, or the exact file and content. A changed command is a new action and is checked again.
 - The agent is told to say in its final answer what it went ahead with and why.
 
-User mode does not use acks. Actions on the guard itself never get an ack (see below).
+A BLOCK never gets an ack, in either mode: the agent takes another way (another version, another package) or goes on without it, and its final answer starts with the guard's one-line BLOCK notice. User mode does not use acks. Actions on the guard itself never get an ack (see below).
 
 Acks are stored in `~/.aegis/acks.json`.
 

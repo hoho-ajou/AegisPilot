@@ -17,10 +17,12 @@ Nothing is imported or run: the guard and GuardDog only read files.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -68,6 +70,22 @@ def _wheel_view(sample: Path, tmp: Path) -> list[Path] | None:
     return sorted(view.rglob("*"))
 
 
+def _npm_tarball(sample: Path) -> bytes | None:
+    """A Datadog npm sample is the folder the package was once unpacked into (tmp/tmpXXX/<name>/package/..., 3 to 9
+    levels down). Pack it back the way the registry serves it (every member under package/) so the guard reads it as it
+    reads a real install: entry points from package.json, the same extraction filter. None when there is no package.json."""
+    roots = sorted((p.parent for p in sample.rglob("package.json") if p.is_file() and not p.is_symlink()),
+                   key=lambda d: (len(d.parts), str(d)))
+    if not roots:
+        return None
+    root, buf = roots[0], io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        for p in sorted(root.rglob("*")):
+            if p.is_file() and not p.is_symlink():
+                t.add(p, arcname="package/" + p.relative_to(root).as_posix(), recursive=False)
+    return buf.getvalue()
+
+
 def aegis_one(it: dict) -> dict:
     import safe_extract
     import scan_engine as se
@@ -77,12 +95,13 @@ def aegis_one(it: dict) -> dict:
     try:
         with tempfile.TemporaryDirectory() as tmp:
             if _ecosystem(it) == "npm":
-                if path.is_dir():
+                data = _npm_tarball(path) if path.is_dir() else path.read_bytes()
+                if data is None:                       # a folder without package.json: read as it is
                     files = sorted(p for p in path.rglob("*"))
                 else:
                     root = Path(tmp) / "pkg.tgz.unpacked"
                     root.mkdir()
-                    safe_extract.extract_targz(path.read_bytes(), root, [], npm.KEEP_SUFFIXES)
+                    safe_extract.extract_targz(data, root, [], npm.KEEP_SUFFIXES)
                     files = sorted(root.rglob("*"))
                 f = se.ScanFeatures(name=it["name"], version=it.get("version"), ecosystem="npm")
                 f.install_time_files = npm.install_time_files(files)

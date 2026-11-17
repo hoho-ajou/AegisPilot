@@ -46,14 +46,14 @@ A known vulnerability is a REVIEW, not a BLOCK: for `pip install pyyaml==5.3.1` 
 ## Verdicts
 
 - **BLOCK**: only three things: a release OSV records as malicious, a package on your deny list, or code that runs by itself (at install, at Python start, at import, or as a hook or MCP server the agent starts) and runs downloaded or hidden code, sends credentials or data out, opens a remote shell, registers itself to run at startup or deletes your files. The command is stopped.
-- **REVIEW**: a rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, a version published less than 24 hours ago, an ML score at or above its review threshold. Or part of the install could not be checked. Claude Code asks you before the command runs.
+- **REVIEW**: a rule flagged something that is not a BLOCK: a known vulnerability (any severity, shown with the fixed version), dangerous code that runs only when called, a suspicious install step, a name close to a popular package, risky code new in this release, a version published less than 24 hours ago (shown with the newest version over a day old), an ML score at or above its review threshold. Or part of the install could not be checked. Claude Code asks you before the command runs.
 - **ALLOW**: neither of the above. The command runs and nothing is shown. ALLOW means no evidence of a problem was found, not that the package is verified safe.
 
 BLOCK and REVIEW differ in what is certain, not in how bad it could be: BLOCK is for evidence of malice, REVIEW for what needs your context (a vulnerability in a part you may not use, a name you may have meant) or could not be checked. Both come with the evidence.
 
 ## Modes
 
-AegisPilot runs in **user mode** by default: every REVIEW and BLOCK is decided by you. For unattended runs you can switch to **auto mode**, where the agent gets the evidence and decides by itself (it can then go ahead even after a BLOCK). Actions that would turn the guard off or change it always ask you, in both modes. See [docs/usage.md](docs/usage.md#modes-user-and-auto).
+AegisPilot runs in **user mode** by default: every REVIEW is decided by you, and a BLOCK is stopped. For unattended runs you can switch to **auto mode**, where the agent gets the evidence and decides a REVIEW by itself; a BLOCK stays stopped in both modes. Actions that would turn the guard off or change it always ask you, in both modes. See [docs/usage.md](docs/usage.md#modes-user-and-auto).
 
 ## Documentation
 

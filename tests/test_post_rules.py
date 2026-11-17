@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory() as t:
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, osv_ok=False)
     assert out and out["permissionDecision"] == "deny" and "vulnerability DB" in out["permissionDecisionReason"], out
     assert rec["packages"][0]["evidence"][0]["rule"] == "osv_unavailable"
-    assert "Run the same install command once more" in out["permissionDecisionReason"]
+    assert "once more" not in out["permissionDecisionReason"] and "tried 3 times" in out["permissionDecisionReason"], out
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, osv_ok=True)
     assert out is None or out.get("permissionDecision") == "allow", out
 # risky code new in this release: REVIEW, the agent pins the release before
@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory() as t:
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, vdiff=vd)
     assert out and out["permissionDecision"] == "deny", out
     reason = out["permissionDecisionReason"]
-    assert "not in the previous version" in reason and "`oldpkg==1.9`" in reason and "hijack" in reason, reason
+    assert "new_risky_code: risky code new in this version" in reason and "suggested: oldpkg==1.9 (the previous version)" in reason, reason
     pkg = rec["packages"][0]
     assert pkg["evidence"][0]["rule"] == "new_risky_code" and pkg["new_risky_code"]["previous"] == "1.9"
     from scan_engine import ScanFeatures, Verdict
@@ -108,15 +108,15 @@ with tempfile.TemporaryDirectory() as t:
     assert PR.apply(Verdict("BLOCK", 0.7, [], f), "2.0", vdiff=vd["oldpkg"]) == ("BLOCK", None)
     vd["oldpkg"]["safe_version"] = "1.9; rm -rf /"                  # never reaches the instruction unvalidated
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, vdiff=vd)
-    assert "rm -rf" not in out["permissionDecisionReason"].split("```")[0] and "If you cannot pin an earlier version" in out["permissionDecisionReason"]
+    assert "rm -rf" not in out["permissionDecisionReason"] and "suggested:" not in out["permissionDecisionReason"], out  # an invalid version is not offered
 # a file added to an old release recently: REVIEW, pin the release before
 with tempfile.TemporaryDirectory() as t:
     p = Path(t)
     lf = {"oldpkg": {"file": "oldpkg-2.0-py3-none-any.whl", "release_date": "2024-01-02", "added_days_after": 700,
                      "added_days_ago": 2, "safe_version": "1.9"}}
     out, rec = hook(p, "pip install oldpkg==2.0", {"oldpkg": 900}, late=lf)
-    assert out and out["permissionDecision"] == "deny" and "was added recently" in out["permissionDecisionReason"], out
-    assert "`oldpkg==1.9`" in out["permissionDecisionReason"]
+    assert out and out["permissionDecision"] == "deny" and "late_file: file recently added to an old version" in out["permissionDecisionReason"], out
+    assert "suggested: oldpkg==1.9" in out["permissionDecisionReason"]
     assert rec["packages"][0]["evidence"][0]["rule"] == "late_file" and rec["packages"][0]["late_file"]["added_days_ago"] == 2
 # the score is the scanner's weighted sum and is not moved by these rules
 with tempfile.TemporaryDirectory() as t:
@@ -192,4 +192,50 @@ try:
     assert _npm.release_age_hours("left", "4.1.0", {"modified": "2026-11-10T10:00:00Z"}, _now) == 2.0 and len(_calls) == 1
 finally:
     _u.urlopen = _orig
+# the fix for a fresh release: the newest earlier version past the limit (not yanked, no pre-release for a final release)
+_m2 = {"releases": {"1.44.2": [{"upload_time_iso_8601": "2026-11-10T09:00:00Z"}],
+                    "1.44.2rc1": [{"upload_time_iso_8601": "2026-11-08T00:00:00Z"}],
+                    "1.44.1": [{"upload_time_iso_8601": "2026-11-08T00:00:00Z"}],
+                    "1.44.0": [{"upload_time_iso_8601": "2026-11-01T00:00:00Z"}],
+                    "1.43.9": [{"upload_time_iso_8601": "2026-10-01T00:00:00Z", "yanked": True}],
+                    "1.45.0": [{"upload_time_iso_8601": "2026-10-01T00:00:00Z"}]}}
+assert se.pypi_settled_version(_m2, "1.44.2", 24, _now) == "1.44.1"
+_m2["releases"]["1.44.1"][0]["upload_time_iso_8601"] = "2026-11-10T00:00:00Z"       # also under a day: one further back
+assert se.pypi_settled_version(_m2, "1.44.2", 24, _now) == "1.44.0"
+assert se.pypi_settled_version(_m2, "1.44.0", 24, _now) is None                       # nothing older that is not yanked
+_npm._TIMES["fx"] = {"2.1.0": "2026-11-10T10:00:00Z", "2.0.5": "2026-11-01T00:00:00Z", "2.0.4": "2026-10-01T00:00:00Z",
+                     "2.1.0-beta": "2026-10-20T00:00:00Z", "1.9.0": "2026-09-01T00:00:00Z"}
+_nm = {"versions": {v: {} for v in _npm._TIMES["fx"]}, "dist-tags": {"latest": "2.1.0"}}
+assert _npm.settled_version("fx", None, "2.1.0", _nm, 24, _now) == "2.0.5"
+assert _npm.settled_version("fx", "^2.0.0", "2.1.0", _nm, 24, _now) == "2.0.5"
+assert _npm.settled_version("fx", "^2.1.0", "2.1.0", _nm, 24, _now) is None           # nothing earlier fits the range
+assert _npm.settled_version("fx", "2.1.0", "2.1.0", _nm, 24, _now) == "2.0.5"         # an exact pin: any earlier version
+# the record carries it, and the card / the agent's instruction name the exact command
+_ff = _fresh(3.0)
+_ff.features.settled_version = "1.9"
+rec = {"package": "pkg", "evidence": [], "verdict": "ALLOW"}
+_base.post_rules_into(rec, _ff, None, True, None, None)
+assert rec["advice"]["pin_version"] == "1.9" and rec["advice"]["pin_ecosystem"] == "pypi", rec["advice"]
+from output import render as _render  # noqa: E402
+assert _render._advice_case(rec) == "fresh"
+assert _render.fix_offers([rec]) == [("pkg", "pkg==1.9")]
+_txt = _render.auto_reason(rec)
+assert "suggested: pkg==1.9 (the newest version over a day old)" in _txt, _txt
+rec_n = {"package": "fx", "ecosystem": "npm", "evidence": [], "verdict": "ALLOW"}
+_fn = _fresh(3.0)
+_fn.features.settled_version, _fn.features.ecosystem = "2.0.5", "npm"
+_base.post_rules_into(rec_n, _fn, "2.1.0", True, None, None)
+assert _render.fresh_pin("fx", rec_n["advice"]) == "fx@2.0.5"
+_txt = _render.auto_reason(rec_n)
+assert "suggested: fx@2.0.5" in _txt, _txt
+assert _render.fresh_pin("fx", {"pin_version": "2.0.5; rm -rf /"}) == ""                 # registry values are validated
+# a dependency under a day old: the same day-old version, to be added to the install (the named packages stay)
+dep = {"package": "numpy", "version": "2.5.5", "verdict": "NEEDS_HUMAN_REVIEW", "via": "pandas → numpy",
+       "evidence": [{"rule": "fresh_release", "label": "published less than a day ago", "location": "published 4 hours ago", "snippet": "", "count": 1}],
+       "advice": {"pin_version": "2.5.4", "pin_ecosystem": "pypi", "pin_dependency": True}}
+assert _render._advice_case(dep) == "fresh"
+_txt = _render.auto_reason(dep)
+assert "suggested: numpy==2.5.4" in _txt and "add it to the same install" in _txt, _txt
+from output import text_format as _tf  # noqa: E402
+assert "add numpy==2.5.4" in _tf.popup_line(dep), _tf.popup_line(dep)
 print("post_rules: fresh releases held")

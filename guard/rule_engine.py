@@ -156,6 +156,9 @@ class Ruleset:
                 raise RulesetError(f"rules.json: rule '{r['id']}' needs signals.json paths.text_files")
             if r.get("skip_docstrings") and r.get("text") != "original":
                 raise RulesetError(f"rules.json: rule '{r['id']}' skip_docstrings needs text \"original\"")
+            ecos = r.get("ecosystems")
+            if ecos is not None and (not isinstance(ecos, list) or not ecos or set(ecos) - set(self.ecosystems)):
+                raise RulesetError(f"rules.json: rule '{r['id']}' ecosystems must be a list of signals.json ecosystems")
         ids = Counter(r["id"] for r in self.rules)
         dup = [i for i, n in ids.items() if n > 1]
         if dup:
@@ -989,17 +992,19 @@ def run_static(rs: Ruleset, files: list[Path], features, ecosystem: str | None =
     """Apply rules.json to the unpacked files, filling `features` (scan_engine.ScanFeatures) as static_analysis did.
     ecosystem: which kind of thing is scanned (signals.json "ecosystems"; default the features' own, else pypi) - it
     decides which languages are read as code. A PyPI scan reads exactly what it did before languages existed."""
-    eco = rs.ecosystems.get(ecosystem or getattr(features, "ecosystem", None) or "pypi")
+    eco_name = ecosystem or getattr(features, "ecosystem", None) or "pypi"
+    eco = rs.ecosystems.get(eco_name)
     if eco is None:
-        raise RulesetError(f"unknown ecosystem '{ecosystem or getattr(features, 'ecosystem', None)}'")
+        raise RulesetError(f"unknown ecosystem '{eco_name}'")
     code_langs, skip_td, dev_names = eco["code"], eco["skip_test_and_dev"], eco["dev_names"]
+    rules_here = [r for r in rs.rules if not r.get("ecosystems") or eco_name in r["ecosystems"]]   # a rule may name where it applies
     st = _Scan(rs, files)
     py_count = py_loc = total_count = 0
     chain_flags = {f for r in rs.rules if r["detector"] == "chain" for f in r.get("sets", [])}
     for f in chain_flags:                                # these were locals that overwrote the feature at the end
         setattr(features, f, False)
-    file_rules = [r for r in rs.rules if r["detector"] not in ("setup_local_imports", "placement") and r.get("files") != "text"]
-    text_rules = [r for r in rs.rules if r.get("files") == "text"]
+    file_rules = [r for r in rules_here if r["detector"] not in ("setup_local_imports", "placement") and r.get("files") != "text"]
+    text_rules = [r for r in rules_here if r.get("files") == "text"]
 
     real_lines: dict = {}                                # path -> its real lines, for files read through code_view
     for path in files:
@@ -1067,7 +1072,7 @@ def run_static(rs: Ruleset, files: list[Path], features, ecosystem: str | None =
         if path.name.lower() == "readme" or path.name.lower().startswith("readme."):
             features.has_readme = True
 
-    for rule in rs.rules:
+    for rule in rules_here:
         if rule["detector"] == "setup_local_imports":
             _setup_local_imports(st, rule, features)
         elif rule["detector"] == "placement":
@@ -1186,16 +1191,35 @@ def _apply_hard_rules(rs: Ruleset, mode: str, features, total: float, reasons: l
     """("BLOCK", score, reasons) if a block rule fired; else ("NEEDS_HUMAN_REVIEW" if a review rule fired, else None,
     total with the review floor applied, reasons)."""
     review = None
+    fired: list = []                                  # names of the rules that set the verdict (verdict_rule_names)
+    try:
+        setattr(features, f"_fired_{mode}", fired)
+    except Exception:
+        pass
     for h in rs.hard_rules:
         if mode not in h.get("modes", ["rules", "ml"]) or not _cond(h["when"], features):
             continue
         if h["action"] == "block":
             score = total if h.get("score") == "total" else max(total, rs.block_threshold)
+            fired[:] = verdict_rule_names(h, features)
             return "BLOCK", round(score, 3), reasons + [_reason(rs, h, features)]
         total = max(total, rs.review_floor)
         review = "NEEDS_HUMAN_REVIEW"
+        fired += [n for n in verdict_rule_names(h, features) if n not in fired]
         reasons.append(_reason(rs, h, features))
     return review, total, reasons
+
+
+def verdict_rule_names(h: dict, features) -> list:
+    """The name(s) a fired hard rule is reported by: its id, or for the behavior check the facts behind it as
+    `<finding>@<phase>` (download_exec@install), so the agent is told exactly which rule held the package."""
+    if h.get("id") in ("behavior_block", "behavior_review"):
+        want = "block" if h["id"] == "behavior_block" else "review"
+        names = sorted({f"{e['rule']}@{e['phase']}" for e in getattr(features, "evidence", None) or []
+                        if isinstance(e, dict) and e.get("phase") and e.get("action") == want})
+        if names:
+            return names
+    return [str(h.get("id") or "rule")]
 
 
 def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:

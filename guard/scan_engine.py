@@ -11,6 +11,7 @@ Stage 5 (dynamic sandbox observation) and stage 7 (rollback) are NOT implemented
 """
 from __future__ import annotations
 
+import net
 import io
 import json
 import os
@@ -127,23 +128,28 @@ class ScanFeatures:
     artifact_kind: str | None = None   # "wheel" | "sdist"
     install_time_files: list = field(default_factory=list)   # npm: files the install scripts run (sources/npm.install_time_files)
     skipped_members: list = field(default_factory=list)   # [(name, reason)] members with unsafe names the extractor skipped
-    dependencies: list = field(default_factory=list)   # direct deps that apply to a plain install [{name, spec}]
+    dependencies: list = field(default_factory=list)   # direct deps that apply to a plain install [{name, spec, extras}]
+    requires_dist: list = field(default_factory=list)  # the release's raw Requires-Dist (extras asked for are applied later)
     deps_error: str | None = None
 
     min_edit_distance: int | None = None
     closest_popular_name: str | None = None
 
     osv_vulns: list = field(default_factory=list)
+    analysis_skipped: str | None = None          # why the code was not analyzed (OSV already lists the release as malicious)
     osv_max_severity: str | None = None
 
     maintainer_count: int | None = None
     package_age_days: float | None = None
     release_age_hours: float | None = None   # hours since the version being installed was first uploaded (None: unknown)
+    settled_version: str | None = None       # when that is under the fresh-release limit: the newest earlier version past it
     has_readme: bool = False
 
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
     # download_then_execute, install_hook, high_entropy, keyword
     evidence: list = field(default_factory=list)
+    verdict_rules: list = field(default_factory=list)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
+    nearest_version: str | None = None    # the version asked for is not on PyPI: the nearest one that is (pypi_nearest_version)
 
     # [ML] anomaly detection result from the ML model (ml_bridge.ml_predict). None: no ML verdict
     ml: dict | None = None
@@ -169,12 +175,35 @@ def fetch_distribution_without_install(name: str, version: str | None, dest_dir:
     return pypi.fetch(name, version, dest_dir, info, meta)
 
 
-def static_analysis(files: list[Path], features: ScanFeatures) -> None:
+OSV_MALICIOUS_SKIP = "OSV lists this release as malicious: code analysis skipped (the verdict is BLOCK either way)"
+
+
+def static_analysis(files: list[Path], features: ScanFeatures, stop=None) -> None:
     """Apply guard/rules/rules.json to the unpacked files (rule_engine.run_static), then the behavior analysis
-    (guard/behavior: rebuilt values and data flow, judged by rules/behavior.json)."""
+    (guard/behavior: rebuilt values and data flow, judged by rules/behavior.json). `stop` (a threading.Event, set when
+    OSV lists the release as malicious) ends the work early: before each stage, and between files of the behavior
+    analysis. Nothing is killed: the analysis returns at the next check."""
+    if stop is not None and stop.is_set():
+        features.analysis_skipped = OSV_MALICIOUS_SKIP
+        return
     rule_engine.run_static(RULESET, files, features)
+    if stop is not None and stop.is_set():
+        features.analysis_skipped = OSV_MALICIOUS_SKIP
+        return
     import behavior
-    behavior.analyze(files, features)
+    behavior.analyze(files, features, stop)
+    if stop is not None and stop.is_set():
+        features.analysis_skipped = OSV_MALICIOUS_SKIP
+
+
+def _osv_malicious_verdict(features: ScanFeatures) -> Verdict:
+    """OSV lists the release as malicious: a BLOCK from the scan itself, so a caller that applies no post rules
+    (guard_cli scan) does not show less than the code analysis it skipped would have; the known_malicious post rule
+    adds the record's ids and evidence where it runs."""
+    from post_rules import malicious_ids
+    ids = malicious_ids(features.osv_vulns)
+    features.verdict_rules = ["known_malicious"]
+    return Verdict("BLOCK", 1.0, [f"OSV lists this release as malicious ({', '.join(ids[:3])})"], features)
 
 
 def typosquat_check(name: str, features: ScanFeatures) -> None:
@@ -195,7 +224,7 @@ def query_osv(name: str, version: str | None, ecosystem: str = "pypi") -> list[d
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with net.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
         return data.get("vulns", [])
     except Exception:
@@ -268,12 +297,16 @@ def compute_verdict(features: ScanFeatures) -> Verdict:
     file (the sdist it was trained on, not always the file pip installs), so on its own it could pass what the rules
     would have stopped: installing the ML model must never weaken a verdict."""
     rules = _compute_verdict_rules(features)
+    names = list(getattr(features, "_fired_rules", []))
     ml = features.ml
-    if not (ml and ml.get("ok")):
-        return rules                              # no ML: the rules alone
-    with_ml = Verdict(*rule_engine.score_ml(RULESET, features), features)
-    key = lambda v: (_VERDICT_RANK.get(v.verdict, 1), v.score)  # noqa: E731
-    return with_ml if key(with_ml) > key(rules) else rules
+    if ml and ml.get("ok"):
+        with_ml = Verdict(*rule_engine.score_ml(RULESET, features), features)
+        key = lambda v: (_VERDICT_RANK.get(v.verdict, 1), v.score)  # noqa: E731
+        if key(with_ml) > key(rules):
+            names = list(getattr(features, "_fired_ml", [])) or (["ml_score"] if with_ml.verdict != "ALLOW" else [])
+            rules = with_ml
+    features.verdict_rules = names if rules.verdict != "ALLOW" else []
+    return rules
 
 
 
@@ -287,11 +320,74 @@ def _hours_since(t: str | None, now: datetime | None = None) -> float | None:
     return max(0.0, ((now or datetime.now(timezone.utc)) - when).total_seconds() / 3600)
 
 
+def pypi_nearest_version(meta: dict, wanted: str, hours: float, now: datetime | None = None) -> str | None:
+    """A version that is on PyPI, nearest to one that is not: the highest release below it, else the lowest above it;
+    not yanked, over `hours` old, a pre-release only when `wanted` is one. None when there is no such release."""
+    from _vendor.packaging.version import InvalidVersion, Version
+    try:
+        want = Version(wanted)
+    except InvalidVersion:
+        want = None
+    now = now or datetime.now(timezone.utc)
+    ok = []
+    for v, files in (meta.get("releases") or {}).items():
+        files = [f for f in files or [] if not f.get("yanked")]
+        if not files:
+            continue
+        try:
+            pv = Version(v)
+        except InvalidVersion:
+            continue
+        if pv.is_prerelease and not (want and want.is_prerelease):
+            continue
+        times = [f.get("upload_time_iso_8601") for f in files if f.get("upload_time_iso_8601")]
+        if times and (now - min(datetime.fromisoformat(t.replace("Z", "+00:00")) for t in times)).total_seconds() < hours * 3600:
+            continue
+        ok.append((pv, v))
+    if not ok:
+        return None
+    if want is None:
+        return max(ok)[1]
+    below = [x for x in ok if x[0] < want]
+    return max(below)[1] if below else min(ok)[1]
+
+
 def pypi_release_age_hours(meta: dict, version: str | None, now: datetime | None = None) -> float | None:
     """Hours since the first file of this version was uploaded to PyPI (yanked files ignored), None if unknown."""
     files = [f for f in (meta.get("releases") or {}).get(version or "") or [] if not f.get("yanked")]
     ages = [h for h in (_hours_since(f.get("upload_time_iso_8601"), now) for f in files) if h is not None]
     return max(ages) if ages else None
+
+
+def _fresh_hours() -> float:
+    try:
+        return float(rule_engine.current().fresh_release_hours)
+    except Exception:
+        return 24.0
+
+
+def pypi_settled_version(meta: dict, resolved: str | None, hours: float, now: datetime | None = None) -> str | None:
+    """The newest version below `resolved` whose first file was uploaded at least `hours` ago (yanked files ignored;
+    pre-releases only when `resolved` is one). None if there is none. The fresh-release card offers it as the fix."""
+    try:
+        from _vendor.packaging.version import InvalidVersion, Version
+        cur = Version(resolved or "")
+    except Exception:
+        return None
+    best = None
+    for v, files in (meta.get("releases") or {}).items():
+        try:
+            pv = Version(v)
+        except InvalidVersion:
+            continue
+        if pv >= cur or (pv.is_prerelease and not cur.is_prerelease):
+            continue
+        age = pypi_release_age_hours(meta, v, now)
+        if age is None or age < hours:
+            continue
+        if best is None or pv > best[0]:
+            best = (pv, v)
+    return best[1] if best else None
 
 
 def scan_package(name: str, version: str | None = None) -> Verdict:
@@ -308,12 +404,31 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
     resolved = version or meta.get("info", {}).get("version")
     features.resolved_version = resolved
+    if version and not [f for f in (meta.get("releases") or {}).get(version) or [] if not f.get("yanked")]:
+        # pip would stop with "no matching distribution": nothing installs. Name the nearest real version instead
+        features.nearest_version = pypi_nearest_version(meta, version, _fresh_hours())
+        features.fetch_error = f"scan error: HTTP Error 404: version {version} not on PyPI"
+        return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
     features.release_age_hours = pypi_release_age_hours(meta, resolved)
+    limit = _fresh_hours()
+    if features.release_age_hours is not None and features.release_age_hours < limit:
+        features.settled_version = pypi_settled_version(meta, resolved, limit)
 
     import threading
 
     ml_artifact_policy = os.environ.get("AEGIS_ML_ARTIFACT", "model")   # "installed": hand the ML model the file we analyze; "model": it picks its own (sdist first)
     art: dict = {"archive_ready": threading.Event()}
+    stop = threading.Event()                     # set when OSV lists this release as malicious: BLOCK is certain
+
+    def osv_task():
+        vulns = query_osv(name, resolved)
+        try:
+            from post_rules import malicious_ids
+            if malicious_ids(vulns):
+                stop.set()
+        except Exception:
+            pass                                  # unsure: the full analysis runs as before
+        return vulns
     tmp = tempfile.TemporaryDirectory()          # outlives the pool: the ML process may still be reading the archive
 
     def artifact_task():
@@ -322,7 +437,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
             art["files"] = files
             features.artifact, features.artifact_kind = art.get("artifact"), art.get("artifact_kind")
             features.skipped_members = list(art.get("skipped", []))
-            static_analysis(files, features)
+            static_analysis(files, features, stop)
         finally:
             art["archive_ready"].set()           # never leave the ML stage waiting (Range path / failure leave no archive)
 
@@ -330,10 +445,14 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         return collect.fetch_release(name, resolved, meta)
 
     def deps_task(rel_f):
-        features.dependencies = collect.fetch_requires(name, resolved, meta, rel=rel_f.result())
+        rel = rel_f.result()
+        features.requires_dist = list(rel.get("info", {}).get("requires_dist") or [])
+        features.dependencies = collect.fetch_requires(name, resolved, meta, rel=rel)
 
     def ml_task(rel_f):
         rel = rel_f.result()
+        if stop.is_set():
+            return None                           # OSV already decided: no model run
         handoff = {"proj": meta, "rel": rel, "artifact": None}
         if ml_artifact_policy == "installed":
             art["archive_ready"].wait(60)
@@ -346,7 +465,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
             art_f = pool.submit(artifact_task)
             rel_f = pool.submit(rel_task)
             deps_f = pool.submit(deps_task, rel_f)
-            osv_f = pool.submit(query_osv, name, resolved)
+            osv_f = pool.submit(osv_task)
             ml_f = pool.submit(ml_task, rel_f)
             try:
                 art_f.result()
@@ -362,6 +481,8 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         if features.fetch_error:
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
         verdict = _finish(name, meta, features, vulns, ml_result)
+        if stop.is_set():
+            verdict = _osv_malicious_verdict(features)
         if verdict.verdict != "ALLOW" and art.get("files"):
             try:                                   # what the code can do, for the attack paths (never part of the verdict)
                 import package_caps
@@ -451,6 +572,12 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         features.release_age_hours = npm.release_age_hours(name, version, meta)
     except Exception:
         features.release_age_hours = None                 # unknown: the fresh-release rule does not apply
+    limit = _fresh_hours()
+    if features.release_age_hours is not None and features.release_age_hours < limit:
+        try:
+            features.settled_version = npm.settled_version(name, spec, version, meta, limit)
+        except Exception:
+            features.settled_version = None
     from concurrent.futures import ThreadPoolExecutor
     with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(1) as pool:
         osv_f = pool.submit(query_osv, name, version, "npm")
@@ -466,6 +593,14 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
         features.osv_vulns = osv_f.result()
         features.osv_max_severity = _severity_rank(features.osv_vulns)
+        try:
+            from post_rules import malicious_ids
+            if malicious_ids(features.osv_vulns):
+                features.analysis_skipped = OSV_MALICIOUS_SKIP
+                features.fetch_ok = True
+                return _osv_malicious_verdict(features)
+        except Exception:
+            pass
         return scan_files(files, features)
 
 
