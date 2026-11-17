@@ -31,4 +31,9 @@ for verdict, rules, words in CASES:
         assert "Do not install this version" in head and "no ack" in head, head
     else:
         assert "Decide from the purpose of the task" in head, head
+# an npm fix is a quoted npm range: unquoted, `>=` is a shell redirect
+from review_report import suggested_version  # noqa: E402
+npm_rec = {"package": "lodash", "version": "4.17.15", "verdict": "NEEDS_HUMAN_REVIEW", "ecosystem": "npm", "advice": {"fix_version": "4.17.21"}}
+assert suggested_version(npm_rec)[0] == '"lodash@>=4.17.21"', suggested_version(npm_rec)
+assert suggested_version({**npm_rec, "ecosystem": "pypi", "package": "pyyaml", "advice": {"fix_version": "5.4"}})[0] == "pyyaml>=5.4"
 print("case_by_rule: all cases passed")

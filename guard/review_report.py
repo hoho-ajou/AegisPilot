@@ -862,6 +862,11 @@ def rule_description(name: str, rec: dict | None = None, when: bool = True) -> s
     return name.replace("_", " ")
 
 
+def fix_spec(name: str, fix: str, npm: bool) -> str:
+    """`name>=fix` for pip; for npm `"name@>=fix"`, quoted: unquoted, a shell reads `>=` as a redirect."""
+    return f'"{name}@>={fix}"' if npm else f"{name}>={fix}"
+
+
 def suggested_version(rec: dict) -> tuple[str, str] | None:
     """(what to install instead, why) when the guard already knows one; the agent still decides. Only guard-validated
     values (names, versions) - None when there is nothing known to suggest."""
@@ -875,7 +880,7 @@ def suggested_version(rec: dict) -> tuple[str, str] | None:
         ok = adv.get("nearest_verdict") == "ALLOW"
         return (f"{name}{sep}{adv['nearest_version']}", "the nearest version that exists, checked: " + ("passed" if ok else "held too"))
     if adv.get("fix_version") and ver.fullmatch(str(adv["fix_version"])):
-        return (f"{name}>={adv['fix_version']}", "the version that fixes the known vulnerabilities")
+        return (fix_spec(name, adv["fix_version"], sep == "@"), "the version that fixes the known vulnerabilities")
     if adv.get("pin_version") and ver.fullmatch(str(adv["pin_version"])):
         why = "the newest version over a day old"
         rules = {e.get("rule") for e in rec.get("evidence") or []}

@@ -82,6 +82,7 @@ try:
     v = se.scan_package("evx", "1.0")
     assert v.features.analysis_skipped == se.OSV_MALICIOUS_SKIP, v.features.analysis_skipped
     assert calls["ml"] == 0, "the model must not run for a release OSV lists as malicious"
+    assert v.verdict == "BLOCK" and v.features.verdict_rules == ["known_malicious"], v.verdict   # also without post rules (guard_cli scan)
     assert PR.apply(v, "1.0")[0] == "BLOCK"
     rec = package_record("evx", "1.0", v)
     assert any("OSV already lists" in n for n in rec["coverage"]["notes"]), rec["coverage"]

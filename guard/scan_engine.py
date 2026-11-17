@@ -148,8 +148,8 @@ class ScanFeatures:
     # [{rule, file, line, snippet, ...}] - rules: decode_then_exec,
     # download_then_execute, install_hook, high_entropy, keyword
     evidence: list = field(default_factory=list)
-    verdict_rules: list = field(default_factory=list)
-    nearest_version: str | None = None    # the version asked for is not on PyPI: the nearest one that is (pypi_nearest_version)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
+    verdict_rules: list = field(default_factory=list)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
+    nearest_version: str | None = None    # the version asked for is not on PyPI: the nearest one that is (pypi_nearest_version)
 
     # [ML] anomaly detection result from the ML model (ml_bridge.ml_predict). None: no ML verdict
     ml: dict | None = None
@@ -194,6 +194,16 @@ def static_analysis(files: list[Path], features: ScanFeatures, stop=None) -> Non
     behavior.analyze(files, features, stop)
     if stop is not None and stop.is_set():
         features.analysis_skipped = OSV_MALICIOUS_SKIP
+
+
+def _osv_malicious_verdict(features: ScanFeatures) -> Verdict:
+    """OSV lists the release as malicious: a BLOCK from the scan itself, so a caller that applies no post rules
+    (guard_cli scan) does not show less than the code analysis it skipped would have; the known_malicious post rule
+    adds the record's ids and evidence where it runs."""
+    from post_rules import malicious_ids
+    ids = malicious_ids(features.osv_vulns)
+    features.verdict_rules = ["known_malicious"]
+    return Verdict("BLOCK", 1.0, [f"OSV lists this release as malicious ({', '.join(ids[:3])})"], features)
 
 
 def typosquat_check(name: str, features: ScanFeatures) -> None:
@@ -471,6 +481,8 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         if features.fetch_error:
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
         verdict = _finish(name, meta, features, vulns, ml_result)
+        if stop.is_set():
+            verdict = _osv_malicious_verdict(features)
         if verdict.verdict != "ALLOW" and art.get("files"):
             try:                                   # what the code can do, for the attack paths (never part of the verdict)
                 import package_caps
@@ -586,7 +598,7 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
             if malicious_ids(features.osv_vulns):
                 features.analysis_skipped = OSV_MALICIOUS_SKIP
                 features.fetch_ok = True
-                return compute_verdict(features)   # BLOCK comes from the known_malicious post rule
+                return _osv_malicious_verdict(features)
         except Exception:
             pass
         return scan_files(files, features)

@@ -90,10 +90,7 @@ def emit(action: str, reason: str, notice: str = "") -> bool:
     with _lock:
         if _finished:
             return False
-        try:
-            out = adapter.answer(action, reason, notice) if notice else adapter.answer(action, reason)
-        except TypeError:           # an adapter without the notice argument
-            out = adapter.answer(action, reason)
+        out = adapter.answer(action, reason, notice)
         if out:
             print(out)
             sys.stdout.flush()

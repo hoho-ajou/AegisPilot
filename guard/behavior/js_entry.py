@@ -18,6 +18,10 @@ _EXTS = (".js", ".cjs", ".mjs", ".jsx")
 _SPEC = r"""(?:'([^'\n]*)'|"([^"\n]*)"|`([^`$\n]*)`)"""
 _STATIC = re.compile(r"""(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s*|\bimport\s+|\bexport\s*\*\s*from\s*)""" + _SPEC)
 _CALL = re.compile(r"""(?<![\w$.])(?:require|import)\s*\(\s*([^\s)])""")
+# require used as a value or through another name loads modules this cannot follow: `const r = require; r(x)`,
+# `factory(require)`, `module.require(x)`, `createRequire(url)(x)`, `globalThis["require"]`
+_ALIAS = re.compile(r"""(?:[=:(,?]|\breturn)\s*require\s*(?:[;,)}\n]|$)|\bmodule\s*\.\s*require\s*\(\s*[^'"`\s)]"""
+                    r"""|\bcreateRequire\s*\(|\[\s*['"`]require['"`]\s*\]""", re.M)
 _READ_LIMIT = 8 * 1024 * 1024
 # a file of the package named as a string: what spawn("node", [f]), fork(f), new Worker(f) or a path built from
 # __dirname runs. Any such string in loaded code counts as loaded too (a file named and not run costs one more read)
@@ -92,7 +96,7 @@ def _resolve(spec: str, base_dir: str, files: dict[str, Path], depth: int = 0) -
 def _requests(text: str) -> tuple[list[str], bool]:
     """(literal module names the text loads, whether it also loads one by a computed name)."""
     specs = [a or b or c for a, b, c in _STATIC.findall(text)]
-    dynamic = any(m.group(1) not in "'\"`" for m in _CALL.finditer(text))
+    dynamic = any(m.group(1) not in "'\"`" for m in _CALL.finditer(text)) or bool(_ALIAS.search(text))
     return specs, dynamic
 
 

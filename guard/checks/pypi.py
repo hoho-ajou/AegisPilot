@@ -74,7 +74,8 @@ def _pin_ranges(parsed) -> None:
         except Exception:
             return None                                  # a range this cannot read: keep the latest
         return transitive.pick_version(_pypi.metadata(name), rng)   # the same choice the dependency walk makes
-    with ThreadPoolExecutor(max_workers=min(8, len(todo))) as pool:
+    pool = ThreadPoolExecutor(max_workers=min(8, len(todo)))
+    try:
         futs = {pool.submit(pick, n, spec): i for i, n, spec in todo}
         done, _ = wait(futs, timeout=RANGE_WAIT_SECONDS)
         for f in done:
@@ -85,6 +86,8 @@ def _pin_ranges(parsed) -> None:
             if v:
                 i = futs[f]
                 parsed.packages[i] = (parsed.packages[i][0], v)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)   # a lookup still running is left behind, not waited for
 
 
 def _check_nearest(ctx, out, parsed, results, osv_ok: bool) -> None:
@@ -95,9 +98,8 @@ def _check_nearest(ctx, out, parsed, results, osv_ok: bool) -> None:
     if not todo:
         return
     try:
-        import scan_engine
         from review_report import verdict_rule_names
-        scanned = scan_engine.scan_packages([(name, near) for _r, name, near in todo])
+        scanned = ctx.scan_packages([(name, near) for _r, name, near in todo])
     except Exception:
         return
     for (rec, name, near), res in zip(todo, scanned):

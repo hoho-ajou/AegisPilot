@@ -157,6 +157,9 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
             for r, (name, _spec, extras, _via) in zip(results, todo):
                 opened[collect.normalize_name(name)] = (r.get("version"), extras)
             found += results
+            if again and deadline is not None and time.monotonic() > deadline:
+                notes.append("transitive dependencies not fully checked within the time limit")
+                again = []
             results += list(pool.map(more, again))
             level = [(dep["name"], dep.get("spec", ""), set(dep.get("extras") or ()), r["via"] + [r["name"]])
                      for r in results if r.get("dependencies") for dep in r["dependencies"]]

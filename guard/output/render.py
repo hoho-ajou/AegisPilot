@@ -365,14 +365,15 @@ def fix_offers(records: list) -> list:
         name = str(rec.get("package") or "")
         case = _advice_case(rec)
         if case == "fix" and _SAFE_NAME.match(name) and re.fullmatch(r"[0-9][0-9A-Za-z.+!-]{0,30}", str(adv.get("fix_version") or "")):
-            out.append((name, f"{name}>={adv['fix_version']}"))
+            from review_report import fix_spec
+            out.append((name, fix_spec(name, adv["fix_version"], (adv.get("pin_ecosystem") or rec.get("ecosystem")) == "npm")))
         elif case == "fresh" and fresh_pin(name, adv):
             out.append((name, fresh_pin(name, adv)))
     return out
 
 
 _SAFE_NAME = re.compile(r"^(@[A-Za-z0-9._-]{1,40}/)?[A-Za-z0-9._-]{1,60}$")   # PyPI name, or npm @scope/name
-_BLOCK_CODE_RULES = {"decode_then_exec", "download_then_execute", "pth_chain"}   # the rules that block by themselves
+_BLOCK_CODE_RULES = {"decode_then_exec", "download_then_execute"}   # the rules that block by themselves
 
 
 def _advice_case(rec: dict) -> str:
