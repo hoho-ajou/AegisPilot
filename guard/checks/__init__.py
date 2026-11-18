@@ -25,7 +25,7 @@ from checks import bundles, direct, ecosystems, local_files, npm, pypi, unscanne
 from checks.base import Context, Outcome
 
 REGISTRY = [pypi.CHECK, local_files.CHECK, direct.CHECK, ecosystems.CHECK, bundles.CHECK, npm.LOCK_MALICIOUS,
-            npm.SCRIPT_DEPS, unscanned.CHECK]
+            unscanned.CHECK]            # npm's dependency stage runs inside ecosystems (stage 7, as PyPI's inside pypi)
 
 
 def wanted(parsed) -> list:

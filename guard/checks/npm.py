@@ -3,8 +3,9 @@ AegisPilot - checks that only npm needs:
 
   lock_malicious   every release in package-lock.json against OSV's malicious-packages records (npm installs, and runs
                    the install scripts of, the whole locked tree)
-  script_deps      the dependencies whose install scripts npm will run (package-lock.json's hasInstallScript, or the
-                   registry's for a fresh resolve), scanned like named packages and recorded with `via`; for a fresh
+  script_deps      stage 7 (dependencies) of checks/ecosystems.py: the dependencies whose install scripts npm will run
+                   (package-lock.json's hasInstallScript, or the registry's for a fresh resolve), scanned like named
+                   packages and recorded with `via`; for a fresh
                    resolve the whole resolved tree also goes to OSV in one batch (what lock_malicious does for a lock)
 
 The named npm packages themselves are checks/ecosystems.py.
@@ -135,21 +136,4 @@ def script_deps(ctx, out: Outcome) -> dict | None:
         return {"error": clean(f"{type(e).__name__}: {e}", 160)}
 
 
-def run_script_deps(ctx) -> Outcome:
-    out = Outcome()
-    info = script_deps(ctx, out)
-    if info:
-        out.report["npm_dependency_scripts"] = info
-    return out
-
-
-def _deps_timeout(ctx) -> Outcome:
-    """Dependencies are a look further than what the command names: not finishing is noted, not a card."""
-    return Outcome(report={"npm_dependency_scripts": {"notes": ["check of dependencies with install scripts did not finish in time"]}})
-
-
 LOCK_MALICIOUS = Check("npm_lock", lambda p: bool(getattr(p, "npm_lock", None)), run_lock, lambda ctx: Outcome())
-SCRIPT_DEPS = Check("npm_script_deps",
-                    lambda p: any(e == "npm" for e, _, _ in getattr(p, "ecosystem_packages", []))
-                    or getattr(p, "npm_lock_scripts", None) is not None,
-                    run_script_deps, _deps_timeout)
