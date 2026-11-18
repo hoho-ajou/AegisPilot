@@ -570,6 +570,9 @@ def _coverage_notes(f) -> dict:
         notes["failure_kind"] = kind
         notes["failure"] = failure_label(kind, getattr(f, "ecosystem", "pypi")) if kind != "other" else clean(f.fetch_error or "", 80)
         notes["failure_raw"] = clean(f.fetch_error or "", 120)
+    if getattr(f, "from_cache", False):
+        notes["from_cache"] = True
+        notes["notes"].append("same file passed a full scan within 6 hours; OSV asked again now")
     skipped = len(getattr(f, "skipped_members", []) or [])
     if skipped:
         notes["notes"].append(f"skipped {skipped} file(s) with unsafe names")

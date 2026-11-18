@@ -346,8 +346,15 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
     except Exception:
         scan_engine = None
     try:
+        import verdict_cache
+        verdict_cache.begin(project_dir)               # ALLOW verdicts of the same files within 6 hours (verdict_cache.py)
+    except Exception:
+        verdict_cache = None
+    try:
         return _check_parsed(parsed, command, project_dir, agent, actor)
     finally:
+        if verdict_cache is not None:
+            verdict_cache.end()
         if scan_engine is not None:
             scan_engine.command_end()
 

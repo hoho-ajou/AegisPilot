@@ -120,7 +120,7 @@ These switches can weaken the checks. An agent could set them for every later se
 Format:
 
 ```json
-{"env": {"AEGIS_CACHE": "1"}}
+{"env": {"AEGIS_CACHE": "0"}}
 ```
 
 | Switch | Default | Effect |
@@ -131,7 +131,7 @@ Format:
 | `AEGIS_SYSTEM_POLICY` | `/etc/aegis/policy.json` | read the system allow and deny lists from another file |
 | `AEGIS_HOOK_DEADLINE_SECONDS` | `570` | time limit of one check. When it is reached, the command is not checked and the guard asks (or refuses with `AEGIS_FAIL_CLOSED=1`). |
 | `AEGIS_ARTIFACT_POLICY` | `installed` | which release file of a PyPI package to read. `installed`: the file pip would install (a compatible wheel, else the sdist). `sdist_first`: the sdist when there is one. |
-| `AEGIS_CACHE` | `0` | `1`: turn on the verdict cache (below) |
+| `AEGIS_CACHE` | `1` | `0`: turn off the verdict cache (below) |
 | `AEGIS_ML_DIR` | `~/.aegis/ml` | the folder of the [ML model](ml.md) (its model files) |
 
 `guard_cli.py verify` lists switches that are set in the environment but ignored.
@@ -140,19 +140,21 @@ In a clone of the default branch (not a release build), these switches are read 
 
 ## Verdict cache
 
-Off by default. When on, a scan verdict for an exact package version is reused for a while, so running the same install again is faster.
+On by default. When a command is held and the agent runs it again with one line changed, the packages that passed are not scanned again.
 
 | | |
 | --- | --- |
-| Turn on | `"AEGIS_CACHE": "1"` in `~/.aegis/config.json` or `/etc/aegis/config.json` |
+| Turn off | `"AEGIS_CACHE": "0"` in `~/.aegis/config.json` or `/etc/aegis/config.json` |
 | File | `<project>/.aegis/cache/verdicts.json` |
-| Lifetime | 6 hours per entry, at most 2000 entries |
+| Lifetime | 6 hours per entry, at most 4000 entries |
 
 What is cached:
 
-- only exact versions. A request for the latest version is always scanned.
-- only completed scans. Network failures and timeouts are not cached.
-- an entry is not reused when the rules have changed (a guard update or a rule module change).
-- entries are dropped when OSV could not be reached.
+- only ALLOW verdicts of completed scans, PyPI and npm, named packages and dependencies alike. Anything held, failed or stopped is scanned again.
+- the exact file the installer gets: for PyPI the file name and its SHA-256 (a wheel and an sdist are separate entries, so a file added to an old release later is a new entry), for npm the version's integrity hash.
+- never a release under a day old.
+- OSV is asked again every time an entry is reused; a version with any OSV record is scanned again.
+- a new guard version, new rules, new ML models, or ML switched on or off empties the cache.
+- only within the guard's install decision: `guard_cli.py scan` and the benchmark always scan.
 
-Why it is off by default: the cache is in a folder the agent can write, so a forged ALLOW entry would skip a scan. The folder is a protected path and entries are plain JSON, which narrows this risk but does not remove it.
+The folder is a protected path (writing it through the agent's tools asks the person first) and entries are plain JSON. An agent able to plant an entry some other way can already run code that installs around the guard.

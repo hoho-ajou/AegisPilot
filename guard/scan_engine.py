@@ -139,6 +139,7 @@ class ScanFeatures:
     osv_vulns: list = field(default_factory=list)
     analysis_skipped: str | None = None          # why the code was not analyzed (OSV already lists the release as malicious)
     command_stopped: bool = False                # not finished: another package of the same command is a BLOCK
+    from_cache: bool = False                     # an ALLOW reused for the same file within 6 hours (verdict_cache.py)
     osv_max_severity: str | None = None
 
     maintainer_count: int | None = None
@@ -465,7 +466,11 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     def finish(vulns, ml_result) -> Verdict:
         return _finish(name, meta, features, vulns, ml_result)
 
-    return _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
+    ck = None if _fresh(features) else _cache_key_pypi(name, meta, resolved)
+    hit = _from_cache(ck, features, "pypi", resolved)
+    if hit is not None:
+        return hit
+    return _to_cache(ck, _scan_release(features, "pypi", resolved, fetch, release, ml, finish))
 
 
 ML_MAX_ARTIFACT = 20 * 1024 * 1024   # ml/features.MAX_ARTIFACT
@@ -531,6 +536,65 @@ class _Either:
 
     def is_set(self) -> bool:
         return self.own.is_set() or self.command.is_set()
+
+
+def _fresh(features: ScanFeatures) -> bool:
+    return features.release_age_hours is None or features.release_age_hours < _fresh_hours()
+
+
+def _cache_key_pypi(name: str, meta: dict, version: str | None) -> str | None:
+    """verdict_cache key of the file pip installs for this version (its name and SHA-256: wheel and sdist apart)."""
+    try:
+        import artifact_select
+        import verdict_cache
+        chosen, _kind, _reason = artifact_select.choose((meta.get("releases") or {}).get(version) or [], pypi.ARTIFACT_POLICY)
+        sha = ((chosen or {}).get("digests") or {}).get("sha256")
+        fid = f"{os.path.basename(str(chosen['filename']))}:{sha}" if chosen and sha else None
+        return verdict_cache.key("pypi", name, version, fid)
+    except Exception:
+        return None
+
+
+def _cache_key_npm(name: str, meta: dict, version: str | None) -> str | None:
+    """verdict_cache key of an npm version: its tarball's integrity hash from the registry."""
+    try:
+        import verdict_cache
+        dist = (((meta.get("versions") or {}).get(version) or {}).get("dist") or {})
+        return verdict_cache.key("npm", name, version, dist.get("integrity"))
+    except Exception:
+        return None
+
+
+def _from_cache(ck: str | None, features: ScanFeatures, ecosystem: str, version: str | None) -> Verdict | None:
+    """A cached ALLOW for exactly this file, when OSV still has no record of the version (asked again every time);
+    None means: scan it."""
+    if not ck:
+        return None
+    try:
+        import verdict_cache
+        cached = verdict_cache.get(ck)
+    except Exception:
+        return None
+    if cached is None:
+        return None
+    vulns = query_osv(features.name, version, ecosystem)
+    if vulns:
+        return None                                   # reported since: scanned again (a BLOCK when malicious)
+    f = cached.features
+    f.osv_vulns, f.osv_max_severity = [], None
+    f.release_age_hours = features.release_age_hours    # the hour-dependent facts of now, not of the cached scan
+    f.from_cache = True
+    return cached
+
+
+def _to_cache(ck: str | None, verdict: Verdict) -> Verdict:
+    if ck:
+        try:
+            import verdict_cache
+            verdict_cache.put(ck, verdict)
+        except Exception:
+            pass
+    return verdict
 
 
 def _removed_release(features: ScanFeatures, ecosystem: str, version: str | None) -> Verdict | None:
@@ -790,7 +854,11 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         features.ml = ml_result
         return compute_verdict(features)
 
-    return _scan_release(features, "npm", version, fetch, release, ml, finish)
+    ck = None if _fresh(features) else _cache_key_npm(name, meta, version)
+    hit = _from_cache(ck, features, "npm", version)
+    if hit is not None:
+        return hit
+    return _to_cache(ck, _scan_release(features, "npm", version, fetch, release, ml, finish))
 
 
 def _as_package_root(root: Path, tmp: Path) -> Path:

@@ -116,16 +116,8 @@ def run(ctx) -> Outcome:
     _pin_ranges(parsed)
     ctx.start_osv()                                     # beside the scan, waited for after it
     vdiff_box, late_box, vfeat_box, threads = _look_back(parsed.packages)
-    try:
-        import verdict_cache
-        use_cache = verdict_cache.enabled()
-    except Exception:
-        use_cache = False
-    results = (verdict_cache.scan_with_cache(ctx.project_dir, parsed.packages, ctx.scan_packages) if use_cache
-               else ctx.scan_packages(parsed.packages))
+    results = ctx.scan_packages(parsed.packages)       # verdict_cache: inside the scan, for every package and dependency
     osv_ok = ctx.osv_ok()
-    if not osv_ok and use_cache:
-        verdict_cache.forget(ctx.project_dir, parsed.packages)
     wait_until = time.monotonic() + VDIFF_WAIT_SECONDS     # after the scan; a slow look-back is skipped, never waited on
     import scan_engine as _se
     for th in threads:
