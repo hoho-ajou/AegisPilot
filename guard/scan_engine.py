@@ -182,11 +182,11 @@ def static_analysis(files: list[Path], features: ScanFeatures, stop=None) -> Non
     """Apply guard/rules/rules.json to the unpacked files (rule_engine.run_static), then the behavior analysis
     (guard/behavior: rebuilt values and data flow, judged by rules/behavior.json). `stop` (a threading.Event, set when
     OSV lists the release as malicious) ends the work early: before each stage, and between files of the behavior
-    analysis. Nothing is killed: the analysis returns at the next check."""
+    analysis and between files of the rule pass. Nothing is killed: the analysis returns at the next check."""
     if stop is not None and stop.is_set():
         features.analysis_skipped = OSV_MALICIOUS_SKIP
         return
-    rule_engine.run_static(RULESET, files, features)
+    rule_engine.run_static(RULESET, files, features, stop=stop)
     if stop is not None and stop.is_set():
         features.analysis_skipped = OSV_MALICIOUS_SKIP
         return
@@ -467,8 +467,8 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
         [download -> rules -> behavior analysis]  [release info -> dependency list]  [OSV]  [ML model]   at the same time
         -> the verdict (rules, then the ML path; the stricter one) -> what the code can do, for a held package
 
-    OSV listing the release as malicious sets a stop signal: the behavior analysis stops at its next file, the ML model
-    is not started (one already running finishes), the download finishes, and the verdict is that BLOCK.
+    OSV listing the release as malicious sets a stop signal: the download stops within 1 MB, the rule pass and the
+    behavior analysis at their next file, the ML model is not started, and the verdict is that BLOCK.
       fetch(dest, art) -> files         download and unpack into dest (never run); fills art (archive_path, root, ...)
       release(art, stop)                release info and dependency list; a failure is recorded, never decides
       ml(art, stop) -> dict | None      the ML result (None: not run); started after OSV answers, waits for
@@ -481,6 +481,7 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
                  "archive_ready": None}
     art["archive_ready"] = art["fetched"]            # sources/pypi.fetch sets it as soon as the archive is on disk
     stop = threading.Event()                         # set when OSV lists this release as malicious: BLOCK is certain
+    art["stop"] = stop                               # the download checks it every 1 MB (net.read_capped)
 
     def osv_task():
         try:
@@ -542,6 +543,9 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
                 ml_result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
         if features.fetch_error:
             features.osv_vulns = vulns
+            if stop.is_set():                      # removed from the registry after OSV listed it: still a BLOCK
+                features.analysis_skipped = OSV_MALICIOUS_SKIP
+                return _osv_malicious_verdict(features)
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
         verdict = finish(vulns, ml_result)
         if stop.is_set():

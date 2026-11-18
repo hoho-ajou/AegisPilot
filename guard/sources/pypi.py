@@ -63,6 +63,9 @@ def fetch(name: str, version: str | None, dest_dir: Path,
         raise ValueError("file address in the PyPI metadata is not files.pythonhosted.org")    # as npm.py does
     if info is not None:
         info.update(artifact=chosen["filename"], artifact_kind=kind, artifact_reason=reason)
+    stop = (info or {}).get("stop")
+    if stop is not None and stop.is_set():
+        raise net.Stopped("download not started: OSV lists this release as malicious")
     if chosen["filename"].endswith(".whl") and (chosen.get("size") or 0) >= RANGE_MIN_BYTES:
         try:
             import remote_wheel
@@ -82,8 +85,8 @@ def fetch(name: str, version: str | None, dest_dir: Path,
     for file_info in [chosen]:
         url = file_info["url"]
         filename = file_info["filename"]
-        with net.urlopen(url, timeout=30) as resp:
-            raw = resp.read(MAX_DOWNLOAD_BYTES + 1)     # metadata size can be wrong; enforce while reading
+        with net.urlopen(url, timeout=30) as resp:     # metadata size can be wrong; enforce while reading
+            raw = net.read_capped(resp, MAX_DOWNLOAD_BYTES + 1, (info or {}).get("stop"))
         if len(raw) > MAX_DOWNLOAD_BYTES:
             raise ValueError(f"package too large, code not scanned (>{MAX_DOWNLOAD_BYTES // 1024 // 1024}MB limit)")
         local_path = dest_dir / filename

@@ -97,6 +97,16 @@ try:
     assert calls["ml"] == 0, "the model must wait for OSV, also when the release info comes first"
     assert v_slow.verdict == "BLOCK", v_slow.verdict
 
+    # removed from the registry after OSV listed it (the download fails): still the OSV BLOCK, not "could not fetch"
+    def gone(*a, **k):
+        time.sleep(0.2)
+        raise OSError("HTTP Error 404: file removed")
+    pypi.fetch = gone
+    se.query_osv = fake_osv(MAL)
+    v_gone = se.scan_package("evx", "1.0")
+    assert v_gone.verdict == "BLOCK" and v_gone.features.verdict_rules == ["known_malicious"], (v_gone.verdict, v_gone.reasons)
+    pypi.fetch = fake_fetch
+
     # the same package, OSV listing nothing: analyzed, the model asked
     se.query_osv = fake_osv([])
     v2 = se.scan_package("evx", "1.0")
@@ -114,4 +124,38 @@ assert PR.apply(se.Verdict("ALLOW", 0.0, [], listed), "1.0", osv_ok=False)[0] ==
 empty = se.ScanFeatures(name="evx", version="1.0", fetch_ok=True)
 assert PR.apply(se.Verdict("ALLOW", 0.0, [], empty), "1.0", osv_ok=False) == ("NEEDS_HUMAN_REVIEW", {"rule": "osv_unavailable"})
 
+
+# the rule pass stops between files too (a set stop signal reads no file)
+import threading  # noqa: E402
+import rule_engine  # noqa: E402
+stopped = threading.Event()
+stopped.set()
+f_stop = se.ScanFeatures(name="evx", version="1.0")
+rule_engine.run_static(se.RULESET, files_with(BAD), f_stop, stop=stopped)
+assert not f_stop.evidence, f_stop.evidence
+# the download reads 1 MB at a time and gives up once the stop signal is set
+import net  # noqa: E402
+
+
+class SlowBody:
+    def __init__(self, total):
+        self.left = total
+
+    def read(self, n):
+        time.sleep(0.01)
+        n = min(n, self.left)
+        self.left -= n
+        return b"x" * n
+
+
+assert len(net.read_capped(SlowBody(5 << 20), (5 << 20) + 1)) == 5 << 20          # no stop: everything
+late = threading.Event()
+threading.Timer(0.05, late.set).start()
+t0 = time.monotonic()
+try:
+    net.read_capped(SlowBody(500 << 20), (500 << 20) + 1, late)
+    raise AssertionError("the download should have stopped")
+except net.Stopped:
+    pass
+assert time.monotonic() - t0 < 2, "stopped within a few pieces, not after 500 MB"
 print("ok")
