@@ -458,6 +458,9 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     return _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
 
 
+OSV_WAIT_FOR_ML = 20.0       # seconds the ML stage waits for OSV's answer; after that it runs anyway
+
+
 def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, fetch, release, ml, finish) -> Verdict:
     """The scan of one registry release, the same for PyPI and npm (what differs is passed in):
 
@@ -468,24 +471,37 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
     is not started (one already running finishes), the download finishes, and the verdict is that BLOCK.
       fetch(dest, art) -> files         download and unpack into dest (never run); fills art (archive_path, root, ...)
       release(art, stop)                release info and dependency list; a failure is recorded, never decides
-      ml(art, stop) -> dict | None      the ML result (None: not run); waits for art["fetched"] / art["release_done"]
+      ml(art, stop) -> dict | None      the ML result (None: not run); started after OSV answers, waits for
+                                        art["fetched"] / art["release_done"] itself
       finish(vulns, ml_result)          the verdict from the features
     """
     import threading
     from concurrent.futures import ThreadPoolExecutor
-    art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "archive_ready": None}
+    art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "osv_done": threading.Event(),
+                 "archive_ready": None}
     art["archive_ready"] = art["fetched"]            # sources/pypi.fetch sets it as soon as the archive is on disk
     stop = threading.Event()                         # set when OSV lists this release as malicious: BLOCK is certain
 
     def osv_task():
-        vulns = query_osv(features.name, version, ecosystem)
         try:
-            from post_rules import malicious_ids
-            if malicious_ids(vulns):
-                stop.set()
-        except Exception:
-            pass                                      # unsure: the full analysis runs as before
-        return vulns
+            vulns = query_osv(features.name, version, ecosystem)
+            try:
+                from post_rules import malicious_ids
+                if malicious_ids(vulns):
+                    stop.set()
+            except Exception:
+                pass                                  # unsure: the full analysis runs as before
+            return vulns
+        finally:
+            art["osv_done"].set()
+
+    def ml_task():
+        # the model starts only after OSV has answered (median 0.6 s): a release OSV lists as malicious never runs it,
+        # whichever of OSV and the release info arrives first
+        art["osv_done"].wait(OSV_WAIT_FOR_ML)
+        if stop.is_set():
+            return None
+        return ml(art, stop)
     tmp = tempfile.TemporaryDirectory()              # outlives the pool: the ML process may still be reading the files
 
     def artifact_task():
@@ -509,7 +525,7 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
             art_f = pool.submit(artifact_task)
             rel_f = pool.submit(release_task)
             osv_f = pool.submit(osv_task)
-            ml_f = pool.submit(ml, art, stop) if ml is not None else None
+            ml_f = pool.submit(ml_task) if ml is not None else None
             try:
                 art_f.result()
                 features.fetch_ok = True

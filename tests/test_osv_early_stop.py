@@ -87,6 +87,16 @@ try:
     rec = package_record("evx", "1.0", v)
     assert any("OSV already lists" in n for n in rec["coverage"]["notes"]), rec["coverage"]
 
+    # OSV slower than the release info (the release info is instant here): the model still waits for OSV's answer
+    def slow_osv(name, version, *a):
+        time.sleep(0.2)
+        calls["osv"] += 1
+        return list(MAL)
+    se.query_osv = slow_osv
+    v_slow = se.scan_package("evx", "1.0")
+    assert calls["ml"] == 0, "the model must wait for OSV, also when the release info comes first"
+    assert v_slow.verdict == "BLOCK", v_slow.verdict
+
     # the same package, OSV listing nothing: analyzed, the model asked
     se.query_osv = fake_osv([])
     v2 = se.scan_package("evx", "1.0")
