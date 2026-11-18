@@ -430,7 +430,7 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         report_data["actor"] = {k: clean(str(v), 80) for k, v in actor.items() if v}
     if getattr(parsed, "project_installs", None):     # scope: direct dependencies, lock versions
         report_data["project_install"] = {"dirs": [clean(d, 200) for d in parsed.project_installs[:5]],
-                                          "scope": "direct dependencies from project files checked (lock versions applied). Transitive dependencies: latest versions and known malware only"}
+                                          "scope": "direct dependencies from project files checked (lock versions applied). Transitive dependencies: known malware, recent releases and releases built from source"}
     report_data.update(extra_report)          # what checks add of their own: transitive, npm_dependency_scripts, ...
 
     write_report(project_dir, report_data)
