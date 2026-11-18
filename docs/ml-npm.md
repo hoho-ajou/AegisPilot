@@ -2,7 +2,7 @@
 
 The PyPI model ([ml.md](ml.md)) reads PyPI data and Python code. This page explains why npm got its own models instead of one model for both, which features they read, and how they are trained, measured and switched on.
 
-**Status (2026-11-17):** the code is in place (features, scoring, guard hook, training scripts, tests) and model v2 is trained and measured (below). `guard/ml/models.json` carries its `npm` block (npm_full only). The model file `aegis-ml-npm-full-2.json.gz` must be on the GitHub release `ml-models-npm-2` before this ships: the guard downloads it on the first npm check and checks its SHA-256. Until it can be downloaded, npm packages are checked by the rules alone (the failed download is retried after a day).
+**Status (2026-11-17):** the code is in place (features, scoring, guard hook, training scripts, tests) and model v2 is trained and measured (below). `guard/ml/models.json` carries its `npm` block (npm_full only). The model file `aegis-ml-npm-full-2.json.gz` is on the GitHub release `ml-models-npm-2`: the guard downloads it on the first npm check and checks its SHA-256. Until it can be downloaded, npm packages are checked by the rules alone (a failed automatic download is tried again after 6 hours, or at once with `guard_cli.py ml-install`).
 
 ## Results (model v2)
 
@@ -64,9 +64,9 @@ Line length and minified files are package profile in npm, not behavior.
 
 ## In the guard
 
-`scan_engine.scan_npm_package` unpacks the version npm would install (as before) and, while the rules run, `ml_bridge.ml_predict_npm` runs `ml/scan.py --ecosystem npm --dir <unpacked>` in a separate process (45 s limit). The result is used exactly like the PyPI one. Model files of the npm group are downloaded on the first npm check, apart from the PyPI ones (`ml_install`, group `npm`); a failure is remembered for npm only. `AEGIS_ML=0` and `ml-uninstall` turn off both. `guard_cli.py verify` shows an `ML (npm)` line.
+npm packages go through the same per-package pipeline as PyPI (`scan_engine._scan_release`): the download, rules and behavior analysis, the dependency list, OSV and the ML model run at the same time, then the verdict. Once the version is unpacked, `ml_bridge.ml_predict_npm` runs `ml/scan.py --ecosystem npm --dir <unpacked>` in a separate process (45 s limit). When OSV lists the version as malicious, the model is not started (the verdict is BLOCK either way). The result is used exactly like the PyPI one. Model files of the npm group are downloaded on the first npm check, apart from the PyPI ones (`ml_install`, group `npm`); a failure is remembered for npm only. `AEGIS_ML=0` and `ml-uninstall` turn off both. `guard_cli.py verify` shows an `ML (npm)` line.
 
-Not covered: npm packages installed from git or a URL (no registry history), and dependencies other than the package itself (the rules and OSV still check them).
+Dependencies: those with install scripts that the guard scans (checks/npm.py, up to 15 per command) get the model too, as PyPI dependencies do. Not covered: npm packages installed from git or a URL (no registry history), and the other dependencies (OSV still checks the whole tree for malicious releases).
 
 ## Training and measurement
 
