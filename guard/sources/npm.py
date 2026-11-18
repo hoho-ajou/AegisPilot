@@ -820,7 +820,7 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
         meta_cache[name] = meta
         version = pick_version(meta, spec)
         info = ((meta.get("versions") or {}).get(version) or {}) if version else {}
-        return version, info
+        return version, info, meta.get("modified")
 
     with ThreadPoolExecutor(TREE_WORKERS) as pool:
         running: dict = {}
@@ -846,13 +846,13 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
             for fut in done:
                 name, via = running.pop(fut)
                 try:
-                    version, info = fut.result()
+                    version, info, modified = fut.result()
                 except Exception:
                     continue                      # an unreadable dependency: npm itself would fail on it
-                if not version:
-                    continue
+                if not version or not fits_platform(info):
+                    continue                      # npm skips a package built for another OS / CPU (and its tree)
                 if resolved is not None:
-                    resolved.append({"name": name, "version": version, "via": via})
+                    resolved.append({"name": name, "version": version, "via": via, "modified": modified})
                 if info.get("hasInstallScript") and name not in skip:
                     found.append({"name": name, "version": version, "via": via})
                 for key in ("dependencies", "optionalDependencies"):
@@ -863,6 +863,91 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
             fut.cancel()
     unique = {(f["name"], f["version"]): f for f in found}
     return list(unique.values()), list(dict.fromkeys(notes))
+
+
+def _npm_platform() -> tuple[str, str]:
+    """(os, cpu) as npm names them for the machine the guard runs on (the one npm installs on)."""
+    import platform
+    import sys
+    osn = {"win32": "win32", "darwin": "darwin", "cygwin": "win32"}.get(sys.platform,
+                                                                       "linux" if sys.platform.startswith("linux") else sys.platform)
+    m = platform.machine().lower()
+    cpu = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64", "i386": "ia32", "i686": "ia32",
+           "armv7l": "arm", "ppc64le": "ppc64", "s390x": "s390x"}.get(m, m)
+    return osn, cpu
+
+
+def _allowed(values, current: str) -> bool:
+    """npm's `os` / `cpu` lists: names allow, "!name" excludes; no list allows everything."""
+    if not isinstance(values, list) or not values:
+        return True
+    vals = [str(v) for v in values]
+    if any(v == "!" + current for v in vals):
+        return False
+    allow = [v for v in vals if not v.startswith("!")]
+    return not allow or current in allow
+
+
+def fits_platform(info: dict) -> bool:
+    """Whether npm would install this version here (its package.json `os` and `cpu`). The registry's abbreviated
+    document has no `libc`, so a glibc / musl pair both count (one of them more than npm installs)."""
+    osn, cpu = _npm_platform()
+    return _allowed(info.get("os"), osn) and _allowed(info.get("cpu"), cpu)
+
+
+RECENT_CHECK_WORKERS = 8
+RECENT_CHECK_MAX = 40             # full registry documents fetched per command to date candidate versions
+
+
+def recent_releases(tree: list[dict], days: int, deadline: float, skip: set | None = None,
+                    now=None) -> tuple[list[dict], list[str]]:
+    """The entries of a resolved tree whose version was published within `days` (newest first), [notes]. The
+    abbreviated document npm installs from has no per-version times, only the package's last change (`modified`): a
+    package unchanged for longer cannot have a recent version, so only the others get their full document (`time`)."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, wait
+    from datetime import datetime, timedelta, timezone
+    now = now or datetime.now(timezone.utc)
+    cut = now - timedelta(days=days)
+    skip = set(skip or ())
+
+    def when(s):
+        try:
+            t = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+            return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return None
+    cands, notes = [], []
+    for d in tree:
+        m = when(d.get("modified"))
+        if d["name"] in skip or (m is not None and m < cut):
+            continue                              # unchanged for longer than `days`: no recent version
+        cands.append(d)
+    cands = list({(d["name"], d["version"]): d for d in cands}.values())
+    if len(cands) > RECENT_CHECK_MAX:
+        notes.append(f"only {RECENT_CHECK_MAX} of {len(cands)} recently changed dependencies dated")
+        cands = cands[:RECENT_CHECK_MAX]
+    out = []
+    if not cands:
+        return out, notes
+    pool = ThreadPoolExecutor(RECENT_CHECK_WORKERS)
+    try:
+        futs = {pool.submit(_publish_times, d["name"]): d for d in cands}
+        done, pending = wait(futs, timeout=max(0.0, deadline - time.monotonic()))
+        if pending:
+            notes.append("dependency publish times not all read within the time limit")
+        for f in done:
+            d = futs[f]
+            try:
+                t = when((f.result() or {}).get(d["version"]))
+            except Exception:
+                continue
+            if t is not None and t >= cut:
+                out.append({**d, "published": t.isoformat()})
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    out.sort(key=lambda d: d["published"], reverse=True)
+    return out, notes
 
 
 def lock_install_scripts(lock: dict) -> list[dict]:

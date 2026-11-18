@@ -18,6 +18,7 @@ from review_report import clean, package_record
 NPM_TREE_SECONDS = 20            # resolving an npm dependency tree from the registry
 NPM_SCRIPT_DEPS_MAX = 15         # dependencies with install scripts scanned per command
 NPM_SCRIPT_DEPS_SECONDS = 120
+NPM_RECENT_SECONDS = 15          # reading the publish times of recently changed dependencies
 
 
 def _lock_malicious(parsed) -> list:
@@ -98,6 +99,8 @@ def script_deps(ctx, out: Outcome) -> dict | None:
         import scan_engine
         from sources import npm
         skip = {n for n, _ in names}
+        if scan_engine.COMMAND_STOP.is_set():
+            return {"notes": [scan_engine.COMMAND_STOP_NOTE]}
         tree: list = []
         if from_lock is not None:
             found, notes = [d for d in from_lock if d["name"] not in skip], []
@@ -108,6 +111,23 @@ def script_deps(ctx, out: Outcome) -> dict | None:
         if len(found) > NPM_SCRIPT_DEPS_MAX:
             notes.append(f"only {NPM_SCRIPT_DEPS_MAX} of {len(found)} dependencies with install scripts checked")
             found = found[:NPM_SCRIPT_DEPS_MAX]
+        with_script = len(found)
+        # releases published within recent_days, as PyPI's dependencies get (transitive.py): a hijacked release is
+        # almost always a fresh one, and its code runs on import with or without an install script
+        recent: list = []
+        if tree:
+            import transitive
+            cfg = transitive.settings()
+            have = {(d["name"], d["version"]) for d in found} | set(malicious)
+            recent, rnotes = npm.recent_releases(tree, cfg["recent_days"], _t.monotonic() + NPM_RECENT_SECONDS, skip)
+            notes += rnotes
+            recent = [d for d in recent if (d["name"], d["version"]) not in have]
+            if len(recent) > cfg["max_scans"]:
+                notes.append(f"only {cfg['max_scans']} of {len(recent)} recently published dependencies checked")
+                recent = recent[:cfg["max_scans"]]
+            for d in recent:
+                d["recent"] = True
+            found = found + recent
         scanned = 0
         if found:
             ex = ThreadPoolExecutor(min(4, len(found)))
@@ -123,10 +143,13 @@ def script_deps(ctx, out: Outcome) -> dict | None:
                 rec = package_record(d["name"], d["version"], result)
                 rec["ecosystem"] = "npm"
                 rec["via"] = clean(" → ".join(x for x in (d.get("via"), d["name"]) if x), 160)
-                rec["install_script_dependency"] = True
+                if d.get("recent"):
+                    rec["recent_dependency"] = True
+                else:
+                    rec["install_script_dependency"] = True
                 post_rules_into(rec, result, d["version"], osv_ok, None, None)
                 out.add(rec, ctx.policy(rec, d["name"], d["version"], rec.get("verdict") or result.verdict), dependency=True)
-        info = {"with_install_script": len(found), "scanned": scanned, "from": "package-lock.json" if from_lock is not None else "registry",
+        info = {"with_install_script": with_script, "recent": len(recent), "scanned": scanned, "from": "package-lock.json" if from_lock is not None else "registry",
                 "notes": [clean(n, 160) for n in dict.fromkeys(notes)]}
         if from_lock is None:
             info["tree_osv_checked"] = len({(d["name"], d["version"]) for d in tree if d["name"] not in skip}) if osv_ok else 0

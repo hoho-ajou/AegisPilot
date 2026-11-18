@@ -38,7 +38,7 @@ def _scan(parsed) -> list:
     return out
 
 
-DEPS_WAIT_SECONDS = 170          # the dependency stage: tree (20 s) + OSV batch + scans (120 s), started with the scans
+DEPS_WAIT_SECONDS = 190          # the dependency stage: tree (20 s) + OSV batch + publish times (15 s) + scans (120 s)
 
 
 def _npm_wanted(parsed) -> bool:
