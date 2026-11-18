@@ -64,5 +64,24 @@ class HandoffTests(unittest.TestCase):
                 tempfile.tempdir = old
 
 
+class SameFileOnly(unittest.TestCase):
+    """The guard hands the model its own copy only when it is the file the model would read (no second download)."""
+
+    def test_picker_matches_the_models_rule(self):
+        import random
+        sys.path.insert(0, str(HERE / "ml"))
+        import features as F
+        import scan_engine as se
+        rnd = random.Random(1)
+        for i in range(500):
+            urls = []
+            for j in range(rnd.randint(1, 5)):
+                t = rnd.choice(["sdist", "bdist_wheel"])
+                urls.append({"packagetype": t, "filename": f"p-{i}-{j}." + ("tar.gz" if t == "sdist" else "whl"),
+                             "size": rnd.choice([1000, 5 << 20, 25 << 20])})
+            want = F.pick_artifact(urls)
+            self.assertEqual(se._ml_file(urls), want["filename"] if want else None)
+
+
 if __name__ == "__main__":
     unittest.main()

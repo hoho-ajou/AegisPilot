@@ -446,7 +446,11 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         if stop.is_set() or "rel" not in rel_box:
             return None if stop.is_set() else {"ok": False, "error": "release information not read"}
         handoff = {"proj": meta, "rel": rel_box["rel"], "artifact": None}
-        if ml_artifact_policy == "installed":
+        # the model reads the file it was trained on (sdist first, 20 MB or less); when that is the very file the guard
+        # downloads (pip's choice: a release without a fitting wheel), it gets the guard's copy instead of a second
+        # download. "installed" hands over the guard's file whatever it is (the features then differ from training).
+        same = ml_artifact_policy == "installed" or _ml_file(rel_box["rel"].get("urls") or []) == _guard_file(meta, resolved)
+        if same:
             art["fetched"].wait(60)
             if art.get("archive_path"):
                 handoff["artifact"] = {"path": art["archive_path"], "filename": art.get("artifact"), "kind": art.get("artifact_kind")}
@@ -456,6 +460,26 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         return _finish(name, meta, features, vulns, ml_result)
 
     return _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
+
+
+ML_MAX_ARTIFACT = 20 * 1024 * 1024   # ml/features.MAX_ARTIFACT
+
+
+def _ml_file(urls: list) -> str | None:
+    """The release file the PyPI model reads (ml/features.pick_artifact: sdist first, 20 MB or less), by name."""
+    files = sorted(urls, key=lambda f: f.get("packagetype") != "sdist")
+    files = [f for f in files if (f.get("size") or 0) <= ML_MAX_ARTIFACT]
+    return os.path.basename(str(files[0].get("filename") or "")) if files else None
+
+
+def _guard_file(meta: dict, version: str | None) -> str | None:
+    """The release file the guard downloads (sources/pypi.fetch: pip's choice), by name; None when unknown."""
+    try:
+        import artifact_select
+        chosen, _kind, _reason = artifact_select.choose((meta.get("releases") or {}).get(version) or [], pypi.ARTIFACT_POLICY)
+        return os.path.basename(str(chosen["filename"]).replace("\\", "/")) if chosen else None
+    except Exception:
+        return None
 
 
 OSV_WAIT_FOR_ML = 20.0       # seconds the ML stage waits for OSV's answer; after that it runs anyway
