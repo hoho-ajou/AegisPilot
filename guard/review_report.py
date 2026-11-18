@@ -373,6 +373,7 @@ def package_record(name: str, version: str | None, result) -> dict:
         **_ml_fields(f),
         "advice": _advice_fields(f),
         "coverage": _coverage_notes(f),
+        **({"command_stopped": True} if getattr(f, "command_stopped", False) else {}),
         **_capability_fields(f),
         **({"install_time_files": [clean(x, 120) for x in f.install_time_files[:20]]}
            if getattr(f, "install_time_files", None) else {}),

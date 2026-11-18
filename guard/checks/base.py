@@ -104,7 +104,14 @@ class Context:
         return max(0.0, self.deadline - time.monotonic())
 
     def policy(self, rec: dict, name: str, version, verdict: str) -> str:
-        return policy_into(rec, self.pol, self.policy_decide, name, version, verdict)
+        final = policy_into(rec, self.pol, self.policy_decide, name, version, verdict)
+        if final == "BLOCK":                    # the command is refused: the scans still running stop (scan_engine)
+            try:
+                import scan_engine
+                scan_engine.command_blocked()
+            except Exception:
+                pass
+        return final
 
 
 FRESH_LABEL = POST_LABELS["fresh_release"]

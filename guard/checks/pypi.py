@@ -127,7 +127,10 @@ def run(ctx) -> Outcome:
     if not osv_ok and use_cache:
         verdict_cache.forget(ctx.project_dir, parsed.packages)
     wait_until = time.monotonic() + VDIFF_WAIT_SECONDS     # after the scan; a slow look-back is skipped, never waited on
+    import scan_engine as _se
     for th in threads:
+        if _se.COMMAND_STOP.is_set():
+            break                                         # the command is refused: the look-back adds nothing
         th.join(max(0.0, wait_until - time.monotonic()))
     for (name, version), result in zip(parsed.packages, results):
         rec = package_record(name, version, result)
@@ -159,6 +162,8 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
         import time as _t
         import scan_engine
         import transitive
+        if scan_engine.COMMAND_STOP.is_set():
+            return {"notes": [scan_engine.COMMAND_STOP_NOTE]}   # refused already: the dependencies are checked next time
         cfg = transitive.settings()
         deadline = _t.monotonic() + cfg["budget_seconds"]
         import collect

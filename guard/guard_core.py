@@ -338,6 +338,21 @@ def _check_command(command: str, project_dir: str, agent=None, actor: dict | Non
 
 
 def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict | None = None) -> Decision:
+    """One command's decision (_check_parsed), inside its own scope for the command-wide stop signal: a BLOCK stops the
+    command's other scans (scan_engine.COMMAND_STOP), and the next command starts clean."""
+    try:
+        import scan_engine
+        scan_engine.command_begin()
+    except Exception:
+        scan_engine = None
+    try:
+        return _check_parsed(parsed, command, project_dir, agent, actor)
+    finally:
+        if scan_engine is not None:
+            scan_engine.command_end()
+
+
+def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict | None = None) -> Decision:
     """The install decision for what a command (or anything that fetches and runs code - an MCP server's launch
     command, a plugin, a hook script) would bring in, already parsed (install_parse.Parsed). `command` is what the
     records and messages show."""
@@ -438,6 +453,9 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         _attack_paths(project_dir, report_data, profile_thread, profile_box)
 
     if blocked:
+        # the packages whose scan stopped because of this BLOCK are in the record, not in the messages: the command is
+        # refused either way, and the agent's next command (without the blocked package) checks them
+        review = [r for r in review if not r.get("command_stopped")]
         # The Markdown report and the fixed-format terminal view (output.render) are extras. They are imported HERE and
         # wrapped on purpose: a module-level import error exits 1, and exit 1 does not block - the install would run
         # (in testing, with output/ missing, `pip install pyyaml==5.3.1` went through). Whatever fails in the

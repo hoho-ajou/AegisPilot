@@ -45,6 +45,14 @@ def _uploaded(meta: dict, version: str) -> datetime | None:
         return None
 
 
+def _command_blocked() -> bool:
+    try:
+        import scan_engine
+        return scan_engine.COMMAND_STOP.is_set()
+    except Exception:
+        return False
+
+
 def builds_from_source(meta: dict, version: str) -> bool:
     """pip would build this release from its sdist (no wheel fits this machine): its setup.py / build backend runs at
     install time - the PyPI counterpart of an npm dependency with an install script."""
@@ -167,6 +175,9 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
                 todo = todo[:room]
             if deadline is not None and time.monotonic() > deadline:
                 notes.append("transitive dependencies not fully checked within the time limit")
+                break
+            if _command_blocked():
+                notes.append("dependency walk stopped: another package of the command is blocked")
                 break
             results = list(pool.map(one, todo))
             for r, (name, _spec, extras, _via) in zip(results, todo):

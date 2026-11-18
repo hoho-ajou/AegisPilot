@@ -313,6 +313,8 @@ def _split_packages(report: dict) -> tuple[list[dict], list[dict]]:
     """(packages shown in full, ALLOW packages summed up in one line). Every non-ALLOW package is shown, worst first;
     with none, the primary package is (a single-package report looks as it always did)."""
     packages = [p for p in report.get("packages") or [] if isinstance(p, dict)]
+    if any(str(p.get("verdict")) == "BLOCK" for p in packages):     # stopped by that BLOCK: not shown (guard_core)
+        packages = [p for p in packages if not p.get("command_stopped")]
     flagged = [p for p in packages if str(p.get("verdict")) != "ALLOW"]
     flagged.sort(key=lambda p: -_PRIORITY.get(str(p.get("verdict")), 0))
     shown = flagged or [primary_package(report)]
