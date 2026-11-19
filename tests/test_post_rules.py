@@ -33,6 +33,8 @@ version_diff.late_file = lambda meta, v, *a, **k: LATE.get((meta.get("info") or 
 from sources import pypi
 pypi.metadata = lambda n: {{"info": {{"name": n}}, "releases": {{}}}}
 """
+    import shutil
+    shutil.rmtree(project / ".aegis" / "cache", ignore_errors=True)   # each call a fresh decision (no reuse, no "as is")
     code = f"import sys, runpy\nsys.path.insert(0, {str(IMPL)!r})\n{patch}\nrunpy.run_path({str(IMPL / 'hooks/pretooluse_check.py')!r}, run_name='__main__')\n"
     ev = {"tool_name": "Bash", "cwd": str(project), "tool_input": {"command": command}}
     r = subprocess.run([sys.executable, "-c", code], input=json.dumps(ev), capture_output=True, text=True, timeout=60,

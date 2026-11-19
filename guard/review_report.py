@@ -874,6 +874,19 @@ def fix_spec(name: str, fix: str, npm: bool) -> str:
     return f'"{name}@>={fix}"' if npm else f"{name}>={fix}"
 
 
+def _checked(adv: dict, version) -> str:
+    """", checked: passed" / ", checked: held too (rules)" when the guard scanned that version (checks/base.py
+    check_replacements), "" when it did not."""
+    r = adv.get("replacement") or {}
+    if str(r.get("version")) != str(version) or not r.get("verdict"):
+        return ""
+    if r["verdict"] == "ALLOW":
+        return ", checked: passed"
+    rules = ", ".join(str(x) for x in (r.get("rules") or [])[:3] if re.fullmatch(r"[A-Za-z0-9_.@:-]{1,60}", str(x)))
+    kind = "blocked too" if r["verdict"] == "BLOCK" else "held too"
+    return f", checked: {kind}" + (f" ({rules})" if rules else "")
+
+
 def suggested_version(rec: dict) -> tuple[str, str] | None:
     """(what to install instead, why) when the guard already knows one; the agent still decides. Only guard-validated
     values (names, versions) - None when there is nothing known to suggest."""
@@ -888,7 +901,7 @@ def suggested_version(rec: dict) -> tuple[str, str] | None:
         return (f"{name}{sep}{adv['nearest_version']}", "the nearest version that exists, checked: " + ("passed" if ok else "held too"))
     if adv.get("safe_version") and ver.fullmatch(str(adv["safe_version"])) and not adv.get("typosquat_of"):
         why = ("the newest version that fixes the known vulnerabilities" if adv.get("fix_version") else
-               "the newest earlier version") + ", over a day old, no OSV record"
+               "the newest earlier version") + ", over a day old, no OSV record" + _checked(adv, adv["safe_version"])
         if adv.get("pin_dependency"):
             why += "; a dependency: add it to the same install"
         return (f"{name}{sep}{adv['safe_version']}", why)
@@ -899,6 +912,7 @@ def suggested_version(rec: dict) -> tuple[str, str] | None:
         rules = {e.get("rule") for e in rec.get("evidence") or []}
         if rules & {"late_file", "new_risky_code"}:
             why = "the previous version"
+        why += _checked(adv, adv["pin_version"])
         if adv.get("pin_dependency"):
             why += "; a dependency: add it to the same install"
         return (f"{name}{sep}{adv['pin_version']}", why)

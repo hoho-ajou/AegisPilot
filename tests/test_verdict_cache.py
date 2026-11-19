@@ -83,12 +83,25 @@ try:
         VC.begin(d); se.scan_package("good", "3.0"); VC.end()
         assert scans[-2:] == [("good", "3.0"), ("good", "3.0")]
 
-        # only a finished ALLOW is stored
+        # every finished verdict is stored (a held package is held again at once); failed and stopped scans are not
         VC.begin(d)
         k2 = VC.key("pypi", "bad", "1.0", "x.whl:1")
         VC.put(k2, se.Verdict("NEEDS_HUMAN_REVIEW", 0.5, [], se.ScanFeatures(name="bad", version="1.0", fetch_ok=True)))
-        VC.put(k2, se.Verdict("ALLOW", 0.0, [], se.ScanFeatures(name="bad", version="1.0", fetch_error="network")))
-        assert VC.get(k2) is None
+        assert VC.get(k2).verdict == "NEEDS_HUMAN_REVIEW"
+        k3 = VC.key("pypi", "flaky", "1.0", "x.whl:2")
+        VC.put(k3, se.Verdict("ALLOW", 0.0, [], se.ScanFeatures(name="flaky", version="1.0", fetch_error="network")))
+        stopped = se.ScanFeatures(name="stopped", version="1.0", fetch_ok=True)
+        stopped.command_stopped = True
+        VC.put(VC.key("pypi", "stopped", "1.0", "x.whl:3"), se.Verdict("NEEDS_HUMAN_REVIEW", 0.5, [], stopped))
+        assert VC.get(k3) is None and VC.get(VC.key("pypi", "stopped", "1.0", "x.whl:3")) is None
+
+        # auto mode "as is": the same held versions within 30 minutes, then the hold has to come again
+        hk = ["pypi:bad==1.0"]
+        assert not VC.held_before(hk)
+        VC.note_held(hk)
+        assert VC.held_before(hk) and not VC.held_before(hk + ["pypi:other==1.0"])
+        VC.forget_held(hk)
+        assert not VC.held_before(hk)
         VC.end()
 
         # a damaged file is a miss, never a crash; AEGIS_CACHE=0 turns it off
@@ -102,3 +115,40 @@ try:
 finally:
     pypi.metadata, se._scan_release, se.query_osv = saved
 print("verdict_cache: all cases passed")
+
+# the decision: auto mode goes ahead when the same held version comes back within 30 minutes (once), user mode asks
+# every time, a BLOCK never goes ahead
+import guard_core  # noqa: E402
+
+
+def fake_scan(items, budget=None, workers=None):
+    out = []
+    for n, v in items:
+        f = se.ScanFeatures(name=n, version=v, resolved_version=v, fetch_ok=True)
+        verdict = {"held": "NEEDS_HUMAN_REVIEW", "evil": "BLOCK"}.get(n, "ALLOW")
+        out.append(se.Verdict(verdict, 0.5, ["test hold"], f))
+    return out
+
+
+keep = guard_core.scan_packages
+guard_core.scan_packages = fake_scan
+import post_rules  # noqa: E402
+post_rules.osv_reachable = lambda *a, **k: True
+try:
+    for mode, expect in (("auto", ["refuse", "allow", "refuse"]), ("user", ["confirm", "confirm", "confirm"])):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, ".aegis").mkdir()
+            Path(d, ".aegis", "policy.json").write_text(json.dumps({"mode": mode}))
+            got = [guard_core.check_command("pip install held==1.0 good==2.0", d).action for _ in range(3)]
+            assert got == expect, (mode, got)
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, ".aegis").mkdir()
+        Path(d, ".aegis", "policy.json").write_text(json.dumps({"mode": "auto"}))
+        got = [guard_core.check_command("pip install evil==1.0", d).action for _ in range(2)]
+        assert got == ["refuse", "refuse"], got
+        r = guard_core.check_command("pip install held==1.0", d)
+        r2 = guard_core.check_command("pip install held==1.0", d)
+        assert r2.action == "allow" and "went ahead" in r2.notice, r2
+finally:
+    guard_core.scan_packages = keep
+print("verdict_cache decisions: all cases passed")

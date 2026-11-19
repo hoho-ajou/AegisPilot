@@ -415,7 +415,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     import collect
 
     features = ScanFeatures(name=name, version=version)
-    if COMMAND_STOP.is_set():
+    if _command_stops(name, version):
         return _command_stopped(features)
     try:
         meta = pypi.metadata(name)
@@ -471,9 +471,9 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     hit = _from_cache(ck, features, "pypi", resolved)
     if hit is not None:
         return hit
-    verdict = _to_cache(ck, _scan_release(features, "pypi", resolved, fetch, release, ml, finish))
-    _pick_alternative(features, verdict, "pypi", meta)
-    return verdict
+    verdict = _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
+    _pick_alternative(features, verdict, "pypi", meta)      # before the cache: a held package comes back with it
+    return _to_cache(ck, verdict)
 
 
 ML_MAX_ARTIFACT = 20 * 1024 * 1024   # ml/features.MAX_ARTIFACT
@@ -523,6 +523,8 @@ def command_end() -> None:
         if _COMMAND_DEPTH[0] == 0:
             _COMMAND_ACTIVE.clear()
             COMMAND_STOP.clear()
+            with _EXEMPT_LOCK:
+                _EXEMPT.clear()
 
 
 def command_blocked() -> None:
@@ -531,14 +533,56 @@ def command_blocked() -> None:
         COMMAND_STOP.set()
 
 
-class _Either:
-    """is_set() when either event is set (a release's own stop signal, or the command's)."""
+_EXEMPT: set = set()          # (name, version) scanned as the version to use instead of a held one: not stopped
+_EXEMPT_LOCK = threading.Lock()
 
-    def __init__(self, own, command):
-        self.own, self.command = own, command
+
+def _ekey(name: str, version) -> tuple:
+    return re.sub(r"[-_.]+", "-", str(name)).lower(), str(version or "")
+
+
+def _command_stops(name: str, version) -> bool:
+    """The command is refused and this scan is not a replacement check: stop it."""
+    if not COMMAND_STOP.is_set():
+        return False
+    with _EXEMPT_LOCK:
+        return _ekey(name, version) not in _EXEMPT
+
+
+class _Either:
+    """is_set() when this release's own stop signal is set, or the command's (unless this is a replacement check)."""
+
+    def __init__(self, own, name, version):
+        self.own, self.name, self.version = own, name, version
 
     def is_set(self) -> bool:
-        return self.own.is_set() or self.command.is_set()
+        return self.own.is_set() or _command_stops(self.name, self.version)
+
+
+def scan_replacements(items: list, workers: int = 4) -> list:
+    """Verdicts for [(ecosystem, name, version)]: the versions the guard names instead of held ones, scanned now so the
+    message says whether they pass (and a rerun with them reuses the ALLOW from the cache). Not stopped by the
+    command's BLOCK. A crash is a REVIEW that says so."""
+    from concurrent.futures import ThreadPoolExecutor
+    keys = [_ekey(n, v) for _e, n, v in items]
+    with _EXEMPT_LOCK:
+        _EXEMPT.update(keys)
+
+    def one(it):
+        eco, name, version = it
+        try:
+            return (scan_npm_package if eco == "npm" else scan_package)(name, version)
+        except Exception as e:
+            f = ScanFeatures(name=name, version=version, ecosystem=eco, fetch_error=f"scan error: {e}")
+            return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"scan error: {e}"], f)
+    try:
+        if not items:
+            return []
+        with ThreadPoolExecutor(max(1, min(workers, len(items)))) as pool:
+            return list(pool.map(one, items))
+    finally:
+        with _EXEMPT_LOCK:
+            _EXEMPT.difference_update(keys)
 
 
 def _fresh(features: ScanFeatures) -> bool:
@@ -569,8 +613,8 @@ def _cache_key_npm(name: str, meta: dict, version: str | None) -> str | None:
 
 
 def _from_cache(ck: str | None, features: ScanFeatures, ecosystem: str, version: str | None) -> Verdict | None:
-    """A cached ALLOW for exactly this file, when OSV still has no record of the version (asked again every time);
-    None means: scan it."""
+    """The cached verdict for exactly this file, when OSV's records of the version are still those of the scan (asked
+    again every time); None means: scan it."""
     if not ck:
         return None
     try:
@@ -581,12 +625,15 @@ def _from_cache(ck: str | None, features: ScanFeatures, ecosystem: str, version:
     if cached is None:
         return None
     vulns = query_osv(features.name, version, ecosystem)
-    if vulns:
-        return None                                   # reported since: scanned again (a BLOCK when malicious)
+    ids = lambda vs: sorted(str(v.get("id")) for v in vs or [] if isinstance(v, dict))   # noqa: E731
+    if ids(vulns) != ids(cached.features.osv_vulns):
+        return None                                   # OSV knows something new: scanned again (a BLOCK when malicious)
     f = cached.features
-    f.osv_vulns, f.osv_max_severity = [], None
+    f.osv_vulns, f.osv_max_severity = vulns, _severity_rank(vulns)
     f.release_age_hours = features.release_age_hours    # the hour-dependent facts of now, not of the cached scan
     f.from_cache = True
+    if cached.verdict == "BLOCK":
+        command_blocked()
     return cached
 
 
@@ -653,10 +700,10 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
     art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "osv_done": threading.Event(),
                  "archive_ready": None}
     art["archive_ready"] = art["fetched"]            # sources/pypi.fetch sets it as soon as the archive is on disk
-    if COMMAND_STOP.is_set():                        # another package of this command is already a BLOCK
+    if _command_stops(features.name, version):       # another package of this command is already a BLOCK
         return _command_stopped(features)
     own = threading.Event()                          # set when OSV lists this release as malicious: BLOCK is certain
-    stop = _Either(own, COMMAND_STOP)                # what every stage checks: this release, or the whole command
+    stop = _Either(own, features.name, version)      # what every stage checks: this release, or the whole command
     art["stop"] = stop                               # the download checks it every 1 MB (net.read_capped)
 
     def osv_task():
@@ -724,11 +771,11 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
             return _block_command(_osv_malicious_verdict(features))
         if features.fetch_error:
             features.osv_vulns = vulns
-            if COMMAND_STOP.is_set():
+            if _command_stops(features.name, version):
                 return _command_stopped(features)
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
         verdict = finish(vulns, ml_result)
-        if COMMAND_STOP.is_set() and verdict.verdict != "BLOCK":
+        if _command_stops(features.name, version) and verdict.verdict != "BLOCK":
             return _command_stopped(features)      # stopped part way: what was read is no verdict
         _block_command(verdict)
         if verdict.verdict != "ALLOW" and art.get("files"):
@@ -833,7 +880,7 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
     (post_rules known_malicious, via features.osv_vulns)."""
     from sources import npm
     features = ScanFeatures(name=name, version=spec, ecosystem="npm")
-    if COMMAND_STOP.is_set():
+    if _command_stops(name, spec):
         return _command_stopped(features)
     try:
         meta = npm.metadata(name)
@@ -886,9 +933,9 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
     hit = _from_cache(ck, features, "npm", version)
     if hit is not None:
         return hit
-    verdict = _to_cache(ck, _scan_release(features, "npm", version, fetch, release, ml, finish))
+    verdict = _scan_release(features, "npm", version, fetch, release, ml, finish)
     _pick_alternative(features, verdict, "npm", meta, lambda: _npm_times(npm, name))
-    return verdict
+    return _to_cache(ck, verdict)
 
 
 def _npm_times(npm, name: str):

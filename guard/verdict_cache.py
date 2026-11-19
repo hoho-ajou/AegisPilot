@@ -6,13 +6,15 @@ line and runs the install again - and every package was scanned again (20 packag
 
 What is reused, and only inside one command's decision (guard_core.check_parsed opens the scope; a lone scan such as
 guard_cli scan or the benchmark never reads or writes it):
-  - a scan verdict of ALLOW, for 6 hours;
+  - a finished scan verdict, for 6 hours: an ALLOW is not scanned again, a held package (REVIEW, BLOCK) that comes back
+    is held again at once - the same verdict a scan of the same file would give;
   - keyed by the file the installer would get: PyPI name, version, file name and its SHA-256 (a wheel and an sdist are
     separate entries, so a file added to an old release later - pyyaml 6.0.1 got musllinux wheels 184 days on - is a
     new entry), npm name, version and the registry's integrity hash;
   - never for a release under a day old (its rules depend on the hour) or a scan that did not finish.
-On every reuse OSV is asked again: a cached version with any OSV record now is scanned again (a release reported as
-malicious after the scan is the usual case, not a changed file). A new guard version, new rules or ML models, or
+On every reuse OSV is asked again: when its records of the version differ from those at the scan, the version is
+scanned again (a release reported as malicious after the scan is the usual case, not a changed file). The rules that
+run after the scan (vulnerabilities, a fresh release, the allow / deny lists) run again on every reuse. A new guard version, new rules or ML models, or
 ML switched on or off empties the cache.
 
 The cache lives in <project>/.aegis/cache/ (a protected path: writing it through the agent's tools asks the person).
@@ -109,7 +111,7 @@ def key(ecosystem: str, name: str, version: str | None, file_id: str | None) -> 
 
 
 def get(k: str | None):
-    """The cached ALLOW verdict for this key (a Verdict), or None."""
+    """The cached scan verdict for this key (a Verdict, any verdict), or None. The caller checks OSV again."""
     if not k:
         return None
     with _lock:
@@ -122,16 +124,15 @@ def get(k: str | None):
             return None
         import scan_engine
         d = e["v"]
-        if d.get("verdict") != "ALLOW":
-            return None
         return scan_engine.Verdict(d["verdict"], d["score"], d["reasons"], scan_engine.ScanFeatures(**d["features"]))
     except Exception:
         return None                                    # a damaged entry is just a miss
 
 
 def put(k: str | None, verdict) -> None:
-    """Remember a finished ALLOW scan (anything else is scanned again next time)."""
-    if not k or getattr(verdict, "verdict", None) != "ALLOW":
+    """Remember a finished scan, whatever its verdict: an ALLOW is not scanned again, and a held package that comes
+    back is held again at once (no scan). Failed or stopped scans are not kept."""
+    if not k or getattr(verdict, "verdict", None) not in ("ALLOW", "NEEDS_HUMAN_REVIEW", "BLOCK"):
         return
     f = getattr(verdict, "features", None)
     if f is None or getattr(f, "fetch_error", None) or getattr(f, "command_stopped", False):
@@ -146,3 +147,59 @@ def put(k: str | None, verdict) -> None:
             return
         _state["doc"]["entries"][k] = {"t": time.time(), "v": v}
         _state["dirty"] = True
+
+
+AS_IS_SECONDS = 30 * 60      # auto mode: a held version sent again within this time is the agent going ahead as is
+
+
+def held_key(rec: dict) -> str | None:
+    """A held package of a decision record: ecosystem, name, version (what the agent sends again to go ahead)."""
+    name, version = str(rec.get("package") or ""), str(rec.get("version") or "")
+    if not name or not version:
+        return None
+    return f"{rec.get('ecosystem') or 'pypi'}:{re.sub(r'[-_.]+', '-', name).lower()}=={version}"
+
+
+def held_before(keys: list) -> bool:
+    """Every one of these held packages was held (and shown to the agent) by an earlier command within AS_IS_SECONDS."""
+    if not keys or None in keys:
+        return False
+    with _lock:
+        held = ((_state["doc"] or {}).get("held") or {})
+    now = time.time()
+    try:
+        return all(k in held and now - float(held[k]) < AS_IS_SECONDS for k in keys)
+    except (TypeError, ValueError):
+        return False
+
+
+def note_held(keys: list) -> None:
+    """Remember that these packages were held and shown to the agent now (auto mode)."""
+    with _lock:
+        doc = _state["doc"]
+        if doc is None:
+            return
+        held = doc.setdefault("held", {})
+        now = time.time()
+        for k in keys:
+            if k:
+                held[k] = now
+        doc["held"] = {k: t for k, t in held.items() if now - float(t) < AS_IS_SECONDS}
+        _state["dirty"] = True
+
+
+def forget_held(keys: list) -> None:
+    """A held package the agent went ahead with: not passed again by the same rule without a new hold."""
+    with _lock:
+        doc = _state["doc"]
+        if doc is None:
+            return
+        for k in keys:
+            (doc.get("held") or {}).pop(k, None)
+        _state["dirty"] = True
+
+
+def active() -> bool:
+    with _lock:
+        return _state["doc"] is not None
+

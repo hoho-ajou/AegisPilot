@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 import time
 
-from checks.base import POST_LABELS, Check, Outcome, _hours_text, internal_package, post_rules_into
+from checks.base import POST_LABELS, Check, Outcome, _hours_text, check_replacements, internal_package, post_rules_into
 from review_report import clean, package_record
 
 VDIFF_MAX_PACKAGES = 20     # look-backs started per command (each downloads the release, and the previous one if needed)
@@ -136,6 +136,7 @@ def run(ctx) -> Outcome:
     info = transitive(parsed, results, osv_ok, out)
     if info:
         out.report["transitive"] = info
+    check_replacements(ctx, out, osv_ok)                # the version named instead of each held one, scanned now
     return out
 
 

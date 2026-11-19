@@ -489,6 +489,9 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
                 # auto mode: the reasons stay in the record and the md report; the person gets one line (relayed by
                 # the agent), the agent gets the instruction. user mode: the fixed-format report is shown.
                 reason = auto_reason(blocked[0], blocked[1:] + review, records)   # review: same-command packages the card must not hide
+                if _reads_a_file(parsed, command):
+                    from output.render import file_install_hint
+                    reason += "\n" + file_install_hint()
             else:
                 detail = report
                 try:
@@ -499,6 +502,9 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
                 from review_report import verdict_rule_names
                 names = list(dict.fromkeys(n for rec in blocked for n in verdict_rule_names(rec)))[:6]
                 reason = claude_reason(report, offers, names, blocked + review, records)   # user mode: one question built from the changes
+                if _reads_a_file(parsed, command):
+                    from output.render import file_install_hint
+                    reason += "\n" + file_install_hint()
         except Exception:
             pass
         return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True,
@@ -525,10 +531,20 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
                 clean(integrity_findings[0], 80), len(review))
         elif mode == "auto":
             # auto mode = no person in the loop: nothing is asked. The REVIEW is handed to the agent as a card with the
-            # steps to resolve it (same channel and instruction as a BLOCK); the agent's next install is checked again.
+            # evidence and the next step. The same held versions sent again within 30 minutes are the agent going ahead
+            # as is: they pass, the person is told and the decision record says so (verdict_cache.held_before).
+            as_is = _as_is(review, report_data, project_dir)
+            if as_is is not None:
+                return as_is
             try:
-                from output.render import auto_reason, person_notice
+                from output.render import as_is_instruction, auto_reason, person_notice
                 card = auto_reason(review[0], review[1:], records)
+                if _reads_a_file(parsed, command):
+                    from output.render import file_install_hint
+                    card += "\n" + file_install_hint()
+                import verdict_cache
+                if verdict_cache.active():
+                    card += "\n" + as_is_instruction()
             except Exception:
                 card = None
             if card:
@@ -536,7 +552,9 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
                     notice = person_notice("REVIEW", review, None, records)
                 except Exception:
                     notice = ""
-                return Decision(REFUSE, _with_decision_id(card, report_data), notice=notice)
+                import verdict_cache
+                final = verdict_cache.active()          # no ack: going ahead as is = the same install again
+                return Decision(REFUSE, _with_decision_id(card, report_data), notice=notice, final=final)
             reason = one_liner(review[0], extra_packages=len(review) - 1)   # the card could not be built: ask the person as before
         else:
             reason = _text_or("popup_line", one_liner(review[0], extra_packages=len(review) - 1), review[0], len(review) - 1)
@@ -556,6 +574,35 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
 
 
 PROFILE_WAIT_SECONDS = 5.0
+
+
+def _reads_a_file(parsed, command: str) -> bool:
+    """The install reads its packages from a file (pip -r / -c, a project or lock install, a bare npm install)."""
+    import re
+    return bool(getattr(parsed, "project_installs", None) or getattr(parsed, "npm_lock", None) or
+                re.search(r"(^|\s)(-r|--requirement|-c|--constraint)(\s|=|$)", command or ""))
+
+
+def _as_is(review: list, report_data: dict, project_dir: str) -> "Decision | None":
+    """auto mode: every held package of this command was held, and shown to the agent, by an earlier command within
+    30 minutes - the agent read the evidence and sent the same versions again: it goes ahead as is. ALLOW, with a
+    notice to the person and the decision record updated. Otherwise the holds are remembered and None."""
+    try:
+        import verdict_cache
+        if not verdict_cache.active():
+            return None
+        keys = [verdict_cache.held_key(r) for r in review]
+        if verdict_cache.held_before(keys):
+            verdict_cache.forget_held(keys)
+            from output.render import as_is_notice
+            report_data["went_ahead_as_is"] = [clean(f"{r.get('package')} {r.get('version')}", 80) for r in review][:9]
+            report_data["verdict"] = "ALLOW"
+            write_report(project_dir, report_data)
+            return Decision(ALLOW, notice=as_is_notice(review))
+        verdict_cache.note_held(keys)
+    except Exception:
+        return None
+    return None
 
 
 def _attack_paths(project_dir, record: dict, thread, box: dict) -> None:
