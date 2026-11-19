@@ -71,15 +71,17 @@ def release_age_hours(name: str, version: str, meta: dict, now=None) -> float | 
 _TIMES: dict = {}                                       # name -> the full document's `time` map, fetched once per process
 
 
-def _publish_times(name: str) -> dict | None:
-    """The full document's `time` map (version -> publish time), None if it is too big. Fetched once per name."""
-    if name in _TIMES:
+def _publish_times(name: str, max_bytes: int = FULL_DOC_MAX_BYTES) -> dict | None:
+    """The full document's `time` map (version -> publish time), None if it is over `max_bytes`. Fetched once per name."""
+    if name in _TIMES and (_TIMES[name] is not None or max_bytes <= FULL_DOC_MAX_BYTES):
         return _TIMES[name]
     url = f"{REGISTRY}/{urllib.parse.quote(name, safe='@')}"
     with net.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=TIMEOUT) as resp:
-        body = resp.read(FULL_DOC_MAX_BYTES + 1)
-    times = None if len(body) > FULL_DOC_MAX_BYTES else (json.loads(body).get("time") or {})
-    _TIMES[name] = times
+        body = resp.read(max_bytes + 1)
+    times = None if len(body) > max_bytes else (json.loads(body).get("time") or {})
+    if times is not None or max_bytes >= FULL_DOC_MAX_BYTES:
+        _TIMES[name] = times
+    del body
     return times
 
 
@@ -820,7 +822,7 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
         meta_cache[name] = meta
         version = pick_version(meta, spec)
         info = ((meta.get("versions") or {}).get(version) or {}) if version else {}
-        return version, info
+        return version, info, meta.get("modified")
 
     with ThreadPoolExecutor(TREE_WORKERS) as pool:
         running: dict = {}
@@ -846,13 +848,13 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
             for fut in done:
                 name, via = running.pop(fut)
                 try:
-                    version, info = fut.result()
+                    version, info, modified = fut.result()
                 except Exception:
                     continue                      # an unreadable dependency: npm itself would fail on it
-                if not version:
-                    continue
+                if not version or not fits_platform(info):
+                    continue                      # npm skips a package built for another OS / CPU (and its tree)
                 if resolved is not None:
-                    resolved.append({"name": name, "version": version, "via": via})
+                    resolved.append({"name": name, "version": version, "via": via, "modified": modified})
                 if info.get("hasInstallScript") and name not in skip:
                     found.append({"name": name, "version": version, "via": via})
                 for key in ("dependencies", "optionalDependencies"):
@@ -863,6 +865,120 @@ def install_script_deps(roots: list[tuple[str, str | None]], deadline: float, sk
             fut.cancel()
     unique = {(f["name"], f["version"]): f for f in found}
     return list(unique.values()), list(dict.fromkeys(notes))
+
+
+def _npm_platform() -> tuple[str, str]:
+    """(os, cpu) as npm names them for the machine the guard runs on (the one npm installs on)."""
+    import platform
+    import sys
+    osn = {"win32": "win32", "darwin": "darwin", "cygwin": "win32"}.get(sys.platform,
+                                                                       "linux" if sys.platform.startswith("linux") else sys.platform)
+    m = platform.machine().lower()
+    cpu = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64", "i386": "ia32", "i686": "ia32",
+           "armv7l": "arm", "ppc64le": "ppc64", "s390x": "s390x"}.get(m, m)
+    return osn, cpu
+
+
+def _allowed(values, current: str) -> bool:
+    """npm's `os` / `cpu` lists: names allow, "!name" excludes; no list allows everything."""
+    if not isinstance(values, list) or not values:
+        return True
+    vals = [str(v) for v in values]
+    if any(v == "!" + current for v in vals):
+        return False
+    allow = [v for v in vals if not v.startswith("!")]
+    return not allow or current in allow
+
+
+def fits_platform(info: dict) -> bool:
+    """Whether npm would install this version here (its package.json `os` and `cpu`). The registry's abbreviated
+    document has no `libc`, so a glibc / musl pair both count (one of them more than npm installs)."""
+    osn, cpu = _npm_platform()
+    return _allowed(info.get("os"), osn) and _allowed(info.get("cpu"), cpu)
+
+
+RECENT_CHECK_WORKERS = 4
+RECENT_CHECK_MAX = 20             # full registry documents fetched per command to date candidate versions
+RECENT_DOC_MAX_BYTES = 16 * 1024 * 1024   # larger ones (thousands of versions: old, popular packages) are not dated
+                                          # here - noted; OSV still checks them
+
+
+def recent_releases(tree: list[dict], days: int, deadline: float, skip: set | None = None,
+                    now=None) -> tuple[list[dict], list[str]]:
+    """The entries of a resolved tree whose version was published within `days` (newest first), [notes]. The
+    abbreviated document npm installs from has no per-version times, only the package's last change (`modified`): a
+    package unchanged for longer cannot have a recent version, so only the others get their full document (`time`)."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, wait
+    from datetime import datetime, timedelta, timezone
+    now = now or datetime.now(timezone.utc)
+    cut = now - timedelta(days=days)
+    skip = set(skip or ())
+
+    def when(s):
+        try:
+            t = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+            return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return None
+    cands, notes = [], []
+    for d in tree:
+        m = when(d.get("modified"))
+        if d["name"] in skip or (m is not None and m < cut):
+            continue                              # unchanged for longer than `days`: no recent version
+        cands.append(d)
+    cands = list({(d["name"], d["version"]): d for d in cands}.values())
+    if len(cands) > RECENT_CHECK_MAX:
+        notes.append(f"only {RECENT_CHECK_MAX} of {len(cands)} recently changed dependencies dated")
+        cands = cands[:RECENT_CHECK_MAX]
+    out = []
+    if not cands:
+        return out, notes
+    try:                                          # dated within the last 6 hours (verdict_cache): not fetched again
+        import verdict_cache
+    except Exception:
+        verdict_cache = None
+    left = []
+    for d in cands:
+        known = verdict_cache.published(d["name"], d["version"]) if verdict_cache else None
+        if known is None:
+            left.append(d)
+        else:
+            t = when(known) if known else None
+            if t is not None and t >= cut:
+                out.append({**d, "published": t.isoformat()})
+    cands = left
+    if not cands:
+        out.sort(key=lambda d: d["published"], reverse=True)
+        return out, notes
+    pool = ThreadPoolExecutor(RECENT_CHECK_WORKERS)
+    try:
+        futs = {pool.submit(_publish_times, d["name"], RECENT_DOC_MAX_BYTES): d for d in cands}
+        done, pending = wait(futs, timeout=max(0.0, deadline - time.monotonic()))
+        if pending:
+            notes.append("dependency publish times not all read within the time limit")
+        too_big = 0
+        for f in done:
+            d = futs[f]
+            try:
+                times = f.result()
+            except Exception:
+                continue
+            if times is None:
+                too_big += 1
+                continue
+            t = when(times.get(d["version"]))
+            if verdict_cache:
+                verdict_cache.note_published(d["name"], d["version"], t.isoformat() if t else "")
+            if t is not None and t >= cut:
+                out.append({**d, "published": t.isoformat()})
+        if too_big:
+            notes.append(f"{too_big} dependencies with a registry document over {RECENT_DOC_MAX_BYTES >> 20} MB not dated "
+                         "(OSV still checked them)")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    out.sort(key=lambda d: d["published"], reverse=True)
+    return out, notes
 
 
 def lock_install_scripts(lock: dict) -> list[dict]:

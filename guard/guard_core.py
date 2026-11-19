@@ -338,6 +338,28 @@ def _check_command(command: str, project_dir: str, agent=None, actor: dict | Non
 
 
 def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict | None = None) -> Decision:
+    """One command's decision (_check_parsed), inside its own scope for the command-wide stop signal: a BLOCK stops the
+    command's other scans (scan_engine.COMMAND_STOP), and the next command starts clean."""
+    try:
+        import scan_engine
+        scan_engine.command_begin()
+    except Exception:
+        scan_engine = None
+    try:
+        import verdict_cache
+        verdict_cache.begin(project_dir)               # ALLOW verdicts of the same files within 6 hours (verdict_cache.py)
+    except Exception:
+        verdict_cache = None
+    try:
+        return _check_parsed(parsed, command, project_dir, agent, actor)
+    finally:
+        if verdict_cache is not None:
+            verdict_cache.end()
+        if scan_engine is not None:
+            scan_engine.command_end()
+
+
+def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict | None = None) -> Decision:
     """The install decision for what a command (or anything that fetches and runs code - an MCP server's launch
     command, a plugin, a hook script) would bring in, already parsed (install_parse.Parsed). `command` is what the
     records and messages show."""
@@ -430,7 +452,7 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         report_data["actor"] = {k: clean(str(v), 80) for k, v in actor.items() if v}
     if getattr(parsed, "project_installs", None):     # scope: direct dependencies, lock versions
         report_data["project_install"] = {"dirs": [clean(d, 200) for d in parsed.project_installs[:5]],
-                                          "scope": "direct dependencies from project files checked (lock versions applied). Transitive dependencies: latest versions and known malware only"}
+                                          "scope": "direct dependencies from project files checked (lock versions applied). Transitive dependencies: known malware, recent releases and releases built from source"}
     report_data.update(extra_report)          # what checks add of their own: transitive, npm_dependency_scripts, ...
 
     write_report(project_dir, report_data)
@@ -438,6 +460,9 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
         _attack_paths(project_dir, report_data, profile_thread, profile_box)
 
     if blocked:
+        # the packages whose scan stopped because of this BLOCK are in the record, not in the messages: the command is
+        # refused either way, and the agent's next command (without the blocked package) checks them
+        review = [r for r in review if not r.get("command_stopped")]
         # The Markdown report and the fixed-format terminal view (output.render) are extras. They are imported HERE and
         # wrapped on purpose: a module-level import error exits 1, and exit 1 does not block - the install would run
         # (in testing, with output/ missing, `pip install pyyaml==5.3.1` went through). Whatever fails in the
@@ -457,13 +482,16 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                     shown_path = report_path
             report = terminal_report(report_data, width=surface.get("width"), report_path=shown_path)
             try:
-                notice = person_notice("BLOCK", blocked + review, shown_path)
+                notice = person_notice("BLOCK", blocked + review, shown_path, records)
             except Exception:
                 notice = ""
             if mode == "auto":
                 # auto mode: the reasons stay in the record and the md report; the person gets one line (relayed by
                 # the agent), the agent gets the instruction. user mode: the fixed-format report is shown.
-                reason = auto_reason(blocked[0], blocked[1:] + review)   # review: same-command packages the card must not hide
+                reason = auto_reason(blocked[0], blocked[1:] + review, records)   # review: same-command packages the card must not hide
+                if _reads_a_file(parsed, command):
+                    from output.render import file_install_hint
+                    reason += "\n" + file_install_hint()
             else:
                 detail = report
                 try:
@@ -473,7 +501,10 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                     offers = []
                 from review_report import verdict_rule_names
                 names = list(dict.fromkeys(n for rec in blocked for n in verdict_rule_names(rec)))[:6]
-                reason = claude_reason(report, offers, names)   # user mode: show the report, offer the fixed version, wait
+                reason = claude_reason(report, offers, names, blocked + review, records)   # user mode: one question built from the changes
+                if _reads_a_file(parsed, command):
+                    from output.render import file_install_hint
+                    reason += "\n" + file_install_hint()
         except Exception:
             pass
         return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True,
@@ -500,26 +531,41 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
                 clean(integrity_findings[0], 80), len(review))
         elif mode == "auto":
             # auto mode = no person in the loop: nothing is asked. The REVIEW is handed to the agent as a card with the
-            # steps to resolve it (same channel and instruction as a BLOCK); the agent's next install is checked again.
+            # evidence and the next step. The same held versions sent again within 30 minutes are the agent going ahead
+            # as is: they pass, the person is told and the decision record says so (verdict_cache.held_before).
+            as_is = _as_is(review, report_data, project_dir, command)
+            if as_is is not None:
+                return as_is
             try:
-                from output.render import auto_reason, person_notice
-                card = auto_reason(review[0], review[1:])
+                from output.render import as_is_instruction, auto_reason, person_notice
+                card = auto_reason(review[0], review[1:], records)
+                if _reads_a_file(parsed, command):
+                    from output.render import file_install_hint
+                    card += "\n" + file_install_hint()
+                import verdict_cache
+                if verdict_cache.active():
+                    card += "\n" + as_is_instruction()
             except Exception:
                 card = None
             if card:
                 try:
-                    notice = person_notice("REVIEW", review)
+                    notice = person_notice("REVIEW", review, None, records)
                 except Exception:
                     notice = ""
-                return Decision(REFUSE, _with_decision_id(card, report_data), notice=notice)
+                import verdict_cache
+                final = verdict_cache.active()          # no ack: going ahead as is = the same install again
+                return Decision(REFUSE, _with_decision_id(card, report_data), notice=notice, final=final)
             reason = one_liner(review[0], extra_packages=len(review) - 1)   # the card could not be built: ask the person as before
         else:
             reason = _text_or("popup_line", one_liner(review[0], extra_packages=len(review) - 1), review[0], len(review) - 1)
             try:                    # the evidence in the permission prompt itself: the person decides there
-                from output.render import held_text
+                from output.render import held_text, passed_text
                 held = held_text(review)
                 if held:
                     reason += "\n" + held
+                passed = passed_text(records)
+                if passed:
+                    reason += "\n" + passed
             except Exception:
                 pass
         return Decision(CONFIRM, _with_decision_id(reason, report_data))
@@ -528,6 +574,43 @@ def check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dict
 
 
 PROFILE_WAIT_SECONDS = 5.0
+
+
+def _reads_a_file(parsed, command: str) -> bool:
+    """The install reads its packages from a file (pip -r / -c, a project or lock install, a bare npm install)."""
+    import re
+    return bool(getattr(parsed, "project_installs", None) or getattr(parsed, "npm_lock", None) or
+                re.search(r"(^|\s)(-r|--requirement|-c|--constraint)(\s|=|$)", command or ""))
+
+
+def _as_is(review: list, report_data: dict, project_dir: str, command: str = "") -> "Decision | None":
+    """auto mode: every held package of this command was held, and shown to the agent, by an earlier command within
+    30 minutes - the agent read the evidence and sent the same versions again: it goes ahead as is. ALLOW, with a
+    notice to the person and the decision record updated. Otherwise the holds are remembered and None.
+    A hold with no name and version (a custom index, a command that could not be read, a URL source) is keyed by the
+    whole command instead: the same command again within 30 minutes goes ahead."""
+    try:
+        import verdict_cache
+        if not verdict_cache.active():
+            return None
+        import hashlib
+        from review_report import verdict_rule_names
+
+        def cmd_key(r):                               # the command and what held it: another hold of it is new
+            what = f"{r.get('package')}\0{','.join(sorted(verdict_rule_names(r)))}"
+            return "cmd:" + hashlib.sha256(f"{Path(project_dir).resolve()}\0{command}\0{what}".encode()).hexdigest()[:24]
+        keys = list(dict.fromkeys(verdict_cache.held_key(r) or cmd_key(r) for r in review))
+        if verdict_cache.held_before(keys):
+            verdict_cache.forget_held(keys)
+            from output.render import as_is_notice
+            report_data["went_ahead_as_is"] = [clean(f"{r.get('package')} {r.get('version')}", 80) for r in review][:9]
+            report_data["verdict"] = "ALLOW"
+            write_report(project_dir, report_data)
+            return Decision(ALLOW, notice=as_is_notice(review))
+        verdict_cache.note_held(keys)
+    except Exception:
+        return None
+    return None
 
 
 def _attack_paths(project_dir, record: dict, thread, box: dict) -> None:

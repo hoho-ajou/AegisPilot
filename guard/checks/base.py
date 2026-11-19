@@ -104,7 +104,18 @@ class Context:
         return max(0.0, self.deadline - time.monotonic())
 
     def policy(self, rec: dict, name: str, version, verdict: str) -> str:
-        return policy_into(rec, self.pol, self.policy_decide, name, version, verdict)
+        final = policy_into(rec, self.pol, self.policy_decide, name, version, verdict)
+        if final == "BLOCK":                    # the command is refused: the scans still running stop (scan_engine)
+            try:
+                import scan_engine
+                scan_engine.command_blocked()
+            except Exception:
+                pass
+        return final
+
+    def policy_peek(self, rec: dict, name: str, version, verdict: str) -> str:
+        """The allow / deny lists on a version the guard only names (a replacement): no effect on the command."""
+        return policy_into(dict(rec), self.pol, self.policy_decide, name, version, verdict)
 
 
 FRESH_LABEL = POST_LABELS["fresh_release"]
@@ -224,3 +235,41 @@ def internal_package(rec: dict, result, parsed) -> bool:
                              "note": "name not in the public registry: treated as a package from an in-house index a person set up (code not scanned)"}
     rec["verdict"] = "ALLOW"
     return True
+
+
+def check_replacements(ctx, out: Outcome, osv_ok: bool) -> None:
+    """The exact version the guard names instead of each held package (review_report.suggested_version: a fixed
+    version, the newest one over a day old, the previous one) is scanned now: the message then says whether it passes,
+    and a rerun with it reuses the ALLOW from the cache. A replacement held too is shown with its own rules (the agent
+    or the person decides with both reasons at hand); one blocked too is not offered. Never raises."""
+    try:
+        import re
+        import scan_engine
+        from review_report import package_record, suggested_version, verdict_rule_names
+        todo = []
+        for rec, verdict in list(out.records) + list(out.dependencies):
+            adv = rec.get("advice") or {}
+            if verdict == "ALLOW" or rec.get("command_stopped") or adv.get("nearest_version") or adv.get("typosquat_of"):
+                continue
+            sugg = suggested_version(rec)
+            m = re.fullmatch(r'"?(.+?)(==|@)([0-9][0-9A-Za-z.+!-]{0,40})"?', sugg[0]) if sugg else None
+            if not m or m.group(1) != rec.get("package"):
+                continue                                  # a range or another package: nothing exact to scan
+            todo.append((rec, rec.get("ecosystem") or "pypi", m.group(1), m.group(3)))
+        todo = todo[:REPLACEMENTS_MAX]
+        if not todo:
+            return
+        scanned = scan_engine.scan_replacements([(eco, name, v) for _r, eco, name, v in todo])
+        for (rec, eco, name, v), res in zip(todo, scanned):
+            if res.verdict != "BLOCK" and getattr(res.features, "fetch_error", None):
+                continue                                  # could not be checked: offered as before, unchecked
+            check = package_record(name, v, res)
+            post_rules_into(check, res, v, osv_ok, None, None)
+            final = ctx.policy_peek(check, name, v, check.get("verdict") or res.verdict) if hasattr(ctx, "policy_peek") \
+                else (check.get("verdict") or res.verdict)
+            rec.setdefault("advice", {})["replacement"] = {"version": v, "verdict": final, "rules": verdict_rule_names(check)}
+    except Exception:
+        pass
+
+
+REPLACEMENTS_MAX = 10           # replacement versions scanned per command (each held package has at most one)

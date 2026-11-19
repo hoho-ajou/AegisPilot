@@ -26,14 +26,26 @@ import time
 PROCESS_MIN_PACKAGES = 3
 
 
-def _scan_one(item):
+def _scan_one(item, project_dir=None):
+    """One package in a worker process. With the command's project folder it reads and adds to the same verdict cache
+    as the parent (verdict_cache merges what parallel writers add)."""
     import scan_engine
     name, version = item
+    cache = None
+    if project_dir:
+        try:
+            import verdict_cache as cache
+            cache.begin(project_dir)
+        except Exception:
+            cache = None
     try:
         return scan_engine.scan_package(name, version)
     except Exception as e:                        # a crash is a finding, not a pass (same as the thread path)
         f = scan_engine.ScanFeatures(name=name, version=version, fetch_error=f"scan error: {e}")
         return scan_engine.Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"scan error: {e}"], f)
+    finally:
+        if cache is not None:
+            cache.end()
 
 
 def _use_processes(items) -> bool:
@@ -57,7 +69,7 @@ def scan_packages(items, budget: float | None = None, workers: int | None = None
         return scan_engine.scan_packages(items, budget=budget, workers=workers)   # (a replaced scan_packages, e.g. in tests, is honoured)
     try:
         import multiprocessing as mp
-        from concurrent.futures import ProcessPoolExecutor, wait
+        from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
         ctx = mp.get_context("forkserver")
         ctx.set_forkserver_preload(["scan_engine", "scan_parallel"])
         ex = ProcessPoolExecutor(max(1, min(workers, len(items))), mp_context=ctx)
@@ -75,15 +87,39 @@ def scan_packages(items, budget: float | None = None, workers: int | None = None
         try:
             if main_file is not None:
                 del main.__file__
-            futures = [ex.submit(_scan_one, item) for item in items]
+            project_dir = None
+            try:
+                import verdict_cache
+                project_dir = verdict_cache.current_dir()
+            except Exception:
+                pass
+            futures = [ex.submit(_scan_one, item, project_dir) for item in items]
         finally:
             if main_file is not None:
                 main.__file__ = main_file
-        wait(futures, timeout=max(0.0, budget - (time.monotonic() - started)))
+        # wait piece by piece: a BLOCK here, or the command's stop from another check, ends the wait - the command is
+        # refused either way, and the packages not finished are REVIEWs that say so (scan_engine.COMMAND_STOP)
+        pending, stopped = set(futures), False
+        while pending:
+            left = budget - (time.monotonic() - started)
+            if left <= 0:
+                break
+            done, pending = wait(pending, timeout=min(left, 0.5), return_when=FIRST_COMPLETED)
+            for fut in done:
+                try:
+                    if fut.exception() is None and fut.result().verdict == "BLOCK":
+                        scan_engine.command_blocked()
+                except Exception:
+                    pass
+            if scan_engine.COMMAND_STOP.is_set():
+                stopped = True
+                break
         out = []
         for (name, version), fut in zip(items, futures):
             if fut.done() and not fut.cancelled() and fut.exception() is None:
                 out.append(fut.result())
+            elif stopped and not fut.done():
+                out.append(scan_engine._command_stopped(scan_engine.ScanFeatures(name=name, version=version)))
             elif fut.done() and fut.exception() is not None:
                 e = fut.exception()
                 f = scan_engine.ScanFeatures(name=name, version=version, fetch_error=f"scan error: {e}")

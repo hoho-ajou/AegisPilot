@@ -39,7 +39,9 @@ def main(event: dict) -> None:
     from guard_core import ALLOW, check_command
     decision = check_command(got[0], got[1], agent, actor={k: event.get(k) for k in ("session_id", "agent_id") if event.get(k)})
     if decision.action == ALLOW:
-        return                          # fall through silently (no stdout): the command proceeds normally
+        if decision.notice:             # allowed, but the person is told (auto mode: the agent went ahead as is)
+            hook_runtime.emit("allow", "", decision.notice)
+        return                          # otherwise silent (no stdout): the command proceeds normally
     # The person sees decision.notice (systemMessage). stderr of a hook that exits 0 reaches nobody (debug log only).
     hook_runtime.emit(decision.action, decision.reason, decision.notice)
 

@@ -18,6 +18,7 @@ import os
 import re
 import tarfile
 import tempfile
+import threading
 import urllib.request
 import warnings
 import zipfile
@@ -137,6 +138,8 @@ class ScanFeatures:
 
     osv_vulns: list = field(default_factory=list)
     analysis_skipped: str | None = None          # why the code was not analyzed (OSV already lists the release as malicious)
+    command_stopped: bool = False                # not finished: another package of the same command is a BLOCK
+    from_cache: bool = False                     # an ALLOW reused for the same file within 6 hours (verdict_cache.py)
     osv_max_severity: str | None = None
 
     maintainer_count: int | None = None
@@ -150,6 +153,7 @@ class ScanFeatures:
     evidence: list = field(default_factory=list)
     verdict_rules: list = field(default_factory=list)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
     nearest_version: str | None = None    # the version asked for is not on PyPI: the nearest one that is (pypi_nearest_version)
+    safe_version: str | None = None       # one exact version to use instead of a held one (alternatives.py), from records only
 
     # [ML] anomaly detection result from the ML model (ml_bridge.ml_predict). None: no ML verdict
     ml: dict | None = None
@@ -411,18 +415,22 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     import collect
 
     features = ScanFeatures(name=name, version=version)
+    if _command_stops(name, version):
+        return _command_stopped(features)
     try:
         meta = pypi.metadata(name)
     except Exception as e:
         features.fetch_error = str(e)
-        return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
+        return _removed_release(features, "pypi", version) or \
+            Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
     resolved = version or meta.get("info", {}).get("version")
     features.resolved_version = resolved
     if version and not [f for f in (meta.get("releases") or {}).get(version) or [] if not f.get("yanked")]:
         # pip would stop with "no matching distribution": nothing installs. Name the nearest real version instead
         features.nearest_version = pypi_nearest_version(meta, version, _fresh_hours())
         features.fetch_error = f"scan error: HTTP Error 404: version {version} not on PyPI"
-        return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
+        return _removed_release(features, "pypi", version) or \
+            Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
     features.release_age_hours = pypi_release_age_hours(meta, resolved)
     limit = _fresh_hours()
     if features.release_age_hours is not None and features.release_age_hours < limit:
@@ -446,7 +454,11 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
         if stop.is_set() or "rel" not in rel_box:
             return None if stop.is_set() else {"ok": False, "error": "release information not read"}
         handoff = {"proj": meta, "rel": rel_box["rel"], "artifact": None}
-        if ml_artifact_policy == "installed":
+        # the model reads the file it was trained on (sdist first, 20 MB or less); when that is the very file the guard
+        # downloads (pip's choice: a release without a fitting wheel), it gets the guard's copy instead of a second
+        # download. "installed" hands over the guard's file whatever it is (the features then differ from training).
+        same = ml_artifact_policy == "installed" or _ml_file(rel_box["rel"].get("urls") or []) == _guard_file(meta, resolved)
+        if same:
             art["fetched"].wait(60)
             if art.get("archive_path"):
                 handoff["artifact"] = {"path": art["archive_path"], "filename": art.get("artifact"), "kind": art.get("artifact_kind")}
@@ -455,7 +467,215 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     def finish(vulns, ml_result) -> Verdict:
         return _finish(name, meta, features, vulns, ml_result)
 
-    return _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
+    ck = None if _fresh(features) else _cache_key_pypi(name, meta, resolved)
+    hit = _from_cache(ck, features, "pypi", resolved)
+    if hit is not None:
+        return hit
+    verdict = _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
+    _pick_alternative(features, verdict, "pypi", meta)      # before the cache: a held package comes back with it
+    return _to_cache(ck, verdict)
+
+
+ML_MAX_ARTIFACT = 20 * 1024 * 1024   # ml/features.MAX_ARTIFACT
+
+
+def _ml_file(urls: list) -> str | None:
+    """The release file the PyPI model reads (ml/features.pick_artifact: sdist first, 20 MB or less), by name."""
+    files = sorted(urls, key=lambda f: f.get("packagetype") != "sdist")
+    files = [f for f in files if (f.get("size") or 0) <= ML_MAX_ARTIFACT]
+    return os.path.basename(str(files[0].get("filename") or "")) if files else None
+
+
+def _guard_file(meta: dict, version: str | None) -> str | None:
+    """The release file the guard downloads (sources/pypi.fetch: pip's choice), by name; None when unknown."""
+    try:
+        import artifact_select
+        chosen, _kind, _reason = artifact_select.choose((meta.get("releases") or {}).get(version) or [], pypi.ARTIFACT_POLICY)
+        return os.path.basename(str(chosen["filename"]).replace("\\", "/")) if chosen else None
+    except Exception:
+        return None
+
+
+# One command = one decision: once a package of it is a BLOCK, the whole command is refused, so the other packages'
+# scans stop too (guard_core.check_parsed opens and closes the scope of one command). A package stopped that way is a REVIEW that says so,
+# never a pass: if a person's allow list later lifts the BLOCK, what was not read still holds the install.
+COMMAND_STOP = threading.Event()
+COMMAND_STOP_NOTE = "not checked: another package of the same command is blocked"
+_COMMAND_ACTIVE = threading.Event()   # only while guard_core decides on one command: a lone scan (guard_cli scan, the
+                                      # benchmark, a test) never stops the next one
+
+
+_COMMAND_DEPTH = [0]                  # a decision can contain another (a plugin's hooks, an MCP launch): the outer one
+_COMMAND_LOCK = threading.Lock()      # opens and closes the scope
+
+
+def command_begin() -> None:
+    with _COMMAND_LOCK:
+        if _COMMAND_DEPTH[0] == 0:
+            COMMAND_STOP.clear()
+            _COMMAND_ACTIVE.set()
+        _COMMAND_DEPTH[0] += 1
+
+
+def command_end() -> None:
+    with _COMMAND_LOCK:
+        _COMMAND_DEPTH[0] = max(0, _COMMAND_DEPTH[0] - 1)
+        if _COMMAND_DEPTH[0] == 0:
+            _COMMAND_ACTIVE.clear()
+            COMMAND_STOP.clear()
+            with _EXEMPT_LOCK:
+                _EXEMPT.clear()
+
+
+def command_blocked() -> None:
+    """A package of the command being decided is a BLOCK: the command's other scans stop."""
+    if _COMMAND_ACTIVE.is_set():
+        COMMAND_STOP.set()
+
+
+_EXEMPT: set = set()          # (name, version) scanned as the version to use instead of a held one: not stopped
+_EXEMPT_LOCK = threading.Lock()
+
+
+def _ekey(name: str, version) -> tuple:
+    return re.sub(r"[-_.]+", "-", str(name)).lower(), str(version or "")
+
+
+def _command_stops(name: str, version) -> bool:
+    """The command is refused and this scan is not a replacement check: stop it."""
+    if not COMMAND_STOP.is_set():
+        return False
+    with _EXEMPT_LOCK:
+        return _ekey(name, version) not in _EXEMPT
+
+
+class _Either:
+    """is_set() when this release's own stop signal is set, or the command's (unless this is a replacement check)."""
+
+    def __init__(self, own, name, version):
+        self.own, self.name, self.version = own, name, version
+
+    def is_set(self) -> bool:
+        return self.own.is_set() or _command_stops(self.name, self.version)
+
+
+def scan_replacements(items: list, workers: int = 4) -> list:
+    """Verdicts for [(ecosystem, name, version)]: the versions the guard names instead of held ones, scanned now so the
+    message says whether they pass (and a rerun with them reuses the ALLOW from the cache). Not stopped by the
+    command's BLOCK. A crash is a REVIEW that says so."""
+    from concurrent.futures import ThreadPoolExecutor
+    keys = [_ekey(n, v) for _e, n, v in items]
+    with _EXEMPT_LOCK:
+        _EXEMPT.update(keys)
+
+    def one(it):
+        eco, name, version = it
+        try:
+            return (scan_npm_package if eco == "npm" else scan_package)(name, version)
+        except Exception as e:
+            f = ScanFeatures(name=name, version=version, ecosystem=eco, fetch_error=f"scan error: {e}")
+            return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"scan error: {e}"], f)
+    try:
+        if not items:
+            return []
+        with ThreadPoolExecutor(max(1, min(workers, len(items)))) as pool:
+            return list(pool.map(one, items))
+    finally:
+        with _EXEMPT_LOCK:
+            _EXEMPT.difference_update(keys)
+
+
+def _fresh(features: ScanFeatures) -> bool:
+    return features.release_age_hours is None or features.release_age_hours < _fresh_hours()
+
+
+def _cache_key_pypi(name: str, meta: dict, version: str | None) -> str | None:
+    """verdict_cache key of the file pip installs for this version (its name and SHA-256: wheel and sdist apart)."""
+    try:
+        import artifact_select
+        import verdict_cache
+        chosen, _kind, _reason = artifact_select.choose((meta.get("releases") or {}).get(version) or [], pypi.ARTIFACT_POLICY)
+        sha = ((chosen or {}).get("digests") or {}).get("sha256")
+        fid = f"{os.path.basename(str(chosen['filename']))}:{sha}" if chosen and sha else None
+        return verdict_cache.key("pypi", name, version, fid)
+    except Exception:
+        return None
+
+
+def _cache_key_npm(name: str, meta: dict, version: str | None) -> str | None:
+    """verdict_cache key of an npm version: its tarball's integrity hash from the registry."""
+    try:
+        import verdict_cache
+        dist = (((meta.get("versions") or {}).get(version) or {}).get("dist") or {})
+        return verdict_cache.key("npm", name, version, dist.get("integrity"))
+    except Exception:
+        return None
+
+
+def _from_cache(ck: str | None, features: ScanFeatures, ecosystem: str, version: str | None) -> Verdict | None:
+    """The cached verdict for exactly this file, when OSV's records of the version are still those of the scan (asked
+    again every time); None means: scan it."""
+    if not ck:
+        return None
+    try:
+        import verdict_cache
+        cached = verdict_cache.get(ck)
+    except Exception:
+        return None
+    if cached is None:
+        return None
+    vulns = query_osv(features.name, version, ecosystem)
+    ids = lambda vs: sorted(str(v.get("id")) for v in vs or [] if isinstance(v, dict))   # noqa: E731
+    if ids(vulns) != ids(cached.features.osv_vulns):
+        return None                                   # OSV knows something new: scanned again (a BLOCK when malicious)
+    f = cached.features
+    f.osv_vulns, f.osv_max_severity = vulns, _severity_rank(vulns)
+    f.release_age_hours = features.release_age_hours    # the hour-dependent facts of now, not of the cached scan
+    f.from_cache = True
+    if cached.verdict == "BLOCK":
+        command_blocked()
+    return cached
+
+
+def _to_cache(ck: str | None, verdict: Verdict) -> Verdict:
+    if ck:
+        try:
+            import verdict_cache
+            verdict_cache.put(ck, verdict)
+        except Exception:
+            pass
+    return verdict
+
+
+def _removed_release(features: ScanFeatures, ecosystem: str, version: str | None) -> Verdict | None:
+    """A release the registry no longer has (often removed after a malware report): the OSV BLOCK when OSV lists the
+    exact version asked for as malicious, else None (the caller's "could not fetch" stands)."""
+    if not version or not re.fullmatch(r"[0-9A-Za-z.+!_-]{1,64}", str(version)):
+        return None                                   # a range or a tag: no single version to ask OSV about
+    try:
+        from post_rules import malicious_ids
+        vulns = query_osv(features.name, version, ecosystem)
+        if not malicious_ids(vulns):
+            return None
+    except Exception:
+        return None
+    features.osv_vulns, features.osv_max_severity = vulns, _severity_rank(vulns)
+    features.resolved_version = features.resolved_version or version
+    features.analysis_skipped = OSV_MALICIOUS_SKIP
+    return _block_command(_osv_malicious_verdict(features))
+
+
+def _command_stopped(features: ScanFeatures) -> Verdict:
+    features.command_stopped = True
+    features.analysis_skipped = COMMAND_STOP_NOTE
+    features.fetch_error = features.fetch_error or COMMAND_STOP_NOTE
+    return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [COMMAND_STOP_NOTE], features)
+
+
+def _block_command(verdict: Verdict) -> Verdict:
+    if verdict.verdict == "BLOCK":
+        command_blocked()
+    return verdict
 
 
 OSV_WAIT_FOR_ML = 20.0       # seconds the ML stage waits for OSV's answer; after that it runs anyway
@@ -480,7 +700,10 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
     art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "osv_done": threading.Event(),
                  "archive_ready": None}
     art["archive_ready"] = art["fetched"]            # sources/pypi.fetch sets it as soon as the archive is on disk
-    stop = threading.Event()                         # set when OSV lists this release as malicious: BLOCK is certain
+    if _command_stops(features.name, version):       # another package of this command is already a BLOCK
+        return _command_stopped(features)
+    own = threading.Event()                          # set when OSV lists this release as malicious: BLOCK is certain
+    stop = _Either(own, features.name, version)      # what every stage checks: this release, or the whole command
     art["stop"] = stop                               # the download checks it every 1 MB (net.read_capped)
 
     def osv_task():
@@ -489,7 +712,7 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
             try:
                 from post_rules import malicious_ids
                 if malicious_ids(vulns):
-                    stop.set()
+                    own.set()
             except Exception:
                 pass                                  # unsure: the full analysis runs as before
             return vulns
@@ -541,16 +764,20 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
                 ml_result = ml_f.result() if ml_f is not None else None
             except Exception as e:
                 ml_result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        if own.is_set():                           # OSV lists it as malicious (also when the download failed:
+            features.osv_vulns = vulns             # often removed from the registry by then)
+            features.osv_max_severity = _severity_rank(vulns)
+            features.analysis_skipped = OSV_MALICIOUS_SKIP
+            return _block_command(_osv_malicious_verdict(features))
         if features.fetch_error:
             features.osv_vulns = vulns
-            if stop.is_set():                      # removed from the registry after OSV listed it: still a BLOCK
-                features.analysis_skipped = OSV_MALICIOUS_SKIP
-                return _osv_malicious_verdict(features)
+            if _command_stops(features.name, version):
+                return _command_stopped(features)
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
         verdict = finish(vulns, ml_result)
-        if stop.is_set():
-            features.analysis_skipped = OSV_MALICIOUS_SKIP
-            verdict = _osv_malicious_verdict(features)
+        if _command_stops(features.name, version) and verdict.verdict != "BLOCK":
+            return _command_stopped(features)      # stopped part way: what was read is no verdict
+        _block_command(verdict)
         if verdict.verdict != "ALLOW" and art.get("files"):
             try:                                   # what the code can do, for the attack paths (never part of the verdict)
                 import package_caps
@@ -560,6 +787,31 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
         return verdict
     finally:
         tmp.cleanup()
+
+
+def _pick_alternative(features: ScanFeatures, verdict: Verdict, ecosystem: str, meta: dict, times=None) -> None:
+    """features.safe_version when another version of the same package is the answer: a vulnerability, a release under a
+    day old, or an OSV malicious record (a hijacked release; a package that is malicious in every version has no clean
+    one). alternatives.py. Never raises and never changes the verdict."""
+    try:
+        fresh = features.release_age_hours is not None and features.release_age_hours < _fresh_hours()
+        if not features.osv_vulns and not fresh:
+            return                                     # code findings, ML, a name: another version of it is no answer
+        import alternatives
+        from post_rules import malicious_ids
+        fix = None
+        if features.osv_vulns and not malicious_ids(features.osv_vulns):
+            fix = alternatives.fix_version_of(features.osv_vulns, features.resolved_version)
+            if fix is None:
+                return                                 # a vulnerability no version fixes: nothing to name
+        cur = features.resolved_version or features.version
+        if ecosystem == "npm":
+            times = times() if callable(times) else times      # the full document: fetched only for a held package
+            features.safe_version = alternatives.npm(features.name, meta, times, cur, fix, _fresh_hours())
+        else:
+            features.safe_version = alternatives.pypi(features.name, meta, cur, fix, _fresh_hours())
+    except Exception:
+        features.safe_version = None
 
 
 def local_name_version(path: Path) -> tuple[str, str | None]:
@@ -628,6 +880,8 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
     (post_rules known_malicious, via features.osv_vulns)."""
     from sources import npm
     features = ScanFeatures(name=name, version=spec, ecosystem="npm")
+    if _command_stops(name, spec):
+        return _command_stopped(features)
     try:
         meta = npm.metadata(name)
         version = npm.pick_version(meta, spec)
@@ -635,7 +889,8 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
             raise ValueError(f"no version on npm matches '{name}@{spec or 'latest'}'")
     except Exception as e:
         features.fetch_error = str(e)
-        return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
+        return _removed_release(features, "npm", spec) or \
+            Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
     features.version = features.resolved_version = version
     try:
         features.release_age_hours = npm.release_age_hours(name, version, meta)
@@ -674,7 +929,20 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         features.ml = ml_result
         return compute_verdict(features)
 
-    return _scan_release(features, "npm", version, fetch, release, ml, finish)
+    ck = None if _fresh(features) else _cache_key_npm(name, meta, version)
+    hit = _from_cache(ck, features, "npm", version)
+    if hit is not None:
+        return hit
+    verdict = _scan_release(features, "npm", version, fetch, release, ml, finish)
+    _pick_alternative(features, verdict, "npm", meta, lambda: _npm_times(npm, name))
+    return _to_cache(ck, verdict)
+
+
+def _npm_times(npm, name: str):
+    try:
+        return npm._publish_times(name)
+    except Exception:
+        return None
 
 
 def _as_package_root(root: Path, tmp: Path) -> Path:

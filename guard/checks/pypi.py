@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 import time
 
-from checks.base import POST_LABELS, Check, Outcome, _hours_text, internal_package, post_rules_into
+from checks.base import POST_LABELS, Check, Outcome, _hours_text, check_replacements, internal_package, post_rules_into
 from review_report import clean, package_record
 
 VDIFF_MAX_PACKAGES = 20     # look-backs started per command (each downloads the release, and the previous one if needed)
@@ -99,7 +99,8 @@ def _check_nearest(ctx, out, parsed, results, osv_ok: bool) -> None:
         return
     try:
         from review_report import verdict_rule_names
-        scanned = ctx.scan_packages([(name, near) for _r, name, near in todo])
+        import scan_engine                           # a version only named: not stopped by the command's BLOCK
+        scanned = scan_engine.scan_replacements([("pypi", name, near) for _r, name, near in todo])
     except Exception:
         return
     for (rec, name, near), res in zip(todo, scanned):
@@ -116,18 +117,13 @@ def run(ctx) -> Outcome:
     _pin_ranges(parsed)
     ctx.start_osv()                                     # beside the scan, waited for after it
     vdiff_box, late_box, vfeat_box, threads = _look_back(parsed.packages)
-    try:
-        import verdict_cache
-        use_cache = verdict_cache.enabled()
-    except Exception:
-        use_cache = False
-    results = (verdict_cache.scan_with_cache(ctx.project_dir, parsed.packages, ctx.scan_packages) if use_cache
-               else ctx.scan_packages(parsed.packages))
+    results = ctx.scan_packages(parsed.packages)       # verdict_cache: inside the scan, for every package and dependency
     osv_ok = ctx.osv_ok()
-    if not osv_ok and use_cache:
-        verdict_cache.forget(ctx.project_dir, parsed.packages)
     wait_until = time.monotonic() + VDIFF_WAIT_SECONDS     # after the scan; a slow look-back is skipped, never waited on
+    import scan_engine as _se
     for th in threads:
+        if _se.COMMAND_STOP.is_set():
+            break                                         # the command is refused: the look-back adds nothing
         th.join(max(0.0, wait_until - time.monotonic()))
     for (name, version), result in zip(parsed.packages, results):
         rec = package_record(name, version, result)
@@ -141,6 +137,7 @@ def run(ctx) -> Outcome:
     info = transitive(parsed, results, osv_ok, out)
     if info:
         out.report["transitive"] = info
+    check_replacements(ctx, out, osv_ok)                # the version named instead of each held one, scanned now
     return out
 
 
@@ -159,6 +156,8 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
         import time as _t
         import scan_engine
         import transitive
+        if scan_engine.COMMAND_STOP.is_set():
+            return {"notes": [scan_engine.COMMAND_STOP_NOTE]}   # refused already: the dependencies are checked next time
         cfg = transitive.settings()
         deadline = _t.monotonic() + cfg["budget_seconds"]
         import collect
@@ -182,6 +181,12 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
             except Exception as e:
                 notes.append(f"OSV batch lookup of transitive dependencies failed: {type(e).__name__}")
         todo = [r for r in found if (r["name"], r.get("version")) in malicious]
+        # code that runs at install: pip builds these from source (setup.py), as npm runs a dependency's install script
+        builds = [r for r in found if r.get("builds") and r not in todo]
+        if len(builds) > cfg["max_build_scans"]:
+            notes.append(f"only {cfg['max_build_scans']} of {len(builds)} dependencies built from source checked")
+            builds = builds[:cfg["max_build_scans"]]
+        todo += builds
         recent = [r for r in found if r.get("recent") and r not in todo]
         recent.sort(key=lambda r: r.get("uploaded_at") or "", reverse=True)      # the newest first (the day-old rule)
         if len(recent) > cfg["max_scans"]:
@@ -194,6 +199,8 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
         for r, result in zip(todo, scanned):
             rec = package_record(r["name"], r["version"], result)
             rec["via"] = clean(" → ".join(r["via"] + [r["name"]]), 160)
+            if r.get("builds"):
+                rec["builds_from_source"] = True        # its setup.py runs when pip installs it
             try:
                 new_verdict, fired = post_apply(result, r["version"], osv_ok, None, None)
             except Exception:

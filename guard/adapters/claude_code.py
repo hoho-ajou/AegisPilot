@@ -110,7 +110,9 @@ def answer(action: str, reason: str, notice: str = "") -> str | None:
     """stdout for a core action; None = print nothing (the command goes through Claude Code's normal permission flow)."""
     decision = _DECISION.get(action)
     if decision is None:
-        return None
+        # allowed with something for the person to see: only the notice, no permission decision (the command goes
+        # through Claude Code's normal permission flow)
+        return json.dumps({"systemMessage": notice}, ensure_ascii=False) if action == "allow" and notice else None
     out = {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": decision,

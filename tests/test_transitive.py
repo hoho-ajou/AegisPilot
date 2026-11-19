@@ -98,6 +98,40 @@ class GuardCore(unittest.TestCase):
         finally:
             transitive.walk, transitive.osv_malicious, se.scan_packages = saved
 
+    def test_a_dependency_built_from_source_is_scanned(self):
+        # pip builds it from its sdist (its setup.py runs at install): scanned like npm's install-script dependencies
+        saved = (transitive.walk, transitive.osv_malicious, se.scan_packages)
+        try:
+            transitive.walk = lambda direct, fetch, pins, deadline=None: (
+                [{"name": "old-sdist", "version": "0.1", "via": ["app"], "recent": False, "builds": True},
+                 {"name": "wheel-dep", "version": "2.0", "via": ["app"], "recent": False, "builds": False}], [])
+            transitive.osv_malicious = lambda found: {}
+            asked = []
+
+            def fake_scan(items, budget=None):
+                asked.extend(items)
+                return [se.Verdict("ALLOW", 0.0, [], se.ScanFeatures(name=n, version=v, resolved_version=v, fetch_ok=True))
+                        for n, v in items]
+            se.scan_packages = fake_scan
+            app = se.ScanFeatures(name="app", version="1", resolved_version="1", fetch_ok=True)
+            app.dependencies = [{"name": "old-sdist", "spec": ""}, {"name": "wheel-dep", "spec": ""}]
+
+            class P:
+                packages, lock_pins = [("app", "1")], {}
+            out = Outcome()
+            check_pypi.transitive(P, [se.Verdict("ALLOW", 0.0, [], app)], True, out)
+            self.assertEqual(asked, [("old-sdist", "0.1")])          # the wheel dependency (old, not malicious) is not
+            self.assertTrue(out.dependencies[0][0].get("builds_from_source"))
+        finally:
+            transitive.walk, transitive.osv_malicious, se.scan_packages = saved
+
+    def test_builds_from_source_follows_pips_choice(self):
+        sdist = {"filename": "x-1.0.tar.gz", "packagetype": "sdist", "url": "u", "size": 10}
+        wheel = {"filename": "x-1.0-py3-none-any.whl", "packagetype": "bdist_wheel", "url": "u", "size": 10}
+        self.assertTrue(transitive.builds_from_source({"releases": {"1.0": [sdist]}}, "1.0"))
+        self.assertFalse(transitive.builds_from_source({"releases": {"1.0": [sdist, wheel]}}, "1.0"))
+        self.assertFalse(transitive.builds_from_source({"releases": {}}, "1.0"))
+
     def test_failure_never_raises(self):
         saved = transitive.walk
         try:

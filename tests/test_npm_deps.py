@@ -33,6 +33,7 @@ def fake_metadata(name):
 
 
 npm.metadata = fake_metadata
+npm._publish_times = lambda name: {}          # no publish times: no dependency counts as recently published
 found, notes = npm.install_script_deps([("app", None)], time.monotonic() + 10, skip={"app"})
 got = {(f["name"], f["version"], f["via"]) for f in found}
 assert got == {("evil-native", "1.0.3", "app"), ("clean-native", "1.2.0", "app"), ("fsevents", "2.3.3", "app")}, got
@@ -116,4 +117,35 @@ with tempfile.TemporaryDirectory() as d:
     # nothing with an install script: nothing more to scan
     Path(d, "package-lock.json").write_text(json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/lib": {"version": "2.0.0"}}}))
     assert guard_core.check_command("npm install", d).action == "allow"
+
+# a package built for another OS / CPU is skipped, as npm skips it (and what it pulls in)
+here_os, here_cpu = npm._npm_platform()
+assert npm.fits_platform({}) and npm.fits_platform({"os": [here_os], "cpu": [here_cpu]})
+assert not npm.fits_platform({"os": ["!" + here_os]}) and not npm.fits_platform({"cpu": ["not-a-cpu"]})
+REG["app"]["1.0.0"]["optionalDependencies"] = {"fsevents": "^2.3.0", "other-os": "1.0.0"}
+REG["other-os"] = {"1.0.0": {"hasInstallScript": True, "os": ["not-this-os"]}}
+npm.metadata = fake_metadata
+found, _ = npm.install_script_deps([("app", None)], time.monotonic() + 10, skip={"app"})
+assert "other-os" not in {f["name"] for f in found}, found
+
+# recently published dependencies: only packages changed within the window are dated (their full document read)
+from datetime import datetime, timedelta, timezone  # noqa: E402
+now = datetime(2026, 11, 18, tzinfo=timezone.utc)
+old, fresh = (now - timedelta(days=400)).isoformat(), (now - timedelta(days=2)).isoformat()
+tree = [{"name": "stale", "version": "1.0.0", "via": "app", "modified": old},
+        {"name": "fresh", "version": "3.1.0", "via": "app", "modified": fresh},
+        {"name": "changed-old-version", "version": "2.0.0", "via": "app", "modified": fresh},
+        {"name": "app", "version": "1.0.0", "via": None, "modified": fresh}]
+dated = []
+
+
+def times(name, *a):
+    dated.append(name)
+    return {"fresh": {"3.1.0": fresh}, "changed-old-version": {"2.0.0": old}}.get(name, {})
+
+
+npm._publish_times = times
+recent, rnotes = npm.recent_releases(tree, 30, time.monotonic() + 10, skip={"app"}, now=now)
+assert [d["name"] for d in recent] == ["fresh"], recent
+assert sorted(dated) == ["changed-old-version", "fresh"], dated          # "stale" never fetched, "app" skipped
 print("npm_deps: all cases passed")

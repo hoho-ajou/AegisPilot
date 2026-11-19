@@ -5,7 +5,7 @@ says so, never dropped.
 """
 from __future__ import annotations
 
-from checks.base import Check, Outcome, internal_package, post_rules_into
+from checks.base import Check, Outcome, check_replacements, internal_package, post_rules_into
 from review_report import package_record
 
 ECOSYSTEM_MAX_PACKAGES = 40      # packages scanned per command (a package.json can list many more)
@@ -38,7 +38,7 @@ def _scan(parsed) -> list:
     return out
 
 
-DEPS_WAIT_SECONDS = 170          # the dependency stage: tree (20 s) + OSV batch + scans (120 s), started with the scans
+DEPS_WAIT_SECONDS = 190          # the dependency stage: tree (20 s) + OSV batch + publish times (15 s) + scans (120 s)
 
 
 def _npm_wanted(parsed) -> bool:
@@ -84,6 +84,7 @@ def run(ctx) -> Outcome:
             out.dependencies.extend(deps_out.dependencies)
             if deps_box.get("info"):
                 out.report["npm_dependency_scripts"] = deps_box["info"]
+    check_replacements(ctx, out, osv_ok)                # the version named instead of each held one, scanned now
     return out
 
 

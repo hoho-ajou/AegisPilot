@@ -373,6 +373,7 @@ def package_record(name: str, version: str | None, result) -> dict:
         **_ml_fields(f),
         "advice": _advice_fields(f),
         "coverage": _coverage_notes(f),
+        **({"command_stopped": True} if getattr(f, "command_stopped", False) else {}),
         **_capability_fields(f),
         **({"install_time_files": [clean(x, 120) for x in f.install_time_files[:20]]}
            if getattr(f, "install_time_files", None) else {}),
@@ -513,6 +514,9 @@ def _advice_fields(f) -> dict:
         if picks:
             out["fix_version"] = max(picks)[1]
         out["fix_missing"] = missing
+    safe = getattr(f, "safe_version", None)
+    if safe and _VER_OK.match(str(safe)):
+        out["safe_version"] = str(safe)
     d, near = f.min_edit_distance, f.closest_popular_name
     if d is not None and 0 < d <= 2 and near and _ID_OK.match(str(near)):
         out["typosquat_of"] = str(near)
@@ -569,6 +573,9 @@ def _coverage_notes(f) -> dict:
         notes["failure_kind"] = kind
         notes["failure"] = failure_label(kind, getattr(f, "ecosystem", "pypi")) if kind != "other" else clean(f.fetch_error or "", 80)
         notes["failure_raw"] = clean(f.fetch_error or "", 120)
+    if getattr(f, "from_cache", False):
+        notes["from_cache"] = True
+        notes["notes"].append("same file passed a full scan within 6 hours; OSV asked again now")
     skipped = len(getattr(f, "skipped_members", []) or [])
     if skipped:
         notes["notes"].append(f"skipped {skipped} file(s) with unsafe names")
@@ -867,6 +874,19 @@ def fix_spec(name: str, fix: str, npm: bool) -> str:
     return f'"{name}@>={fix}"' if npm else f"{name}>={fix}"
 
 
+def _checked(adv: dict, version) -> str:
+    """", checked: passed" / ", checked: held too (rules)" when the guard scanned that version (checks/base.py
+    check_replacements), "" when it did not."""
+    r = adv.get("replacement") or {}
+    if str(r.get("version")) != str(version) or not r.get("verdict"):
+        return ""
+    if r["verdict"] == "ALLOW":
+        return ", checked: passed"
+    rules = ", ".join(str(x) for x in (r.get("rules") or [])[:3] if re.fullmatch(r"[A-Za-z0-9_.@:-]{1,60}", str(x)))
+    kind = "blocked too" if r["verdict"] == "BLOCK" else "held too"
+    return f", checked: {kind}" + (f" ({rules})" if rules else "")
+
+
 def suggested_version(rec: dict) -> tuple[str, str] | None:
     """(what to install instead, why) when the guard already knows one; the agent still decides. Only guard-validated
     values (names, versions) - None when there is nothing known to suggest."""
@@ -879,6 +899,12 @@ def suggested_version(rec: dict) -> tuple[str, str] | None:
     if adv.get("nearest_version") and ver.fullmatch(str(adv["nearest_version"])):
         ok = adv.get("nearest_verdict") == "ALLOW"
         return (f"{name}{sep}{adv['nearest_version']}", "the nearest version that exists, checked: " + ("passed" if ok else "held too"))
+    if adv.get("safe_version") and ver.fullmatch(str(adv["safe_version"])) and not adv.get("typosquat_of"):
+        why = ("the newest version that fixes the known vulnerabilities" if adv.get("fix_version") else
+               "the newest earlier version") + ", over a day old, no OSV record" + _checked(adv, adv["safe_version"])
+        if adv.get("pin_dependency"):
+            why += "; a dependency: add it to the same install"
+        return (f"{name}{sep}{adv['safe_version']}", why)
     if adv.get("fix_version") and ver.fullmatch(str(adv["fix_version"])):
         return (fix_spec(name, adv["fix_version"], sep == "@"), "the version that fixes the known vulnerabilities")
     if adv.get("pin_version") and ver.fullmatch(str(adv["pin_version"])):
@@ -886,6 +912,7 @@ def suggested_version(rec: dict) -> tuple[str, str] | None:
         rules = {e.get("rule") for e in rec.get("evidence") or []}
         if rules & {"late_file", "new_risky_code"}:
             why = "the previous version"
+        why += _checked(adv, adv["pin_version"])
         if adv.get("pin_dependency"):
             why += "; a dependency: add it to the same install"
         return (f"{name}{sep}{adv['pin_version']}", why)

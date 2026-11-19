@@ -12,6 +12,8 @@ compromised release of one of those would pass. Scanning every dependency of eve
   3. Releases uploaded within `recent_days` are fully scanned like a direct package. A hijacked release is almost
      always a fresh one (DataDog compromised set: all 29 within days of the attack), while the rest of a dependency
      tree is usually months or years old - so this covers the likely case for a few extra scans.
+  4. Releases pip builds from source (no wheel fits: their setup.py / build backend runs at install time) are fully
+     scanned too, up to `max_build_scans` - the PyPI counterpart of npm's dependencies with install scripts.
 
 Limits (depth, number of packages, number of full scans, time) are in guard/rules/post.json "transitive". Hitting a
 limit is recorded in the decision, never a silent pass of what was not looked at.
@@ -41,6 +43,27 @@ def _uploaded(meta: dict, version: str) -> datetime | None:
         return min(datetime.fromisoformat(f["upload_time_iso_8601"].replace("Z", "+00:00")) for f in files)
     except (ValueError, KeyError):
         return None
+
+
+def _command_blocked() -> bool:
+    try:
+        import scan_engine
+        return scan_engine.COMMAND_STOP.is_set()
+    except Exception:
+        return False
+
+
+def builds_from_source(meta: dict, version: str) -> bool:
+    """pip would build this release from its sdist (no wheel fits this machine): its setup.py / build backend runs at
+    install time - the PyPI counterpart of an npm dependency with an install script."""
+    try:
+        import artifact_select
+        from sources import pypi
+        files = [f for f in (meta.get("releases") or {}).get(version) or [] if not f.get("yanked")]
+        _chosen, kind, _reason = artifact_select.choose(files, pypi.ARTIFACT_POLICY)
+        return kind == "sdist"
+    except Exception:
+        return False
 
 
 def pick_version(meta: dict, spec: str) -> str | None:
@@ -73,7 +96,7 @@ def pick_version(meta: dict, spec: str) -> str | None:
 def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: datetime | None = None,
          deadline: float | None = None) -> tuple[list[dict], list[str]]:
     """direct: [{"name", "version", "extras", "dependencies": [{"name", "spec", "extras"}]}] for the packages the command
-    names. Returns (dependencies found: [{"name", "version", "via": [names], "uploaded", "recent"}], notes on limits hit).
+    names. Returns (dependencies found: [{"name", "version", "via": [names], "uploaded", "recent", "builds"}], notes on limits hit).
 
     A dependency asked for with extras (`uvicorn[standard]`) brings their dependencies too. A package met again with
     extras not followed yet (a plain `uvicorn` first, `uvicorn[standard]` later) is opened again for those extras only:
@@ -113,7 +136,7 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
             deps = []
         return {"name": collect.normalize_name(name), "version": version, "via": via,
                 "uploaded": up.date().isoformat() if up else None, "uploaded_at": up.isoformat() if up else None, "recent": bool(up and up >= recent_cut),
-                "dependencies": deps}
+                "builds": builds_from_source(meta, version), "dependencies": deps}
 
     def more(item):
         """A package already open, met with more extras: only the dependencies those extras add."""
@@ -152,6 +175,9 @@ def walk(direct: list[dict], fetch_meta, lock_pins: dict | None = None, now: dat
                 todo = todo[:room]
             if deadline is not None and time.monotonic() > deadline:
                 notes.append("transitive dependencies not fully checked within the time limit")
+                break
+            if _command_blocked():
+                notes.append("dependency walk stopped: another package of the command is blocked")
                 break
             results = list(pool.map(one, todo))
             for r, (name, _spec, extras, _via) in zip(results, todo):
