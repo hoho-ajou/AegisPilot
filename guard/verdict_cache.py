@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import re
 import threading
 import time
@@ -34,7 +35,7 @@ TTL_SECONDS = 6 * 3600
 MAX_ENTRIES = 4000
 
 _lock = threading.Lock()
-_state: dict = {"dir": None, "doc": None, "dirty": False}
+_state: dict = {"dir": None, "doc": None, "dirty": False, "fp": None}
 
 
 def enabled() -> bool:
@@ -70,37 +71,79 @@ def _path(project_dir) -> Path:
     return Path(project_dir) / ".aegis" / "cache" / "verdicts.json"
 
 
+def _read(project_dir) -> dict | None:
+    try:
+        doc = json.loads(_path(project_dir).read_text())
+        return doc if isinstance(doc, dict) and isinstance(doc.get("entries"), dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def begin(project_dir) -> None:
     """Open the cache of one command's decision (guard_core.check_parsed)."""
     with _lock:
-        _state.update(dir=None, doc=None, dirty=False)
+        _state.update(dir=None, doc=None, dirty=False, fp=None)
         if not project_dir or not enabled():
             return
-        try:
-            doc = json.loads(_path(project_dir).read_text())
-            if not isinstance(doc, dict) or doc.get("fp") != fingerprint() or not isinstance(doc.get("entries"), dict):
-                doc = {"fp": fingerprint(), "entries": {}}         # another guard, rules or models: start empty
-                _state["dirty"] = True
-        except (OSError, ValueError):
-            doc = {"fp": fingerprint(), "entries": {}}
-        _state.update(dir=str(project_dir), doc=doc)
+        fp = fingerprint()                              # once per command
+        doc = _read(project_dir)
+        if doc is None or doc.get("fp") != fp:
+            doc = {"fp": fp, "entries": {}, "held": {}}  # another guard, rules or models: start empty
+        _state.update(dir=str(project_dir), doc=doc, fp=fp)
+
+
+def _merge(mine: dict, theirs: dict | None, now: float) -> dict:
+    """The file as it is now (other hooks may have written it since this one read it) and this command's view, merged:
+    every entry keeps its own time and expires on its own; the newer of two wins."""
+    if not theirs or theirs.get("fp") != mine.get("fp"):
+        theirs = {"entries": {}, "held": {}}
+    entries = dict(theirs.get("entries") or {})
+    for k, e in (mine.get("entries") or {}).items():
+        if k not in entries or float(e.get("t", 0)) >= float(entries[k].get("t", 0)):
+            entries[k] = e
+    held = dict(theirs.get("held") or {})          # time noted; -time = used up then (the newer one wins)
+    for k, t in (mine.get("held") or {}).items():
+        if abs(float(t)) >= abs(float(held.get(k, 0))):
+            held[k] = t
+    times = dict(theirs.get("times") or {})
+    for k, e in (mine.get("times") or {}).items():
+        if k not in times or float(e.get("t", 0)) >= float(times[k].get("t", 0)):
+            times[k] = e
+    entries = {k: e for k, e in entries.items() if now - float(e.get("t", 0)) < TTL_SECONDS}
+    held = {k: t for k, t in held.items() if now - abs(float(t)) < AS_IS_SECONDS}
+    times = {k: e for k, e in times.items() if now - float(e.get("t", 0)) < TTL_SECONDS}
+    return {"fp": mine.get("fp"), "entries": dict(sorted(entries.items(), key=lambda kv: -kv[1].get("t", 0))[:MAX_ENTRIES]),
+            "held": held, "times": dict(sorted(times.items(), key=lambda kv: -kv[1].get("t", 0))[:MAX_ENTRIES])}
 
 
 def end() -> None:
-    """Write what this command added and close."""
+    """Merge what this command added into the file (under a lock: hooks of parallel tool calls run at the same time)
+    and close."""
     with _lock:
         d, doc, dirty = _state["dir"], _state["doc"], _state["dirty"]
-        _state.update(dir=None, doc=None, dirty=False)
+        _state.update(dir=None, doc=None, dirty=False, fp=None)
     if not (d and doc and dirty):
         return
+    lock_fd = None
     try:
-        now = time.time()
-        entries = {k: e for k, e in doc["entries"].items() if now - float(e.get("t", 0)) < TTL_SECONDS}
-        doc["entries"] = dict(sorted(entries.items(), key=lambda kv: -kv[1].get("t", 0))[:MAX_ENTRIES])
         import safe_write                               # .aegis is agent-writable: never follow a planted link
-        safe_write.write_text(Path(d) / ".aegis", "cache/verdicts.json", json.dumps(doc, ensure_ascii=False))
+        folder = safe_write.real_dir(Path(d) / ".aegis", Path("cache"))
+        try:
+            import fcntl
+            lock_fd = os.open(str(folder / "verdicts.lock"), os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            lock_fd = None                              # no lock (Windows): the merge still keeps most of both
+        merged = _merge(doc, _read(d), time.time())
+        safe_write.write_text(Path(d) / ".aegis", "cache/verdicts.json", json.dumps(merged, ensure_ascii=False))
     except Exception:
         pass
+    finally:
+        if lock_fd is not None:
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
 
 
 def key(ecosystem: str, name: str, version: str | None, file_id: str | None) -> str | None:
@@ -168,7 +211,7 @@ def held_before(keys: list) -> bool:
         held = ((_state["doc"] or {}).get("held") or {})
     now = time.time()
     try:
-        return all(k in held and now - float(held[k]) < AS_IS_SECONDS for k in keys)
+        return all(k in held and float(held[k]) > 0 and now - float(held[k]) < AS_IS_SECONDS for k in keys)
     except (TypeError, ValueError):
         return False
 
@@ -184,7 +227,7 @@ def note_held(keys: list) -> None:
         for k in keys:
             if k:
                 held[k] = now
-        doc["held"] = {k: t for k, t in held.items() if now - float(t) < AS_IS_SECONDS}
+        doc["held"] = {k: t for k, t in held.items() if now - abs(float(t)) < AS_IS_SECONDS}
         _state["dirty"] = True
 
 
@@ -194,12 +237,45 @@ def forget_held(keys: list) -> None:
         doc = _state["doc"]
         if doc is None:
             return
+        now = time.time()
         for k in keys:
-            (doc.get("held") or {}).pop(k, None)
+            doc.setdefault("held", {})[k] = -now        # used up now (kept, so an older copy elsewhere cannot revive it)
         _state["dirty"] = True
 
 
 def active() -> bool:
     with _lock:
         return _state["doc"] is not None
+
+
+def current_dir() -> str | None:
+    """The project folder of the command being decided (for worker processes), None outside one."""
+    with _lock:
+        return _state["dir"]
+
+
+def _tkey(name: str, version: str) -> str:
+    return f"npm:{name}@{version}"
+
+
+def published(name: str, version: str) -> str | None:
+    """An npm version's publish time read within TTL_SECONDS ("" = known to have none), None when not known."""
+    with _lock:
+        doc = _state["doc"]
+        e = ((doc or {}).get("times") or {}).get(_tkey(name, version))
+    try:
+        if e and time.time() - float(e["t"]) < TTL_SECONDS:
+            return str(e.get("p") or "")
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def note_published(name: str, version: str, when: str) -> None:
+    with _lock:
+        doc = _state["doc"]
+        if doc is None:
+            return
+        doc.setdefault("times", {})[_tkey(name, version)] = {"t": time.time(), "p": when}
+        _state["dirty"] = True
 

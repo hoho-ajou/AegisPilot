@@ -99,7 +99,8 @@ def _check_nearest(ctx, out, parsed, results, osv_ok: bool) -> None:
         return
     try:
         from review_report import verdict_rule_names
-        scanned = ctx.scan_packages([(name, near) for _r, name, near in todo])
+        import scan_engine                           # a version only named: not stopped by the command's BLOCK
+        scanned = scan_engine.scan_replacements([("pypi", name, near) for _r, name, near in todo])
     except Exception:
         return
     for (rec, name, near), res in zip(todo, scanned):

@@ -533,7 +533,7 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
             # auto mode = no person in the loop: nothing is asked. The REVIEW is handed to the agent as a card with the
             # evidence and the next step. The same held versions sent again within 30 minutes are the agent going ahead
             # as is: they pass, the person is told and the decision record says so (verdict_cache.held_before).
-            as_is = _as_is(review, report_data, project_dir)
+            as_is = _as_is(review, report_data, project_dir, command)
             if as_is is not None:
                 return as_is
             try:
@@ -583,15 +583,23 @@ def _reads_a_file(parsed, command: str) -> bool:
                 re.search(r"(^|\s)(-r|--requirement|-c|--constraint)(\s|=|$)", command or ""))
 
 
-def _as_is(review: list, report_data: dict, project_dir: str) -> "Decision | None":
+def _as_is(review: list, report_data: dict, project_dir: str, command: str = "") -> "Decision | None":
     """auto mode: every held package of this command was held, and shown to the agent, by an earlier command within
     30 minutes - the agent read the evidence and sent the same versions again: it goes ahead as is. ALLOW, with a
-    notice to the person and the decision record updated. Otherwise the holds are remembered and None."""
+    notice to the person and the decision record updated. Otherwise the holds are remembered and None.
+    A hold with no name and version (a custom index, a command that could not be read, a URL source) is keyed by the
+    whole command instead: the same command again within 30 minutes goes ahead."""
     try:
         import verdict_cache
         if not verdict_cache.active():
             return None
-        keys = [verdict_cache.held_key(r) for r in review]
+        import hashlib
+        from review_report import verdict_rule_names
+
+        def cmd_key(r):                               # the command and what held it: another hold of it is new
+            what = f"{r.get('package')}\0{','.join(sorted(verdict_rule_names(r)))}"
+            return "cmd:" + hashlib.sha256(f"{Path(project_dir).resolve()}\0{command}\0{what}".encode()).hexdigest()[:24]
+        keys = list(dict.fromkeys(verdict_cache.held_key(r) or cmd_key(r) for r in review))
         if verdict_cache.held_before(keys):
             verdict_cache.forget_held(keys)
             from output.render import as_is_notice

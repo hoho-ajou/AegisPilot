@@ -139,7 +139,7 @@ tree = [{"name": "stale", "version": "1.0.0", "via": "app", "modified": old},
 dated = []
 
 
-def times(name):
+def times(name, *a):
     dated.append(name)
     return {"fresh": {"3.1.0": fresh}, "changed-old-version": {"2.0.0": old}}.get(name, {})
 

