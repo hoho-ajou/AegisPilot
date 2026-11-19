@@ -77,7 +77,7 @@ def ml_enabled() -> bool:
         return False
 
 
-def ml_predict(name: str, version: str | None = None, handoff: dict | None = None) -> dict:
+def ml_predict(name: str, version: str | None = None, handoff: dict | None = None, stop=None) -> dict:
     """Score one package with the ML model. Always returns a dict; ok=False means no ML verdict.
     handoff = the collection step's result {"proj", "rel", "artifact": {"path", ...}|None}: the model then does not ask
     PyPI again."""
@@ -104,7 +104,7 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
                 json.dump({"schema": "aegis.handoff/1", "package": name, "version": version, **handoff}, fh)
                 tmp_handoff = fh.name
             cmd += ["--handoff", tmp_handoff]
-        return _run(cmd)
+        return _run(cmd, stop)
     finally:
         if tmp_handoff:
             try:
@@ -113,7 +113,7 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
                 pass
 
 
-def ml_predict_npm(name: str, version: str | None, pkg_dir) -> dict:
+def ml_predict_npm(name: str, version: str | None, pkg_dir, stop=None) -> dict:
     """Score one npm package version, unpacked by the guard in `pkg_dir` (never run). Always returns a dict; ok=False
     means no ML verdict (no npm model released or installed, AEGIS_ML=0, failure)."""
     flag = os.environ.get("AEGIS_ML")
@@ -133,23 +133,54 @@ def ml_predict_npm(name: str, version: str | None, pkg_dir) -> dict:
         return {"ok": False, "error": f"npm ML model files not used: {problem} (run guard_cli.py ml-install)"}
     cmd = [sys.executable or "python3", "-I", str(ML_CODE / "scan.py"), name] + ([version] if version else []) + \
           ["--ecosystem", "npm", "--dir", str(pkg_dir), "--json", "--models", str(models_dir())]
-    return _run(cmd)
+    return _run(cmd, stop)
 
 
-def _run(cmd: list) -> dict:
-    """Run ml/scan.py and read its JSON. Never raises."""
+STOP_POLL_SECONDS = 0.1
+
+
+def _run(cmd: list, stop=None) -> dict:
+    """Run ml/scan.py and read its JSON. Never raises. `stop` (an Event-like object): when it is set while the model
+    runs (OSV lists the release as malicious, or another package of the command is a BLOCK), the process is killed and there is no ML result."""
+    import time
+    # -I: no PYTHON* variables, no user site folder, not the current folder (scan.py adds its own folder itself)
+    if stop is None:                                   # nothing to watch: run to the end (or the time limit)
+        try:
+            p = subprocess.run(cmd, cwd=ML_CODE, capture_output=True, text=True, timeout=timeout())
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"exceeded {timeout()}s"}
+        except Exception as e:
+            return {"ok": False, "error": f"run failed: {type(e).__name__}: {e}"}
+        return _parse(p.stdout, p.stderr)
     try:
-        # -I: no PYTHON* variables, no user site folder, not the current folder (scan.py adds its own folder itself)
-        p = subprocess.run(cmd, cwd=ML_CODE, capture_output=True, text=True, timeout=timeout())
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"exceeded {timeout()}s"}
+        p = subprocess.Popen(cmd, cwd=ML_CODE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except Exception as e:
         return {"ok": False, "error": f"run failed: {type(e).__name__}: {e}"}
+    end = time.monotonic() + timeout()
+    while True:
+        try:
+            out, err = p.communicate(timeout=STOP_POLL_SECONDS)
+            break
+        except subprocess.TimeoutExpired:
+            stopped = stop.is_set()
+            if stopped or time.monotonic() >= end:
+                p.kill()
+                p.communicate()
+                if stopped:
+                    return {"ok": False, "stopped": True, "error": "stopped: the release is already a BLOCK"}
+                return {"ok": False, "error": f"exceeded {timeout()}s"}
+        except Exception as e:
+            p.kill()
+            return {"ok": False, "error": f"run failed: {type(e).__name__}: {e}"}
+    return _parse(out, err)
 
+
+def _parse(out: str, err: str) -> dict:
+    """ml/scan.py's JSON output as the bridge's result."""
     try:
-        r = json.loads(p.stdout)
+        r = json.loads(out)
     except json.JSONDecodeError:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-1:] or [""]
+        tail = (err or out or "").strip().splitlines()[-1:] or [""]
         return {"ok": False, "error": f"could not parse result: {tail[0][:200]}"}
     if not isinstance(r, dict):
         return {"ok": False, "error": "could not parse result: not a JSON object"}

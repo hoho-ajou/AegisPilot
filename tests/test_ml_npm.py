@@ -215,13 +215,7 @@ class TwoStages(unittest.TestCase):
         import ml_bridge
         import rule_engine
         import scan_engine as se
-        p = subprocess.CompletedProcess([], 0, json.dumps(r), "")
-        real = ml_bridge.subprocess.run
-        ml_bridge.subprocess.run = lambda *a, **k: p
-        try:
-            res = ml_bridge._run(["x"])
-        finally:
-            ml_bridge.subprocess.run = real
+        res = ml_bridge._run([sys.executable, "-I", "-c", "import sys; sys.stdout.write(sys.argv[1])", json.dumps(r)])
         self.assertEqual((res["ok"], res.get("skipped")), (False, True))
         f = se.ScanFeatures(name="demo", version="1.0.0", ecosystem="npm")
         f.ml = res
@@ -316,7 +310,7 @@ class NpmScan(unittest.TestCase):
             info.update(artifact="demo-1.0.0.tgz", skipped=[], root=str(root))
             return "1.0.0", list(root.rglob("*"))
 
-        def ml(name, version, pkg_dir):
+        def ml(name, version, pkg_dir, stop=None):
             seen["dir"] = Path(pkg_dir).is_dir()
             return {"ok": True, "ml_score": 0.8, "ml_score_exact": 0.8, "threshold": 0.3, "review_threshold": 0.3,
                     "alert": True, "level": "review", "model": "ml_npm_full", "code_analyzed": True,
