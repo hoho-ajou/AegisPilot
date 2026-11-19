@@ -21,6 +21,9 @@ Rules
     its own check: ~/.aegis/ml can be written by anything that runs as the user. They are JSON (no pickle).
   - The model reads the release file the guard already downloaded (handoff); without it, it downloads the file itself
     by the rule it was trained with (sdist first, 20MB or less).
+  - npm (ml_predict_npm): the npm models of models.json's "npm" block read the folder the guard unpacked, plus the
+    registry's full document (fetched by scan.py). They are downloaded on the first npm check, apart from the PyPI
+    ones; without an npm model, npm packages get the rules alone and no ML line.
 """
 import json
 import os
@@ -101,18 +104,47 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
                 json.dump({"schema": "aegis.handoff/1", "package": name, "version": version, **handoff}, fh)
                 tmp_handoff = fh.name
             cmd += ["--handoff", tmp_handoff]
-        # -I: no PYTHON* variables, no user site folder, not the current folder (scan.py adds its own folder itself)
-        p = subprocess.run(cmd, cwd=ML_CODE, capture_output=True, text=True, timeout=timeout())
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"exceeded {timeout()}s"}
-    except Exception as e:
-        return {"ok": False, "error": f"run failed: {type(e).__name__}: {e}"}
+        return _run(cmd)
     finally:
         if tmp_handoff:
             try:
                 os.unlink(tmp_handoff)
             except OSError:
                 pass
+
+
+def ml_predict_npm(name: str, version: str | None, pkg_dir) -> dict:
+    """Score one npm package version, unpacked by the guard in `pkg_dir` (never run). Always returns a dict; ok=False
+    means no ML verdict (no npm model released or installed, AEGIS_ML=0, failure)."""
+    flag = os.environ.get("AEGIS_ML")
+    if flag == "0":
+        return {"ok": False, "disabled": True, "error": "ML is off (AEGIS_ML=0)"}
+    import ml_install
+    if not ml_install.has_group("npm"):
+        return {"ok": False, "not_installed": True, "error": "no npm model released yet"}
+    if ml_install.check_models(models_dir(), "npm"):
+        if flag is None and ml_install.opted_out(ml_dir()):
+            return {"ok": False, "not_installed": True, "error": "ML turned off with ml-uninstall"}
+        why = ml_install.auto_install(ml_dir(), group="npm")
+        if why:
+            return {"ok": False, "not_installed": True, "error": f"npm ML not installed: {why}"}
+    problem = ml_install.check_models(models_dir(), "npm")
+    if problem:
+        return {"ok": False, "error": f"npm ML model files not used: {problem} (run guard_cli.py ml-install)"}
+    cmd = [sys.executable or "python3", "-I", str(ML_CODE / "scan.py"), name] + ([version] if version else []) + \
+          ["--ecosystem", "npm", "--dir", str(pkg_dir), "--json", "--models", str(models_dir())]
+    return _run(cmd)
+
+
+def _run(cmd: list) -> dict:
+    """Run ml/scan.py and read its JSON. Never raises."""
+    try:
+        # -I: no PYTHON* variables, no user site folder, not the current folder (scan.py adds its own folder itself)
+        p = subprocess.run(cmd, cwd=ML_CODE, capture_output=True, text=True, timeout=timeout())
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"exceeded {timeout()}s"}
+    except Exception as e:
+        return {"ok": False, "error": f"run failed: {type(e).__name__}: {e}"}
 
     try:
         r = json.loads(p.stdout)
@@ -121,6 +153,8 @@ def ml_predict(name: str, version: str | None = None, handoff: dict | None = Non
         return {"ok": False, "error": f"could not parse result: {tail[0][:200]}"}
     if not isinstance(r, dict):
         return {"ok": False, "error": "could not parse result: not a JSON object"}
+    if r.get("skipped"):                       # no model for this case (npm without its registry document): silent
+        return {"ok": False, "skipped": True, "error": r.get("error", "skipped")}
     if "error" in r:
         return {"ok": False, "error": r["error"]}
     try:

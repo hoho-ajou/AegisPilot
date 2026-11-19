@@ -182,11 +182,11 @@ def static_analysis(files: list[Path], features: ScanFeatures, stop=None) -> Non
     """Apply guard/rules/rules.json to the unpacked files (rule_engine.run_static), then the behavior analysis
     (guard/behavior: rebuilt values and data flow, judged by rules/behavior.json). `stop` (a threading.Event, set when
     OSV lists the release as malicious) ends the work early: before each stage, and between files of the behavior
-    analysis. Nothing is killed: the analysis returns at the next check."""
+    analysis and between files of the rule pass. Nothing is killed: the analysis returns at the next check."""
     if stop is not None and stop.is_set():
         features.analysis_skipped = OSV_MALICIOUS_SKIP
         return
-    rule_engine.run_static(RULESET, files, features)
+    rule_engine.run_static(RULESET, files, features, stop=stop)
     if stop is not None and stop.is_set():
         features.analysis_skipped = OSV_MALICIOUS_SKIP
         return
@@ -275,6 +275,20 @@ def _ml_predict(name, version, handoff=None):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod.ml_predict(name, version, handoff)
+    except Exception as e:
+        return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
+
+
+def _ml_predict_npm(name, version, pkg_dir):
+    """The npm model on an unpacked npm package (ml_bridge.ml_predict_npm). Never raises."""
+    if not Path(__file__).with_name("ml_bridge.py").exists():
+        return {"ok": False, "error": "no ML model installed"}
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ml_bridge", Path(__file__).with_name("ml_bridge.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.ml_predict_npm(name, version, pkg_dir)
     except Exception as e:
         return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
 
@@ -414,79 +428,133 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     if features.release_age_hours is not None and features.release_age_hours < limit:
         features.settled_version = pypi_settled_version(meta, resolved, limit)
 
-    import threading
-
     ml_artifact_policy = os.environ.get("AEGIS_ML_ARTIFACT", "model")   # "installed": hand the ML model the file we analyze; "model": it picks its own (sdist first)
-    art: dict = {"archive_ready": threading.Event()}
-    stop = threading.Event()                     # set when OSV lists this release as malicious: BLOCK is certain
+    rel_box: dict = {}
 
-    def osv_task():
-        vulns = query_osv(name, resolved)
-        try:
-            from post_rules import malicious_ids
-            if malicious_ids(vulns):
-                stop.set()
-        except Exception:
-            pass                                  # unsure: the full analysis runs as before
-        return vulns
-    tmp = tempfile.TemporaryDirectory()          # outlives the pool: the ML process may still be reading the archive
+    def fetch(dest: Path, art: dict) -> list:
+        _, files = pypi.fetch(name, version, dest, art, meta)
+        features.artifact, features.artifact_kind = art.get("artifact"), art.get("artifact_kind")
+        return files
 
-    def artifact_task():
-        try:
-            _, files = pypi.fetch(name, version, Path(tmp.name), art, meta)
-            art["files"] = files
-            features.artifact, features.artifact_kind = art.get("artifact"), art.get("artifact_kind")
-            features.skipped_members = list(art.get("skipped", []))
-            static_analysis(files, features, stop)
-        finally:
-            art["archive_ready"].set()           # never leave the ML stage waiting (Range path / failure leave no archive)
-
-    def rel_task():
-        return collect.fetch_release(name, resolved, meta)
-
-    def deps_task(rel_f):
-        rel = rel_f.result()
+    def release(art: dict, stop) -> None:
+        rel_box["rel"] = rel = collect.fetch_release(name, resolved, meta)
         features.requires_dist = list(rel.get("info", {}).get("requires_dist") or [])
         features.dependencies = collect.fetch_requires(name, resolved, meta, rel=rel)
 
-    def ml_task(rel_f):
-        rel = rel_f.result()
-        if stop.is_set():
-            return None                           # OSV already decided: no model run
-        handoff = {"proj": meta, "rel": rel, "artifact": None}
+    def ml(art: dict, stop):
+        art["release_done"].wait(60)
+        if stop.is_set() or "rel" not in rel_box:
+            return None if stop.is_set() else {"ok": False, "error": "release information not read"}
+        handoff = {"proj": meta, "rel": rel_box["rel"], "artifact": None}
         if ml_artifact_policy == "installed":
-            art["archive_ready"].wait(60)
+            art["fetched"].wait(60)
             if art.get("archive_path"):
                 handoff["artifact"] = {"path": art["archive_path"], "filename": art.get("artifact"), "kind": art.get("artifact_kind")}
         return _ml_predict(name, resolved or version, handoff)
 
+    def finish(vulns, ml_result) -> Verdict:
+        return _finish(name, meta, features, vulns, ml_result)
+
+    return _scan_release(features, "pypi", resolved, fetch, release, ml, finish)
+
+
+OSV_WAIT_FOR_ML = 20.0       # seconds the ML stage waits for OSV's answer; after that it runs anyway
+
+
+def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, fetch, release, ml, finish) -> Verdict:
+    """The scan of one registry release, the same for PyPI and npm (what differs is passed in):
+
+        [download -> rules -> behavior analysis]  [release info -> dependency list]  [OSV]  [ML model]   at the same time
+        -> the verdict (rules, then the ML path; the stricter one) -> what the code can do, for a held package
+
+    OSV listing the release as malicious sets a stop signal: the download stops within 1 MB, the rule pass and the
+    behavior analysis at their next file, the ML model is not started, and the verdict is that BLOCK.
+      fetch(dest, art) -> files         download and unpack into dest (never run); fills art (archive_path, root, ...)
+      release(art, stop)                release info and dependency list; a failure is recorded, never decides
+      ml(art, stop) -> dict | None      the ML result (None: not run); started after OSV answers, waits for
+                                        art["fetched"] / art["release_done"] itself
+      finish(vulns, ml_result)          the verdict from the features
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "osv_done": threading.Event(),
+                 "archive_ready": None}
+    art["archive_ready"] = art["fetched"]            # sources/pypi.fetch sets it as soon as the archive is on disk
+    stop = threading.Event()                         # set when OSV lists this release as malicious: BLOCK is certain
+    art["stop"] = stop                               # the download checks it every 1 MB (net.read_capped)
+
+    def osv_task():
+        try:
+            vulns = query_osv(features.name, version, ecosystem)
+            try:
+                from post_rules import malicious_ids
+                if malicious_ids(vulns):
+                    stop.set()
+            except Exception:
+                pass                                  # unsure: the full analysis runs as before
+            return vulns
+        finally:
+            art["osv_done"].set()
+
+    def ml_task():
+        # the model starts only after OSV has answered (median 0.6 s): a release OSV lists as malicious never runs it,
+        # whichever of OSV and the release info arrives first
+        art["osv_done"].wait(OSV_WAIT_FOR_ML)
+        if stop.is_set():
+            return None
+        return ml(art, stop)
+    tmp = tempfile.TemporaryDirectory()              # outlives the pool: the ML process may still be reading the files
+
+    def artifact_task():
+        try:
+            files = fetch(Path(tmp.name), art)
+            art["files"] = files
+            features.skipped_members = list(art.get("skipped", []))
+        finally:
+            art["fetched"].set()                     # never leave the ML stage waiting
+        static_analysis(files, features, stop)
+
+    def release_task():
+        try:
+            if release is not None:
+                release(art, stop)
+        finally:
+            art["release_done"].set()
+
     try:
-        with ThreadPoolExecutor(5) as pool:
+        with ThreadPoolExecutor(4) as pool:
             art_f = pool.submit(artifact_task)
-            rel_f = pool.submit(rel_task)
-            deps_f = pool.submit(deps_task, rel_f)
+            rel_f = pool.submit(release_task)
             osv_f = pool.submit(osv_task)
-            ml_f = pool.submit(ml_task, rel_f)
+            ml_f = pool.submit(ml_task) if ml is not None else None
             try:
                 art_f.result()
                 features.fetch_ok = True
             except Exception as e:
                 features.fetch_error = str(e)
             try:
-                deps_f.result()
+                rel_f.result()
             except Exception as e:
                 features.deps_error = str(e)               # unknown dependency list: reported, never blocks the verdict
             vulns = osv_f.result()
-            ml_result = ml_f.result()
+            try:
+                ml_result = ml_f.result() if ml_f is not None else None
+            except Exception as e:
+                ml_result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
         if features.fetch_error:
+            features.osv_vulns = vulns
+            if stop.is_set():                      # removed from the registry after OSV listed it: still a BLOCK
+                features.analysis_skipped = OSV_MALICIOUS_SKIP
+                return _osv_malicious_verdict(features)
             return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {features.fetch_error}"], features)
-        verdict = _finish(name, meta, features, vulns, ml_result)
+        verdict = finish(vulns, ml_result)
         if stop.is_set():
+            features.analysis_skipped = OSV_MALICIOUS_SKIP
             verdict = _osv_malicious_verdict(features)
         if verdict.verdict != "ALLOW" and art.get("files"):
             try:                                   # what the code can do, for the attack paths (never part of the verdict)
                 import package_caps
-                features.package_capabilities = package_caps.extract(art["files"])
+                features.package_capabilities = package_caps.extract(art["files"], install_files=features.install_time_files)
             except Exception as e:
                 features.package_capabilities = {"items": [], "counts": {}, "files": 0, "limits": [f"analysis failed: {type(e).__name__}"]}
         return verdict
@@ -540,7 +608,7 @@ def scan_local_file(path: str | Path) -> Verdict:
 def scan_files(files: list[Path], features: ScanFeatures) -> Verdict:
     """The source-independent part of a scan: rules over files already on disk (features.ecosystem says which languages
     are code), the verdict, and - for a flagged package - what its code can do (attack paths; Python code only for now).
-    Every source (PyPI's scan_package keeps its own concurrent flow; local files, npm, bundles) ends here."""
+    Registry packages (PyPI, npm) go through _scan_release instead; local files, git / URL sources and bundles end here."""
     static_analysis(files, features)
     features.fetch_ok = True
     verdict = compute_verdict(features)
@@ -555,8 +623,9 @@ def scan_files(files: list[Path], features: ScanFeatures) -> Verdict:
 
 def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
     """An npm registry package (sources/npm.py): the version npm would install, its tarball and lifecycle scripts
-    through the rules, and OSV's npm records. PyPI-only checks (typosquat list, PyPI reputation, version history) are
-    not applied; OSV's malicious-release records are (post_rules known_malicious, via features.osv_vulns)."""
+    through the rules, OSV's npm records and the npm ML model, in the same pipeline as PyPI (_scan_release). PyPI-only
+    checks (typosquat list, PyPI reputation, version history) are not applied; OSV's malicious-release records are
+    (post_rules known_malicious, via features.osv_vulns)."""
     from sources import npm
     features = ScanFeatures(name=name, version=spec, ecosystem="npm")
     try:
@@ -578,30 +647,34 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
             features.settled_version = npm.settled_version(name, spec, version, meta, limit)
         except Exception:
             features.settled_version = None
-    from concurrent.futures import ThreadPoolExecutor
-    with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(1) as pool:
-        osv_f = pool.submit(query_osv, name, version, "npm")
-        try:
-            info: dict = {}
-            _, files = npm.fetch(name, version, Path(tmp), meta, info)
-            features.artifact, features.artifact_kind = info.get("artifact"), "npm"
-            features.skipped_members = list(info.get("skipped", []))
-            features.install_time_files = npm.install_time_files(files)
-        except Exception as e:
-            features.fetch_error = str(e)
-            features.osv_vulns = osv_f.result()
-            return Verdict("NEEDS_HUMAN_REVIEW", 0.5, [f"fetch/analysis failed: {e}"], features)
-        features.osv_vulns = osv_f.result()
-        features.osv_max_severity = _severity_rank(features.osv_vulns)
-        try:
-            from post_rules import malicious_ids
-            if malicious_ids(features.osv_vulns):
-                features.analysis_skipped = OSV_MALICIOUS_SKIP
-                features.fetch_ok = True
-                return _osv_malicious_verdict(features)
-        except Exception:
-            pass
-        return scan_files(files, features)
+
+    def fetch(dest: Path, art: dict) -> list:
+        _, files = npm.fetch(name, version, dest, meta, art)
+        features.artifact, features.artifact_kind = art.get("artifact"), "npm"
+        features.install_time_files = npm.install_time_files(files)
+        return files
+
+    def release(art: dict, stop) -> None:
+        doc = (meta.get("versions") or {}).get(version) or {}
+        deps = {}
+        for key in ("dependencies", "optionalDependencies"):
+            if isinstance(doc.get(key), dict):
+                deps.update(doc[key])
+        features.dependencies = [{"name": n, "spec": str(v), "extras": []} for n, v in sorted(deps.items())]
+
+    def ml(art: dict, stop):
+        art["fetched"].wait(120)
+        if stop.is_set() or not art.get("root"):
+            return None                           # OSV already decided, or nothing unpacked: no model run
+        return _ml_predict_npm(name, version, art["root"])
+
+    def finish(vulns, ml_result) -> Verdict:
+        features.osv_vulns = vulns
+        features.osv_max_severity = _severity_rank(vulns)
+        features.ml = ml_result
+        return compute_verdict(features)
+
+    return _scan_release(features, "npm", version, fetch, release, ml, finish)
 
 
 def _as_package_root(root: Path, tmp: Path) -> Path:

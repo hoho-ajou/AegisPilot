@@ -394,7 +394,8 @@ class BridgeAndDisplay(unittest.TestCase):
 
     def test_no_third_party_imports(self):
         """The runtime modules import the standard library only."""
-        allowed = set(sys.stdlib_module_names) | {"forest", "features", "code_features", "scan"}
+        allowed = set(sys.stdlib_module_names) | {"forest", "features", "code_features", "scan", "npm_features",
+                                                   "js_code_features"}
         import ast
         for name in ("forest.py", "features.py", "code_features.py", "scan.py"):
             tree_ = ast.parse((ML / name).read_text())

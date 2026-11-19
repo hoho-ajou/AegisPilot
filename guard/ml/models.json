@@ -45,5 +45,31 @@
     "final_check": "independent 650 benign (2026-11-05; new 250, longtail 250, top 150), worst install age (same day), REVIEW: all 2.0%, new 4.0%, longtail 0.8%, top 0.7%",
     "data_snapshot": "2026-09-25",
     "trained_at": "2026-11-05"
+  },
+  "npm": {
+    "about": "npm model (docs/ml-npm.md): npm_full only; a version whose registry document cannot be read gets no ML verdict. Downloaded on the first npm check, apart from the PyPI models.",
+    "version": 2,
+    "release_url": "https://github.com/hoho-ajou/AegisPilot/releases/download/ml-models-npm-2/",
+    "models": {
+      "npm_full": {
+        "file": "aegis-ml-npm-full-2.json.gz",
+        "size": 4519697,
+        "sha256": "021809335534f2ad5fd9175cd146a0576a5e698d52bd361a181eb79d74d27527"
+      }
+    },
+    "thresholds": {
+      "npm_full": {
+        "alert": 0.2716,
+        "review": 0.2716,
+        "review_rule": "alert and a code behavior signal (npm_features.SEVERE present, or another npm_features.BEHAVIOR feature present with a positive SHAP contribution); an alert without one is a note"
+      }
+    },
+    "trained": {
+      "algorithm": "random forest (scikit-learn 1.9.1, 300 trees, min_samples_leaf=2), converted to JSON (ml/convert.py)",
+      "features": 44,
+      "malicious": "23,481 DataDog npm samples, test = found on or after 2026-03-01",
+      "benign": "1,500 popular + 1,500 long tail + 1,500 created in the last 30 days; final set 660",
+      "install_ages": "malicious and new benign rows at 0/1/3/7/14/30 days (--mal-all-ages)"
+    }
   }
 }

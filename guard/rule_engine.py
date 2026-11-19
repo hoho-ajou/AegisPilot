@@ -988,7 +988,7 @@ def _text_file_rules(rs: Ruleset, st: _Scan, rules: list[dict], path: Path, feat
         _PER_FILE[rule["detector"]](st, rule, path, text, text, lines, lines, features)
 
 
-def run_static(rs: Ruleset, files: list[Path], features, ecosystem: str | None = None) -> None:
+def run_static(rs: Ruleset, files: list[Path], features, ecosystem: str | None = None, stop=None) -> None:
     """Apply rules.json to the unpacked files, filling `features` (scan_engine.ScanFeatures) as static_analysis did.
     ecosystem: which kind of thing is scanned (signals.json "ecosystems"; default the features' own, else pypi) - it
     decides which languages are read as code. A PyPI scan reads exactly what it did before languages existed."""
@@ -1008,6 +1008,8 @@ def run_static(rs: Ruleset, files: list[Path], features, ecosystem: str | None =
 
     real_lines: dict = {}                                # path -> its real lines, for files read through code_view
     for path in files:
+        if stop is not None and stop.is_set():          # OSV already lists the release as malicious: the verdict is set
+            break
         if not path.is_file():
             continue
         total_count += 1
@@ -1271,7 +1273,7 @@ def score_rules(rs: Ruleset, features) -> tuple[str, float, list]:
         if ml_level(ml) == "review":
             total, flagged = max(total, rs.review_floor), True
         reasons += ml_reasons(ml)
-    elif ml and not ml.get("disabled") and not ml.get("not_installed"):
+    elif ml and not ml.get("disabled") and not ml.get("not_installed") and not ml.get("skipped"):
         reasons.append(f"[ML] no verdict ({ml.get('error')})")
     if ml and ml.get("ok") and not ml.get("code_analyzed") and "ArchiveLimitError" in str(ml.get("code_source")):
         total, flagged = max(total, rs.review_floor), True

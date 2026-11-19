@@ -37,7 +37,7 @@ When the agent runs `ml-install` or `ml-uninstall`, AegisPilot asks you first, i
 
 ## What it changes
 
-Only PyPI packages are scored. npm, git/URL installs, MCP servers, plugins and hooks are checked by the rules alone.
+Only PyPI packages are scored. npm, git/URL installs, MCP servers, plugins and hooks are checked by the rules alone. npm has its own models, built the same way ([ml-npm.md](ml-npm.md)); they are used once they are released (an `npm` block in `models.json`).
 
 With the ML model installed, a PyPI package gets a second score next to the rules: the vulnerability score (OSV), the typosquat score and the ML score. The verdict is the stricter of the two, so installing the ML model never lowers a verdict. Everything that blocks on its own stays: known malicious releases, the behavior check, the deny list.
 

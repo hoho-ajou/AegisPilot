@@ -107,6 +107,7 @@ def verify() -> int:
         import ml_bridge
         import ml_install
         print(f"ML: {ml_install.status(ml_bridge.ml_dir())}")
+        print(f"ML (npm): {ml_install.status_npm(ml_bridge.ml_dir())}")
     except Exception as e:                                      # the ML line must never break verify
         print(f"ML: status unknown ({type(e).__name__})")
     findings = integrity.check_integrity()
@@ -214,20 +215,32 @@ def ml_cmd(cmd: str, argv: list[str]) -> int:
         print("It is not downloaded again automatically; guard_cli.py ml-install turns it back on.")
         return 0
     s = ml_install.spec()
-    size = sum(m.get("size", 0) for m in s["models"].values()) / 1e6
-    print(f"AegisPilot ML into {folder / 'models'}:\n"
-          f"  two model files ({size:.0f}MB) from {a.src or s['release_url']}, checked against models.json")
+    groups = [g for g in ml_install.GROUPS if ml_install.group_models(g, s)]
+    print(f"AegisPilot ML into {folder / 'models'}:")
+    for g in groups:
+        ms = ml_install.group_models(g, s)
+        size = sum(m.get("size", 0) for m in ms.values()) / 1e6
+        print(f"  {g}: {len(ms)} model files ({size:.0f}MB) from {a.src or ml_install.group_release_url(g, s)}, "
+              f"checked against models.json")
     if not a.yes and input("Type install to go on: ").strip() != "install":
         print("Cancelled.")
         return 1
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        ml_install.install_models(folder / "models", a.src)
+        ml_install.install_models(folder / "models", a.src, group="pypi")
         ml_install.opt_out_marker(folder).unlink(missing_ok=True)
     except (OSError, ValueError) as e:
         print(f"Not installed: {e}")
         return 1
+    for g in groups:                          # the npm model is optional: its failure leaves the PyPI one in place
+        if g == "pypi":
+            continue
+        try:
+            ml_install.install_models(folder / "models", a.src, group=g)
+        except (OSError, ValueError) as e:
+            print(f"{g} model not installed: {e} (npm packages are checked by the rules; ml-install retries)")
     print(f"ML: {ml_install.status(folder)}. It is used for PyPI packages from the next check on (AEGIS_ML=0 turns it off).")
+    print(f"ML (npm): {ml_install.status_npm(folder)}")
     return 0
 
 

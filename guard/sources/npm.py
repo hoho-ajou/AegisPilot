@@ -742,8 +742,11 @@ def fetch(name: str, spec: str | None, dest: Path, meta: dict | None = None, inf
     url = dist.get("tarball", "")
     if not url.startswith(REGISTRY + "/"):
         raise ValueError("tarball address in the npm metadata is not registry.npmjs.org")
+    stop = (info or {}).get("stop")
+    if stop is not None and stop.is_set():
+        raise net.Stopped("download not started: OSV lists this release as malicious")
     with net.urlopen(url, timeout=TIMEOUT) as resp:
-        raw = resp.read(MAX_TARBALL_BYTES + 1)
+        raw = net.read_capped(resp, MAX_TARBALL_BYTES + 1, stop)
     if len(raw) > MAX_TARBALL_BYTES:
         raise ValueError(f"package too large, code not scanned (>{MAX_TARBALL_BYTES >> 20}MB limit)")
     base = f"{name.replace('/', '__')}-{version}"
@@ -753,7 +756,7 @@ def fetch(name: str, spec: str | None, dest: Path, meta: dict | None = None, inf
     files = extract(raw, root, skipped)
     life = write_lifecycle(files, dest, base)
     if info is not None:
-        info.update(artifact=url.rsplit("/", 1)[-1], artifact_kind="npm", skipped=skipped,
+        info.update(artifact=url.rsplit("/", 1)[-1], artifact_kind="npm", skipped=skipped, root=str(root),
                     scripts={f.name.split("#", 1)[1][:-3]: f.read_text().strip()[:200] for f in life
                              if f.suffix == ".sh" and "~" not in f.name},
                     integrity=dist.get("integrity"))

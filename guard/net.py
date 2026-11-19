@@ -49,3 +49,24 @@ def urlopen(req, timeout: float = 15, attempts: int = ATTEMPTS, sleep=time.sleep
                     pass
             sleep(pause)
     raise RuntimeError("unreachable")
+
+
+class Stopped(Exception):
+    """A download given up on purpose: the stop signal was set (OSV lists the release as malicious)."""
+
+
+READ_CHUNK = 1 << 20
+
+
+def read_capped(resp, limit: int, stop=None, chunk: int = READ_CHUNK) -> bytes:
+    """resp.read(limit) in pieces of `chunk` bytes, checking `stop` (a threading.Event) before each: a download that
+    is no longer needed ends within one piece. Raises Stopped then."""
+    buf = bytearray()
+    while len(buf) < limit:
+        if stop is not None and stop.is_set():
+            raise Stopped("download stopped: OSV lists this release as malicious")
+        part = resp.read(min(chunk, limit - len(buf)))
+        if not part:
+            break
+        buf += part
+    return bytes(buf)

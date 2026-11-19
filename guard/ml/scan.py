@@ -1,10 +1,12 @@
 """
-AegisPilot ML - scores one PyPI release: ml_score, the level (review / note / pass) and the reasons a developer is shown.
+AegisPilot ML - scores one PyPI release or npm package version: ml_score, the level (review / note / pass) and the
+reasons a developer is shown.
 
     python3 -I scan.py requests                     # latest version
     python3 -I scan.py requests 2.32.3 --json       # JSON only (what the guard reads)
     python3 -I scan.py mypkg 0.1.0 --artifact ./mypkg-0.1.0.tar.gz   # read the code of a local release file
     python3 -I scan.py demo 0.1.0 --artifact demo-0.1.0.tar.gz --meta meta.json   # no PyPI at all (demo / offline)
+    python3 -I scan.py left-pad 1.3.0 --ecosystem npm --dir ./left-pad-1.3.0.tgz.unpacked --json   # npm (unpacked)
 
 Standard library only: guard/ml_bridge.py runs it with the guard's own python3 (-I) as a separate process. The models
 are the full model when the code could be read and the metadata model otherwise (loaded only then); --models names
@@ -15,6 +17,11 @@ Two stages:
         present with a positive SHAP contribution) -> review; an alert without one -> note
   meta  score >= review threshold -> review; >= alert threshold -> note
 SHAP (TreeSHAP) runs only for an alert.
+
+npm (--ecosystem npm): the npm models of models.json's "npm" block, with the features of npm_features.py. They read
+the folder the guard unpacked (--dir) and the registry's full document (fetched here, or --packument FILE). npm_full
+uses the registry history, npm_pkg (the document could not be read) does not; both read the code, so both use the two
+stages of the full model, with npm's own SEVERE and BEHAVIOR lists (npm_features.py).
 """
 import sys
 import json
@@ -34,10 +41,20 @@ MODELS_DIR = _HERE / "models"
 _cache = {}
 
 
+def model_entry(kind):
+    """The models.json entry of a model: the PyPI ones under "models", the npm ones under "npm"."""
+    if kind in SPEC["models"]:
+        return SPEC["models"][kind]
+    npm = SPEC.get("npm") or {}
+    if kind in (npm.get("models") or {}):
+        return npm["models"][kind]
+    raise forest.ModelError(f"no model {kind!r} in models.json")
+
+
 def _load(kind):
     """The forest of `kind`, loaded once, after its SHA-256 check (ModelError otherwise)."""
     if kind not in _cache:
-        m = SPEC["models"][kind]
+        m = model_entry(kind)
         _cache[kind] = forest.load(Path(MODELS_DIR) / m["file"], m["sha256"])
     return _cache[kind]
 
@@ -107,10 +124,46 @@ def _present(f, raw):
     return v > 1000 if f == "max_line_len" else v > 0
 
 
-def _item(f, raw, c=None):
+def _item(f, raw, c=None, desc=None):
     v = raw[f]
-    return {"feature": f, "value": v, "contribution": None if c is None else round(float(c), 3),
-            "desc": DESC.get(f, lambda x: f"{f} = {x}")(v)}
+    d = (desc or DESC).get(f) or DESC.get(f) or (lambda x: f"{f} = {x}")
+    return {"feature": f, "value": v, "contribution": None if c is None else round(float(c), 3), "desc": d(v)}
+
+
+def judge(model, raw, two_stage, severe=SEVERE, behavior=BEHAVIOR, present=_present, desc=None, top_k=3):
+    """Score, level and reasons of one feature dict with one model (shared by PyPI and npm).
+    two_stage: review needs a code behavior signal (models that read the code); otherwise review >= review threshold."""
+    x = model.vector(raw)
+    score = model.predict(x)
+    th = model.thresholds
+    alert = score >= th["alert"]
+    code_behavior, package_profile, all_up, notes = [], [], [], []
+    if alert:
+        _, phi = model.shap(x)
+        contrib = dict(zip(model.features, phi))
+        # 1) risky behavior found in the code: present, and severe or raising the score
+        sev = [f for f in severe if f in contrib and present(f, raw)]                  # every severe signal
+        other = sorted([f for f in behavior if f not in severe and f in contrib
+                        and present(f, raw) and contrib[f] > 0], key=lambda f: -contrib[f])[:2]
+        code_behavior = [_item(f, raw, contrib[f], desc) for f in sev + other]
+        # 2) package profile: other features that raised the score enough
+        prof = [f for f in sorted(contrib, key=lambda f: -contrib[f])
+                if f not in behavior and contrib[f] >= MIN_CONTRIB][:2]
+        package_profile = [_item(f, raw, contrib[f], desc) for f in prof]
+        # for analysis: the features that raised the score most
+        all_up = [_item(f, raw, contrib[f], desc) for f in sorted(contrib, key=lambda f: -contrib[f])
+                  if contrib[f] > 0][:top_k]
+    else:
+        # 3) passed, but with a severe signal: reported as a note without contributions (the verdict stays)
+        notes = [_item(f, raw, None, desc) for f in severe if f in model.features and present(f, raw)]
+    if two_stage:
+        level = ("review" if code_behavior else "note") if alert else "pass"
+    else:
+        level = "review" if score >= th["review"] else "note" if alert else "pass"
+    return {"ml_score": round(score, 3), "ml_score_exact": score, "threshold": th["alert"],
+            "review_threshold": th["review"], "alert": alert, "level": level,
+            "reasons": {"code_behavior": code_behavior, "package_profile": package_profile},
+            "notes": notes, "top_features": code_behavior + package_profile, "all_contributions": all_up}
 
 
 def scan(name, version=None, artifact_path=None, top_k=3, meta_path=None, handoff_path=None, now=None):
@@ -128,63 +181,112 @@ def scan(name, version=None, artifact_path=None, top_k=3, meta_path=None, handof
         feat = compute(name, version, artifact_path=artifact_path, now=now)
     kind = "full" if feat["code_ok"] else "meta"
     model = _load(kind)
-    raw = feat["raw"]
-
-    x = model.vector(raw)
-    score = model.predict(x)
-    th = model.thresholds
-    alert = score >= th["alert"]
-
-    code_behavior, package_profile, all_up, notes = [], [], [], []
-    if alert:
-        _, phi = model.shap(x)
-        contrib = dict(zip(model.features, phi))
-        # 1) risky behavior found in the code: present, and severe or raising the score
-        severe = [f for f in SEVERE if f in contrib and _present(f, raw)]            # every severe signal
-        other = sorted([f for f in BEHAVIOR if f not in SEVERE and f in contrib
-                        and _present(f, raw) and contrib[f] > 0], key=lambda f: -contrib[f])[:2]
-        code_behavior = [_item(f, raw, contrib[f]) for f in severe + other]
-        # 2) package profile: other features that raised the score enough
-        prof = [f for f in sorted(contrib, key=lambda f: -contrib[f])
-                if f not in BEHAVIOR and contrib[f] >= MIN_CONTRIB][:2]
-        package_profile = [_item(f, raw, contrib[f]) for f in prof]
-        # for analysis: the features that raised the score most
-        all_up = [_item(f, raw, contrib[f]) for f in sorted(contrib, key=lambda f: -contrib[f])
-                  if contrib[f] > 0][:top_k]
-    else:
-        # 3) passed, but with a severe signal: reported as a note without contributions (the verdict stays)
-        notes = [_item(f, raw) for f in SEVERE if f in model.features and _present(f, raw)]
-
-    if kind == "full":
-        level = ("review" if code_behavior else "note") if alert else "pass"
-    else:
-        level = "review" if score >= th["review"] else "note" if alert else "pass"
-
+    j = judge(model, feat["raw"], two_stage=kind == "full", top_k=top_k)
     return {
         "package": feat["package"], "version": feat["version"],
-        "ml_score": round(score, 3),
-        "ml_score_exact": score,
-        "threshold": th["alert"],
-        "review_threshold": th["review"],
-        "alert": alert,
-        "level": level,
+        **j,
         "model": f"ml_{kind}",
         "code_analyzed": feat["code_ok"],
         "code_source": feat["code_source"],
-        "reasons": {"code_behavior": code_behavior, "package_profile": package_profile},
-        "notes": notes,                                            # severe signals of a passed package
-        "top_features": code_behavior + package_profile,           # older readers
-        "all_contributions": all_up,                               # for analysis
+        "elapsed_sec": round(time.perf_counter() - t0, 2),
+    }
+
+
+# ---------------- npm ----------------
+NPM_REGISTRY = "https://registry.npmjs.org"
+NPM_DOC_MAX = 16 * 1024 * 1024          # the registry's full document of a package; larger ones (a few very old,
+NPM_DOC_TIMEOUT = 15                    # very popular packages) and slow answers: npm_pkg, within the 45-second limit
+
+NPM_DESC = {
+    "n_versions":        lambda v: f"only {int(v)} version(s) published so far",
+    "age_days":          lambda v: ("package created less than a day ago" if v < 1
+                                    else f"package created {v:.0f} day(s) ago"),
+    "n_maintainers":     lambda v: f"{int(v)} maintainer(s) on the registry",
+    "maint_free_email":  lambda v: "maintained with a free mail address (gmail and similar)" if v else "no free mail address",
+    "n_deps":            lambda v: "no dependencies" if v == 0 else f"{int(v)} dependencies",
+    "summary_len":       lambda v: "empty description" if v == 0 else f"description of {int(v)} characters",
+    "n_keywords":        lambda v: "no keywords" if v == 0 else f"{int(v)} keywords",
+    "has_bin":           lambda v: "installs a command" if v else "installs no command",
+    "has_readme":        lambda v: "no README" if not v else "has a README",
+    "n_files":           lambda v: f"{int(v)} file(s) in the package",
+    "total_size":        lambda v: f"package files total {_size(v)}",
+    "version_major":     lambda v: f"major version {int(v)}" + (" (a dependency-confusion trick)" if v >= 90 else ""),
+    "has_gyp":           lambda v: "builds native code (binding.gyp)" if v else "no native build",
+    "has_install_script": lambda v: "runs a script when installed (preinstall/install/postinstall)" if v else "no install script",
+    "script_len":        lambda v: f"install scripts of {int(v)} characters",
+    "script_network":    lambda v: "an install script goes online (curl, wget, a URL)" if v else "no network in install scripts",
+    "script_inline_node": lambda v: f"an install script runs inline JavaScript (node -e) ({int(v)})",
+    "n_js":              lambda v: f"only {int(v)} JavaScript file(s)",
+    "minified_files":    lambda v: f"{int(v)} minified file(s)",
+    "obf_ident_cnt":     lambda v: f"{int(v)} identifier(s) of an obfuscator (_0x...)",
+    "recon_cnt":         lambda v: f"{int(v)} place(s) that collect machine details (host name, user, network)",
+    "exec_cnt":          lambda v: f"{int(v)} place(s) that run a string as code (eval, Function, vm)",
+    "decode_cnt":        lambda v: f"{int(v)} place(s) that decode hidden data (base64, hex, zlib and similar)",
+    "sensitive_cnt":     lambda v: f"{int(v)} trace(s) of data theft (webhooks, .ssh, .npmrc, wallets and similar)",
+    "install_exec":      lambda v: "code run at install runs a string as code" if v else "no dynamic execution at install",
+    "install_decode":    lambda v: "code run at install decodes hidden data" if v else "no decoding at install",
+    "install_process":   lambda v: "code run at install runs external commands" if v else "no external commands at install",
+    "install_network":   lambda v: "code run at install goes online" if v else "no network access at install",
+    "install_sensitive": lambda v: "code run at install has traces of data theft" if v else "no traces of data theft at install",
+    "auto_process":      lambda v: f"external commands run as soon as it is installed or loaded ({int(v)})",
+    "auto_network":      lambda v: f"network access as soon as it is installed or loaded ({int(v)})",
+    "auto_exec":         lambda v: f"strings run as code as soon as it is installed or loaded ({int(v)})",
+}
+
+
+def _npm_present(f, raw):
+    return raw.get(f, 0) > 0
+
+
+def npm_registry_doc(name):
+    """The registry's full document of an npm package (versions, time, maintainers)."""
+    import urllib.parse
+    from features import _get
+    return json.loads(_get(f"{NPM_REGISTRY}/{urllib.parse.quote(name, safe='@')}", NPM_DOC_TIMEOUT, NPM_DOC_MAX))
+
+
+def scan_npm(name, version, pkg_dir, packument_path=None, now=None, top_k=3, offline=False):
+    """Score an npm package version from the folder the guard unpacked. npm_full with the registry document, npm_pkg
+    when it could not be read."""
+    import npm_features as NF
+    t0 = time.perf_counter()
+    doc, why = None, None
+    if packument_path:
+        with open(packument_path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    elif not offline:
+        try:
+            doc = npm_registry_doc(name)
+        except Exception as e:
+            why = f"registry document not read: {type(e).__name__}"
+    feat = NF.compute_from_dir(pkg_dir, doc, version, now)
+    kind = "npm_full" if feat["registry_ok"] else "npm_pkg"
+    if kind == "npm_pkg" and kind not in _cache and kind not in ((SPEC.get("npm") or {}).get("models") or {}):
+        # a release may ship npm_full alone: then a version whose registry document could not be read gets no ML
+        # verdict, quietly (the rules still check it)
+        return {"package": name, "version": version or feat["version"], "ecosystem": "npm", "skipped": True,
+                "error": f"no npm model without the registry document ({why or 'not read'})",
+                "elapsed_sec": round(time.perf_counter() - t0, 2)}
+    model = _load(kind)
+    j = judge(model, feat["raw"], two_stage=True, severe=NF.SEVERE, behavior=NF.BEHAVIOR, present=_npm_present,
+              desc=NPM_DESC, top_k=top_k)
+    return {
+        "package": name, "version": version or feat["version"],
+        **j,
+        "model": f"ml_{kind}",
+        "ecosystem": "npm",
+        "code_analyzed": True,
+        "code_source": why or "unpacked package",
         "elapsed_sec": round(time.perf_counter() - t0, 2),
     }
 
 
 def _print_human(r):
     status = {"review": "REVIEW: risk detected (ML), may be an unknown malicious package",
-              "note": "note: score above the alert threshold, but no risky behavior in the code" if r["model"] == "ml_full"
+              "note": "note: score above the alert threshold, but no risky behavior in the code" if r["model"] != "ml_meta"
                       else "note: metadata score above the alert threshold, below the review threshold",
               "pass": "passed: no strong risk signal"}[r["level"]]
-    print(f"\n[AegisPilot ML] {r['package']}=={r['version']}")
+    print(f"\n[AegisPilot ML] {r['package']}{'@' if r.get('ecosystem') == 'npm' else '=='}{r['version']}")
     print(f"  ml_score  : {r['ml_score']:.3f}  (alert at {r['threshold']:.4f}, review at {r['review_threshold']:.4f})")
     print(f"  verdict   : {status}")
     print(f"  model     : {r['model']}  (code {'read' if r['code_analyzed'] else 'not read: ' + str(r['code_source'])})")
@@ -204,7 +306,7 @@ def _print_human(r):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="AegisPilot ML: score one PyPI release")
+    ap = argparse.ArgumentParser(description="AegisPilot ML: score one PyPI release or npm package version")
     ap.add_argument("package")
     ap.add_argument("version", nargs="?", default=None)
     ap.add_argument("--artifact", default=None, help="a local release file whose code is read")
@@ -213,13 +315,23 @@ if __name__ == "__main__":
     ap.add_argument("--models", default=None, help="the folder with the model files (default: models/ here)")
     ap.add_argument("--json", action="store_true", help="print JSON only")
     ap.add_argument("--now", default=None, help="scan time for age_days, ISO 8601 UTC (tests and re-measurement)")
+    ap.add_argument("--ecosystem", choices=["pypi", "npm"], default="pypi")
+    ap.add_argument("--dir", default=None, help="npm: the folder the package was unpacked to")
+    ap.add_argument("--packument", default=None, help="npm: the registry's full document as a JSON file (no network)")
+    ap.add_argument("--offline", action="store_true", help="npm: do not fetch the registry document (npm_pkg model)")
     a = ap.parse_args()
     if a.models:
         MODELS_DIR = Path(a.models)
     try:
         import datetime
         now = datetime.datetime.fromisoformat(a.now.replace("Z", "+00:00")) if a.now else None
-        result = scan(a.package, a.version, artifact_path=a.artifact, meta_path=a.meta, handoff_path=a.handoff, now=now)
+        if a.ecosystem == "npm":
+            if not a.dir:
+                raise ValueError("--ecosystem npm needs --dir")
+            result = scan_npm(a.package, a.version, a.dir, a.packument, now=now, offline=a.offline)
+        else:
+            result = scan(a.package, a.version, artifact_path=a.artifact, meta_path=a.meta, handoff_path=a.handoff,
+                          now=now)
     except Exception as e:
         err = {"package": a.package, "version": a.version, "error": f"{type(e).__name__}: {e}"}
         print(json.dumps(err, ensure_ascii=False) if a.json else f"[AegisPilot ML] failed: {err['error']}")
