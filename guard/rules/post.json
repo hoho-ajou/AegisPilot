@@ -80,12 +80,13 @@
     }
   },
   "transitive": {
-    "about": "Dependencies pulled in by the packages the command installs directly (transitive dependencies). Followed using PyPI metadata only to pick the version pip would choose (the locked version for lock installs); all of them are sent to OSV in one query to find malicious releases, and only releases uploaded within recent_days get a full scan, because hijacked releases are almost always fresh uploads. Releases pip builds from source (no fitting wheel: their setup.py runs at install time) get a full scan too, up to max_build_scans, as npm dependencies with install scripts do.",
+    "about": "Dependencies pulled in by the packages the command installs directly (transitive dependencies). Followed using PyPI metadata only to pick the version pip would choose (the locked version for lock installs); all of them are sent to OSV in one query to find malicious releases, and only releases uploaded within recent_days get a full scan, because hijacked releases are almost always fresh uploads. Wider full scans, off by default (0) because they held many well-known packages on their own: releases pip builds from source (no fitting wheel: their setup.py runs at install time), up to max_build_scans; npm dependencies published within recent_days, up to max_npm_recent_scans (npm dependencies with install scripts are always scanned).",
     "recent_days": 30,
     "max_depth": 4,
     "max_packages": 80,
     "max_scans": 10,
-    "max_build_scans": 15,
+    "max_build_scans": 0,
+    "max_npm_recent_scans": 0,
     "workers": 8,
     "budget_seconds": 60
   },

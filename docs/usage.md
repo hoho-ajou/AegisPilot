@@ -14,7 +14,7 @@ Install commands:
 | Project installs | installs that name no package (`uv sync`, `poetry install`, bare `npm install`) are read from the project files, with the lock file's versions when there is one. A bare `npm install` / `npm ci` / `yarn` / `pnpm install` / `bun install` also runs the project's own install scripts (`preinstall`, `install`, `postinstall`, `prepare` ...): those and the files they run are scanned like a package's (not with `--ignore-scripts`) |
 | Other ecosystems | package installs of `cargo`, `gem` / `bundle`, `go install` / `go get`, `composer`, `dotnet add package`, `nuget` and `deno` (other than `npm:` packages) are not scanned: they get a REVIEW. Builds and queries (`cargo build`, `go build`, `gem list`) pass |
 
-Dependencies pulled in by the package are also checked: all of them against OSV for known malicious releases, and with a full scan the ones released recently and the ones pip builds from source (no fitting wheel, so their setup.py runs at install, as an npm dependency's install script does).
+Dependencies pulled in by the package are also checked: all of them against OSV for known malicious releases, and with a full scan PyPI dependencies released recently and npm dependencies with install scripts. Two wider full scans are off by default because they held many well-known packages: PyPI dependencies pip builds from source (`max_build_scans` in `guard/rules/post.json`) and recently published npm dependencies (`max_npm_recent_scans`).
 
 Settings changes:
 

@@ -99,8 +99,10 @@ class GuardCore(unittest.TestCase):
             transitive.walk, transitive.osv_malicious, se.scan_packages = saved
 
     def test_a_dependency_built_from_source_is_scanned(self):
-        # pip builds it from its sdist (its setup.py runs at install): scanned like npm's install-script dependencies
-        saved = (transitive.walk, transitive.osv_malicious, se.scan_packages)
+        # pip builds it from its sdist (its setup.py runs at install): not scanned by default (max_build_scans 0), and
+        # scanned like npm's install-script dependencies when max_build_scans is set
+        cfg = transitive.settings()
+        saved = (transitive.walk, transitive.osv_malicious, se.scan_packages, cfg["max_build_scans"])
         try:
             transitive.walk = lambda direct, fetch, pins, deadline=None: (
                 [{"name": "old-sdist", "version": "0.1", "via": ["app"], "recent": False, "builds": True},
@@ -118,12 +120,15 @@ class GuardCore(unittest.TestCase):
 
             class P:
                 packages, lock_pins = [("app", "1")], {}
+            check_pypi.transitive(P, [se.Verdict("ALLOW", 0.0, [], app)], True, Outcome())
+            self.assertEqual(asked, [])                              # off by default
+            cfg["max_build_scans"] = 15
             out = Outcome()
             check_pypi.transitive(P, [se.Verdict("ALLOW", 0.0, [], app)], True, out)
             self.assertEqual(asked, [("old-sdist", "0.1")])          # the wheel dependency (old, not malicious) is not
             self.assertTrue(out.dependencies[0][0].get("builds_from_source"))
         finally:
-            transitive.walk, transitive.osv_malicious, se.scan_packages = saved
+            transitive.walk, transitive.osv_malicious, se.scan_packages, cfg["max_build_scans"] = saved
 
     def test_builds_from_source_follows_pips_choice(self):
         sdist = {"filename": "x-1.0.tar.gz", "packagetype": "sdist", "url": "u", "size": 10}
