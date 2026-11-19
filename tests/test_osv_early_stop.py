@@ -1,6 +1,7 @@
-"""A release OSV lists as malicious is a BLOCK by definition, so its code is not analyzed and the ML model does not run
-(run: python3 tests/test_osv_early_stop.py). Nothing is killed: the download, the analysis and the model check a stop
-signal that the OSV lookup sets. Other packages, and releases OSV does not list, are analyzed as before."""
+"""A release OSV lists as malicious is a BLOCK by definition, so its code is not analyzed and the ML model's result is
+not used (run: python3 tests/test_osv_early_stop.py). The download, the analysis and the model check a stop signal that
+the OSV lookup sets; the model starts without waiting for OSV and its process is killed on the signal. Other packages,
+and releases OSV does not list, are analyzed as before."""
 import sys
 import tempfile
 import threading
@@ -59,9 +60,14 @@ def fake_fetch(name, version, dest, art=None, meta=None):
     return None, files_with(BAD)
 
 
-def fake_ml(name, version, handoff=None):
+def fake_ml(name, version, handoff=None, stop=None):
     calls["ml"] += 1
-    return {"ok": False, "error": "stub"}
+    if stop is not None:
+        end = time.monotonic() + 5                        # a model that runs until it is stopped (polls like ml_bridge)
+        while not stop.is_set() and time.monotonic() < end:
+            time.sleep(0.02)
+        calls["ml_stopped"] = calls.get("ml_stopped", 0) + stop.is_set()
+    return {"ok": False, "error": "stub", "stub": True}
 
 
 def fake_osv(listed):
@@ -79,23 +85,27 @@ try:
     se._ml_predict = fake_ml
 
     se.query_osv = fake_osv(MAL)
+    t0 = time.monotonic()
     v = se.scan_package("evx", "1.0")
+    assert time.monotonic() - t0 < 3, "the running model must be stopped, not waited for"
     assert v.features.analysis_skipped == se.OSV_MALICIOUS_SKIP, v.features.analysis_skipped
-    assert calls["ml"] == 0, "the model must not run for a release OSV lists as malicious"
+    assert calls["ml"] == calls.get("ml_stopped", 0), calls        # every model run started was stopped
+    assert not v.features.ml, "the model's result is not used for a release OSV lists as malicious"
     assert v.verdict == "BLOCK" and v.features.verdict_rules == ["known_malicious"], v.verdict   # also without post rules (guard_cli scan)
     assert PR.apply(v, "1.0")[0] == "BLOCK"
     rec = package_record("evx", "1.0", v)
     assert any("OSV already lists" in n for n in rec["coverage"]["notes"]), rec["coverage"]
 
-    # OSV slower than the release info (the release info is instant here): the model still waits for OSV's answer
+    # OSV slower than the release info (the release info is instant here): the model starts first, then is stopped
     def slow_osv(name, version, *a):
         time.sleep(0.2)
         calls["osv"] += 1
         return list(MAL)
     se.query_osv = slow_osv
+    before = calls["ml"]
     v_slow = se.scan_package("evx", "1.0")
-    assert calls["ml"] == 0, "the model must wait for OSV, also when the release info comes first"
-    assert v_slow.verdict == "BLOCK", v_slow.verdict
+    assert calls["ml"] == before + 1 and calls["ml_stopped"] == calls["ml"], calls
+    assert v_slow.verdict == "BLOCK" and not v_slow.features.ml, v_slow.verdict
 
     # removed from the registry after OSV listed it (the download fails): still the OSV BLOCK, not "could not fetch"
     def gone(*a, **k):
@@ -107,11 +117,12 @@ try:
     assert v_gone.verdict == "BLOCK" and v_gone.features.verdict_rules == ["known_malicious"], (v_gone.verdict, v_gone.reasons)
     pypi.fetch = fake_fetch
 
-    # the same package, OSV listing nothing: analyzed, the model asked
+    # the same package, OSV listing nothing: analyzed, the model's result used
     se.query_osv = fake_osv([])
+    stopped_before = calls.get("ml_stopped", 0)
     v2 = se.scan_package("evx", "1.0")
     assert v2.features.analysis_skipped is None and v2.features.evidence
-    assert calls["ml"] == 1
+    assert calls.get("ml_stopped", 0) == stopped_before and v2.features.ml and v2.features.ml.get("stub"), v2.features.ml
     assert v2.verdict in ("BLOCK", "NEEDS_HUMAN_REVIEW"), v2.verdict
 finally:
     pypi.metadata, pypi.fetch, collect.fetch_release, collect.fetch_requires, se.query_osv, se._ml_predict = saved
@@ -159,3 +170,15 @@ except net.Stopped:
     pass
 assert time.monotonic() - t0 < 2, "stopped within a few pieces, not after 500 MB"
 print("ok")
+
+# 6. a model process still running when the stop signal comes is killed (a real process, not waited for to the end)
+import ml_bridge  # noqa: E402
+sig = threading.Event()
+threading.Timer(0.3, sig.set).start()
+t0 = time.monotonic()
+res = ml_bridge._run([sys.executable, "-I", "-c", "import time; time.sleep(30)"], sig)
+assert res.get("stopped") and not res["ok"] and time.monotonic() - t0 < 5, res
+# without a stop it runs to the end and its JSON is read
+res = ml_bridge._run([sys.executable, "-I", "-c", "print('{\"error\": \"x\"}')"], threading.Event())
+assert res == {"ok": False, "error": "x"}, res
+print("ok (stop)")

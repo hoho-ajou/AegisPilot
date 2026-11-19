@@ -115,16 +115,16 @@ def script_deps(ctx, out: Outcome) -> dict | None:
         # releases published within recent_days, as PyPI's dependencies get (transitive.py): a hijacked release is
         # almost always a fresh one, and its code runs on import with or without an install script
         recent: list = []
-        if tree:
-            import transitive
-            cfg = transitive.settings()
+        import transitive
+        cfg = transitive.settings()
+        if tree and cfg["max_npm_recent_scans"]:
             have = {(d["name"], d["version"]) for d in found} | set(malicious)
             recent, rnotes = npm.recent_releases(tree, cfg["recent_days"], _t.monotonic() + NPM_RECENT_SECONDS, skip)
             notes += rnotes
             recent = [d for d in recent if (d["name"], d["version"]) not in have]
-            if len(recent) > cfg["max_scans"]:
-                notes.append(f"only {cfg['max_scans']} of {len(recent)} recently published dependencies checked")
-                recent = recent[:cfg["max_scans"]]
+            if len(recent) > cfg["max_npm_recent_scans"]:
+                notes.append(f"only {cfg['max_npm_recent_scans']} of {len(recent)} recently published dependencies checked")
+                recent = recent[:cfg["max_npm_recent_scans"]]
             for d in recent:
                 d["recent"] = True
             found = found + recent

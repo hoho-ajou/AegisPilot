@@ -270,7 +270,7 @@ ML_WEIGHT = RULESET.ml_weight
 
 # [ML] load ml_bridge from this folder and call the ML model. Never raises, whatever fails. The ML model is optional
 # (guard_cli.py ml-install): without it, or without ml_bridge.py, the verdict is rule-based only.
-def _ml_predict(name, version, handoff=None):
+def _ml_predict(name, version, handoff=None, stop=None):
     if not Path(__file__).with_name("ml_bridge.py").exists():
         return {"ok": False, "error": "no ML model installed"}
     try:
@@ -278,12 +278,12 @@ def _ml_predict(name, version, handoff=None):
         spec = importlib.util.spec_from_file_location("ml_bridge", Path(__file__).with_name("ml_bridge.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        return mod.ml_predict(name, version, handoff)
+        return mod.ml_predict(name, version, handoff, stop=stop)
     except Exception as e:
         return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
 
 
-def _ml_predict_npm(name, version, pkg_dir):
+def _ml_predict_npm(name, version, pkg_dir, stop=None):
     """The npm model on an unpacked npm package (ml_bridge.ml_predict_npm). Never raises."""
     if not Path(__file__).with_name("ml_bridge.py").exists():
         return {"ok": False, "error": "no ML model installed"}
@@ -292,7 +292,7 @@ def _ml_predict_npm(name, version, pkg_dir):
         spec = importlib.util.spec_from_file_location("ml_bridge", Path(__file__).with_name("ml_bridge.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        return mod.ml_predict_npm(name, version, pkg_dir)
+        return mod.ml_predict_npm(name, version, pkg_dir, stop=stop)
     except Exception as e:
         return {"ok": False, "error": f"ml_bridge error: {type(e).__name__}: {e}"}
 
@@ -462,7 +462,7 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
             art["fetched"].wait(60)
             if art.get("archive_path"):
                 handoff["artifact"] = {"path": art["archive_path"], "filename": art.get("artifact"), "kind": art.get("artifact_kind")}
-        return _ml_predict(name, resolved or version, handoff)
+        return _ml_predict(name, resolved or version, handoff, stop=stop)
 
     def finish(vulns, ml_result) -> Verdict:
         return _finish(name, meta, features, vulns, ml_result)
@@ -678,9 +678,6 @@ def _block_command(verdict: Verdict) -> Verdict:
     return verdict
 
 
-OSV_WAIT_FOR_ML = 20.0       # seconds the ML stage waits for OSV's answer; after that it runs anyway
-
-
 def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, fetch, release, ml, finish) -> Verdict:
     """The scan of one registry release, the same for PyPI and npm (what differs is passed in):
 
@@ -688,17 +685,17 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
         -> the verdict (rules, then the ML path; the stricter one) -> what the code can do, for a held package
 
     OSV listing the release as malicious sets a stop signal: the download stops within 1 MB, the rule pass and the
-    behavior analysis at their next file, the ML model is not started, and the verdict is that BLOCK.
+    behavior analysis at their next file, the ML model is stopped (its process killed) or not started, and the verdict
+    is that BLOCK.
       fetch(dest, art) -> files         download and unpack into dest (never run); fills art (archive_path, root, ...)
       release(art, stop)                release info and dependency list; a failure is recorded, never decides
-      ml(art, stop) -> dict | None      the ML result (None: not run); started after OSV answers, waits for
-                                        art["fetched"] / art["release_done"] itself
+      ml(art, stop) -> dict | None      the ML result (None: not run); started at once, waits for
+                                        art["fetched"] / art["release_done"] itself and stops on `stop'
       finish(vulns, ml_result)          the verdict from the features
     """
     import threading
     from concurrent.futures import ThreadPoolExecutor
-    art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "osv_done": threading.Event(),
-                 "archive_ready": None}
+    art: dict = {"fetched": threading.Event(), "release_done": threading.Event(), "archive_ready": None}
     art["archive_ready"] = art["fetched"]            # sources/pypi.fetch sets it as soon as the archive is on disk
     if _command_stops(features.name, version):       # another package of this command is already a BLOCK
         return _command_stopped(features)
@@ -707,25 +704,22 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
     art["stop"] = stop                               # the download checks it every 1 MB (net.read_capped)
 
     def osv_task():
+        vulns = query_osv(features.name, version, ecosystem)
         try:
-            vulns = query_osv(features.name, version, ecosystem)
-            try:
-                from post_rules import malicious_ids
-                if malicious_ids(vulns):
-                    own.set()
-            except Exception:
-                pass                                  # unsure: the full analysis runs as before
-            return vulns
-        finally:
-            art["osv_done"].set()
+            from post_rules import malicious_ids
+            if malicious_ids(vulns):
+                own.set()
+        except Exception:
+            pass                                      # unsure: the full analysis runs as before
+        return vulns
 
     def ml_task():
-        # the model starts only after OSV has answered (median 0.6 s): a release OSV lists as malicious never runs it,
-        # whichever of OSV and the release info arrives first
-        art["osv_done"].wait(OSV_WAIT_FOR_ML)
+        # the model starts as soon as its input is there, without waiting for OSV; when OSV lists the release as
+        # malicious, the model process is killed (ml_bridge._run) and its result is never used
         if stop.is_set():
             return None
-        return ml(art, stop)
+        r = ml(art, stop)
+        return None if stop.is_set() else r
     tmp = tempfile.TemporaryDirectory()              # outlives the pool: the ML process may still be reading the files
 
     def artifact_task():
@@ -921,7 +915,7 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
         art["fetched"].wait(120)
         if stop.is_set() or not art.get("root"):
             return None                           # OSV already decided, or nothing unpacked: no model run
-        return _ml_predict_npm(name, version, art["root"])
+        return _ml_predict_npm(name, version, art["root"], stop=stop)
 
     def finish(vulns, ml_result) -> Verdict:
         features.osv_vulns = vulns

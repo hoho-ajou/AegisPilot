@@ -182,7 +182,7 @@ def transitive(parsed, results, osv_ok: bool, out: Outcome) -> dict | None:
                 notes.append(f"OSV batch lookup of transitive dependencies failed: {type(e).__name__}")
         todo = [r for r in found if (r["name"], r.get("version")) in malicious]
         # code that runs at install: pip builds these from source (setup.py), as npm runs a dependency's install script
-        builds = [r for r in found if r.get("builds") and r not in todo]
+        builds = [r for r in found if r.get("builds") and r not in todo] if cfg["max_build_scans"] else []
         if len(builds) > cfg["max_build_scans"]:
             notes.append(f"only {cfg['max_build_scans']} of {len(builds)} dependencies built from source checked")
             builds = builds[:cfg["max_build_scans"]]

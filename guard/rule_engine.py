@@ -246,7 +246,7 @@ class Ruleset:
             int(vd["new_pth"]["detail_max"]), str(vd["new_pth"]["line_prefix"])
             tr = post["transitive"]
             self.transitive = {k: int(tr[k]) for k in ("recent_days", "max_depth", "max_packages", "max_scans",
-                                                        "max_build_scans", "workers", "budget_seconds")}
+                                                        "max_build_scans", "max_npm_recent_scans", "workers", "budget_seconds")}
             if min(self.transitive.values()) < 0 or self.transitive["workers"] < 1:
                 raise ValueError("transitive values must be positive")
             lf = post["late_file"]
