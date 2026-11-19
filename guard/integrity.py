@@ -70,6 +70,7 @@ PROTECTED_FILES = [
     "sources/pypi.py",
     "net.py",
     "py_cli.py",
+    "alternatives.py",
     "checks/__init__.py",
     "checks/base.py",
     "checks/pypi.py",

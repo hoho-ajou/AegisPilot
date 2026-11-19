@@ -514,6 +514,9 @@ def _advice_fields(f) -> dict:
         if picks:
             out["fix_version"] = max(picks)[1]
         out["fix_missing"] = missing
+    safe = getattr(f, "safe_version", None)
+    if safe and _VER_OK.match(str(safe)):
+        out["safe_version"] = str(safe)
     d, near = f.min_edit_distance, f.closest_popular_name
     if d is not None and 0 < d <= 2 and near and _ID_OK.match(str(near)):
         out["typosquat_of"] = str(near)
@@ -883,6 +886,12 @@ def suggested_version(rec: dict) -> tuple[str, str] | None:
     if adv.get("nearest_version") and ver.fullmatch(str(adv["nearest_version"])):
         ok = adv.get("nearest_verdict") == "ALLOW"
         return (f"{name}{sep}{adv['nearest_version']}", "the nearest version that exists, checked: " + ("passed" if ok else "held too"))
+    if adv.get("safe_version") and ver.fullmatch(str(adv["safe_version"])) and not adv.get("typosquat_of"):
+        why = ("the newest version that fixes the known vulnerabilities" if adv.get("fix_version") else
+               "the newest earlier version") + ", over a day old, no OSV record"
+        if adv.get("pin_dependency"):
+            why += "; a dependency: add it to the same install"
+        return (f"{name}{sep}{adv['safe_version']}", why)
     if adv.get("fix_version") and ver.fullmatch(str(adv["fix_version"])):
         return (fix_spec(name, adv["fix_version"], sep == "@"), "the version that fixes the known vulnerabilities")
     if adv.get("pin_version") and ver.fullmatch(str(adv["pin_version"])):

@@ -153,6 +153,7 @@ class ScanFeatures:
     evidence: list = field(default_factory=list)
     verdict_rules: list = field(default_factory=list)   # names of the rules that set the verdict (rule_engine.verdict_rule_names)
     nearest_version: str | None = None    # the version asked for is not on PyPI: the nearest one that is (pypi_nearest_version)
+    safe_version: str | None = None       # one exact version to use instead of a held one (alternatives.py), from records only
 
     # [ML] anomaly detection result from the ML model (ml_bridge.ml_predict). None: no ML verdict
     ml: dict | None = None
@@ -470,7 +471,9 @@ def scan_package(name: str, version: str | None = None) -> Verdict:
     hit = _from_cache(ck, features, "pypi", resolved)
     if hit is not None:
         return hit
-    return _to_cache(ck, _scan_release(features, "pypi", resolved, fetch, release, ml, finish))
+    verdict = _to_cache(ck, _scan_release(features, "pypi", resolved, fetch, release, ml, finish))
+    _pick_alternative(features, verdict, "pypi", meta)
+    return verdict
 
 
 ML_MAX_ARTIFACT = 20 * 1024 * 1024   # ml/features.MAX_ARTIFACT
@@ -739,6 +742,31 @@ def _scan_release(features: ScanFeatures, ecosystem: str, version: str | None, f
         tmp.cleanup()
 
 
+def _pick_alternative(features: ScanFeatures, verdict: Verdict, ecosystem: str, meta: dict, times=None) -> None:
+    """features.safe_version when another version of the same package is the answer: a vulnerability, a release under a
+    day old, or an OSV malicious record (a hijacked release; a package that is malicious in every version has no clean
+    one). alternatives.py. Never raises and never changes the verdict."""
+    try:
+        fresh = features.release_age_hours is not None and features.release_age_hours < _fresh_hours()
+        if not features.osv_vulns and not fresh:
+            return                                     # code findings, ML, a name: another version of it is no answer
+        import alternatives
+        from post_rules import malicious_ids
+        fix = None
+        if features.osv_vulns and not malicious_ids(features.osv_vulns):
+            fix = alternatives.fix_version_of(features.osv_vulns, features.resolved_version)
+            if fix is None:
+                return                                 # a vulnerability no version fixes: nothing to name
+        cur = features.resolved_version or features.version
+        if ecosystem == "npm":
+            times = times() if callable(times) else times      # the full document: fetched only for a held package
+            features.safe_version = alternatives.npm(features.name, meta, times, cur, fix, _fresh_hours())
+        else:
+            features.safe_version = alternatives.pypi(features.name, meta, cur, fix, _fresh_hours())
+    except Exception:
+        features.safe_version = None
+
+
 def local_name_version(path: Path) -> tuple[str, str | None]:
     """(name, version) from a wheel or sdist file name: `corp_utils-1.4.2-py3-none-any.whl`, `corp-utils-1.4.2.tar.gz`."""
     base = path.name
@@ -858,7 +886,16 @@ def scan_npm_package(name: str, spec: str | None = None) -> Verdict:
     hit = _from_cache(ck, features, "npm", version)
     if hit is not None:
         return hit
-    return _to_cache(ck, _scan_release(features, "npm", version, fetch, release, ml, finish))
+    verdict = _to_cache(ck, _scan_release(features, "npm", version, fetch, release, ml, finish))
+    _pick_alternative(features, verdict, "npm", meta, lambda: _npm_times(npm, name))
+    return verdict
+
+
+def _npm_times(npm, name: str):
+    try:
+        return npm._publish_times(name)
+    except Exception:
+        return None
 
 
 def _as_package_root(root: Path, tmp: Path) -> Path:

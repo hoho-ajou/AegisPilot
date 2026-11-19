@@ -506,7 +506,7 @@ class BlockSurvivesBrokenOutputLayer(unittest.TestCase):
             self.assertIn("If approved", user["permissionDecisionReason"])                 # a person decides
             self.assertEqual(auto["permissionDecision"], "deny")                           # nobody is asked in auto mode
             r = auto["permissionDecisionReason"]
-            self.assertIn("REVIEW — auto mode", r); self.assertIn("suggested: requests>=", r); self.assertIn("held", r)
+            self.assertIn("REVIEW — auto mode", r); self.assertIn("suggested: requests==", r); self.assertIn("held", r)
 
     def test_deny_even_when_the_r4_package_is_missing_or_broken(self):
         with tempfile.TemporaryDirectory() as d:

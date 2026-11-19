@@ -482,13 +482,13 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
                     shown_path = report_path
             report = terminal_report(report_data, width=surface.get("width"), report_path=shown_path)
             try:
-                notice = person_notice("BLOCK", blocked + review, shown_path)
+                notice = person_notice("BLOCK", blocked + review, shown_path, records)
             except Exception:
                 notice = ""
             if mode == "auto":
                 # auto mode: the reasons stay in the record and the md report; the person gets one line (relayed by
                 # the agent), the agent gets the instruction. user mode: the fixed-format report is shown.
-                reason = auto_reason(blocked[0], blocked[1:] + review)   # review: same-command packages the card must not hide
+                reason = auto_reason(blocked[0], blocked[1:] + review, records)   # review: same-command packages the card must not hide
             else:
                 detail = report
                 try:
@@ -498,7 +498,7 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
                     offers = []
                 from review_report import verdict_rule_names
                 names = list(dict.fromkeys(n for rec in blocked for n in verdict_rule_names(rec)))[:6]
-                reason = claude_reason(report, offers, names)   # user mode: show the report, offer the fixed version, wait
+                reason = claude_reason(report, offers, names, blocked + review, records)   # user mode: one question built from the changes
         except Exception:
             pass
         return Decision(REFUSE, _with_decision_id(reason, report_data), detail, final=True,
@@ -528,12 +528,12 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
             # steps to resolve it (same channel and instruction as a BLOCK); the agent's next install is checked again.
             try:
                 from output.render import auto_reason, person_notice
-                card = auto_reason(review[0], review[1:])
+                card = auto_reason(review[0], review[1:], records)
             except Exception:
                 card = None
             if card:
                 try:
-                    notice = person_notice("REVIEW", review)
+                    notice = person_notice("REVIEW", review, None, records)
                 except Exception:
                     notice = ""
                 return Decision(REFUSE, _with_decision_id(card, report_data), notice=notice)
@@ -541,10 +541,13 @@ def _check_parsed(parsed, command: str, project_dir: str, agent=None, actor: dic
         else:
             reason = _text_or("popup_line", one_liner(review[0], extra_packages=len(review) - 1), review[0], len(review) - 1)
             try:                    # the evidence in the permission prompt itself: the person decides there
-                from output.render import held_text
+                from output.render import held_text, passed_text
                 held = held_text(review)
                 if held:
                     reason += "\n" + held
+                passed = passed_text(records)
+                if passed:
+                    reason += "\n" + passed
             except Exception:
                 pass
         return Decision(CONFIRM, _with_decision_id(reason, report_data))
